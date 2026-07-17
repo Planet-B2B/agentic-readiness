@@ -9,3 +9,4 @@ coverage/
 .agentic/report*.json
 .agentic/agent-evidence.*
 .agentic/evidence-request.*
+/assets/brand/*-source.png
