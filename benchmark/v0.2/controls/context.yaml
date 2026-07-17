@@ -32,8 +32,10 @@ controls:
       - type: content_terms
         scope: repository
         files: [.github/workflows/**, scripts/**, package.json, Makefile]
-        terms: [agent docs, agent instructions, validate, lint, stale, broken link]
-        min_terms: 2
+        terms: [validate, lint, stale, broken link, integrity, check]
+        min_terms: 1
+        required_any_terms:
+          [agent docs, agent instructions, AGENTS.md, CLAUDE.md, copilot instructions]
     remediation: Add a CI check for required agent files, links, ownership, and structural invariants.
   - id: ADRB-CTX-004
     level: 4

@@ -59,6 +59,7 @@ const ContentTermsSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
   terms: z.array(z.string().min(1)).min(1),
   min_terms: z.number().int().positive(),
+  required_any_terms: z.array(z.string().min(1)).min(1).optional(),
 });
 
 const MaxBytesSchema = z.object({
@@ -99,9 +100,18 @@ const RawControlSchema = z.object({
   allow_agent_evidence: z.boolean().default(false),
 });
 
+const LegacyRawControlSchema = RawControlSchema.extend({
+  allow_attestation: z.boolean().default(true),
+});
+
 export const ControlFileSchema = z.object({
   dimension: DimensionIdSchema,
   controls: z.array(RawControlSchema).min(1),
+});
+
+export const LegacyControlFileSchema = z.object({
+  dimension: DimensionIdSchema,
+  controls: z.array(LegacyRawControlSchema).min(1),
 });
 
 export type Control = z.infer<typeof RawControlSchema> & { dimension: DimensionId };
@@ -157,13 +167,26 @@ export const AttestationSchema = z.object({
   expires_at: z.string().date(),
 });
 
+const LegacyAttestationSchema = AttestationSchema.extend({
+  expires_at: z.string().date().nullable().default(null),
+});
+
 export const AttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), AttestationSchema).default({}),
 });
 
-export type Attestation = z.infer<typeof AttestationSchema>;
-export type AttestationFile = z.infer<typeof AttestationFileSchema>;
+export const LegacyAttestationFileSchema = z.object({
+  benchmark_version: z.string().min(1),
+  attestations: z.record(z.string(), LegacyAttestationSchema).default({}),
+});
+
+export type Attestation =
+  z.infer<typeof AttestationSchema> | z.infer<typeof LegacyAttestationSchema>;
+export interface AttestationFile {
+  benchmark_version: string;
+  attestations: Record<string, Attestation>;
+}
 
 export const AgentEvidenceClaimSchema = z
   .object({

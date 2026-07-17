@@ -13,5 +13,6 @@ other document is the defect. Amendments require a public RFC and a benchmark ve
    remediation that produced it.
 6. **Versioned meaning.** Published benchmark versions are immutable; changes create a new version.
 7. **Profiles over false universality.** Required controls reflect the autonomy being requested.
-8. **No self-assessment certification.** Reports say self-attested, tool-verified, or independently
-   reviewed; only the last may support a future certification claim.
+8. **No self-assessment certification.** Self-assessments distinguish repository-detected,
+   agent-collected, and human-attested evidence; only a separate independently reviewed result may
+   support a future certification claim.

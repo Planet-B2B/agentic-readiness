@@ -107,12 +107,27 @@ describe('v0.2 assessment', () => {
       ]);
       await writeFile(join(repository, 'README.md'), 'tracked fixture', 'utf8');
       execFileSync('git', ['-C', repository, 'add', 'README.md']);
+      execFileSync('git', [
+        '-C',
+        repository,
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '--quiet',
+        '-m',
+        'fixture',
+      ]);
+      const gitHead = execFileSync('git', ['-C', repository, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
       const evidence: AgentEvidenceFile = {
         schema_version: '0.2.0',
         benchmark_version: '0.2.0',
         target: {
           repository: 'https://example.invalid/acme/repository.git',
-          git_head: null,
+          git_head: gitHead,
         },
         collector: { name: 'fixture-agent', version: '1.0.0' },
         claims: {
@@ -153,13 +168,67 @@ describe('v0.2 assessment', () => {
       });
       expect(conflict.controls.find(({ id }) => id === 'ADRB-GOV-003')?.status).toBe('unknown');
 
-      evidence.target.repository = 'https://example.invalid/other/repository.git';
+      const unboundEvidence = structuredClone(evidence);
+      unboundEvidence.target.git_head = null;
       await expect(
         assess(repository, benchmark, controls, 'planning', {
-          agentEvidence: evidence,
+          agentEvidence: unboundEvidence,
           now: new Date('2026-07-17T12:00:00.000Z'),
         }),
-      ).rejects.toThrow('does not match');
+      ).rejects.toThrow('Agent evidence commit unavailable does not match');
+
+      const wrongRepository = structuredClone(evidence);
+      wrongRepository.target.repository = 'https://example.invalid/other/repository.git';
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: wrongRepository,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('Agent evidence target');
+
+      const todoCollector = structuredClone(evidence);
+      todoCollector.collector.name = 'TODO: collector';
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: todoCollector,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('must identify the collector');
+
+      const wrongScope = structuredClone(evidence);
+      const wrongScopeClaim = wrongScope.claims['ADRB-GOV-003'];
+      if (!wrongScopeClaim) throw new Error('Missing fixture claim');
+      wrongScopeClaim.scope = 'organization';
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: wrongScope,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('does not accept organization evidence');
+
+      const futureClaim = structuredClone(evidence);
+      const futureClaimValue = futureClaim.claims['ADRB-GOV-003'];
+      if (!futureClaimValue) throw new Error('Missing fixture claim');
+      futureClaimValue.collected_at = '2026-07-18T10:00:00.000Z';
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: futureClaim,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('future collection timestamp');
+
+      const expiredEvidence = structuredClone(evidence);
+      const expiredClaim = expiredEvidence.claims['ADRB-GOV-003'];
+      if (!expiredClaim) throw new Error('Missing fixture claim');
+      expiredClaim.collected_at = '2026-07-15T10:00:00.000Z';
+      expiredClaim.expires_at = '2026-07-16T10:00:00.000Z';
+      const expiredReport = await assess(repository, benchmark, controls, 'planning', {
+        agentEvidence: expiredEvidence,
+        now: new Date('2026-07-17T12:00:00.000Z'),
+      });
+      const expiredGovernance = expiredReport.controls.find(({ id }) => id === 'ADRB-GOV-003');
+      expect(expiredGovernance?.status).toBe('unknown');
+      expect(expiredGovernance?.agent_evidence).toBeNull();
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

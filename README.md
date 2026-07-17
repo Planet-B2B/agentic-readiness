@@ -87,7 +87,8 @@ Complete `.agentic/attestations.yaml` with owners and durable evidence links, th
 Human-attested evidence remains visibly distinct in every report.
 
 To let an authorized coding agent collect evidence from Git hosting, CI, dashboards, or other
-external systems, first generate a target-bound template:
+external systems, first generate a target-bound template. The repository must be a Git worktree
+with at least one commit so the bundle can bind to the exact assessed state:
 
 ```bash
 npx agentic-scorecard@0.2.0 init-evidence /path/to/repository

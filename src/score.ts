@@ -173,9 +173,9 @@ function validateAgentEvidence(
       `Agent evidence target ${evidence.target.repository} does not match ${expectedTarget.repository}`,
     );
   }
-  if (evidence.target.git_head && evidence.target.git_head !== expectedTarget.git_head) {
+  if (evidence.target.git_head !== expectedTarget.git_head) {
     throw new Error(
-      `Agent evidence commit ${evidence.target.git_head} does not match ${expectedTarget.git_head ?? 'an unavailable Git commit'}`,
+      `Agent evidence commit ${evidence.target.git_head ?? 'unavailable'} does not match ${expectedTarget.git_head ?? 'an unavailable Git commit'}`,
     );
   }
 

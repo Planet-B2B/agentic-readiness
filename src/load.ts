@@ -9,6 +9,8 @@ import {
   AttestationFileSchema,
   BenchmarkSchema,
   ControlFileSchema,
+  LegacyAttestationFileSchema,
+  LegacyControlFileSchema,
   dimensionIds,
   type AgentEvidenceFile,
   type AttestationFile,
@@ -32,7 +34,10 @@ export async function loadBenchmark(root = defaultBenchmarkRoot): Promise<{
   const controls: Control[] = [];
 
   for (const path of controlPaths.sort()) {
-    const file = ControlFileSchema.parse(await readYaml(path));
+    const file =
+      benchmark.version === '0.1.0'
+        ? LegacyControlFileSchema.parse(await readYaml(path))
+        : ControlFileSchema.parse(await readYaml(path));
     controls.push(...file.controls.map((control) => ({ ...control, dimension: file.dimension })));
   }
 
@@ -45,7 +50,11 @@ export async function loadAttestations(
   benchmarkVersion: string,
 ): Promise<AttestationFile | null> {
   try {
-    const file = AttestationFileSchema.parse(await readYaml(path));
+    const rawFile = await readYaml(path);
+    const file =
+      benchmarkVersion === '0.1.0'
+        ? LegacyAttestationFileSchema.parse(rawFile)
+        : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
         `Attestation benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`,

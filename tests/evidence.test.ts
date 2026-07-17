@@ -92,6 +92,40 @@ describe('v0.2 local evidence boundaries', () => {
     }
   });
 
+  it('requires agent-specific terms for guidance-integrity evidence', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
+    const control = fixtureControl([
+      {
+        type: 'content_terms',
+        files: ['**/*'],
+        terms: ['validate', 'lint', 'stale', 'broken link', 'integrity', 'check'],
+        min_terms: 1,
+        required_any_terms: ['agent docs', 'agent instructions', 'AGENTS.md'],
+      },
+    ]);
+    try {
+      await writeFile(
+        join(repository, 'package.json'),
+        JSON.stringify({ scripts: { lint: 'eslint .', validate: 'tool validate' } }),
+        'utf8',
+      );
+      let result = await evaluateControl(await workspace(repository), control, null, null);
+      expect(result.status).toBe('not_met');
+      expect(result.evidence[0]?.references).toEqual([]);
+
+      await writeFile(
+        join(repository, 'verify.yml'),
+        'name: Validate agent instructions\nrun: npm run agent-doc-check\n',
+        'utf8',
+      );
+      result = await evaluateControl(await workspace(repository), control, null, null);
+      expect(result.status).toBe('met');
+      expect(result.evidence[0]?.references).toEqual(['verify.yml']);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('matches terms on word boundaries instead of inside unrelated words', async () => {
     const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
     const control = fixtureControl([
@@ -154,6 +188,36 @@ describe('v0.2 local evidence boundaries', () => {
       await writeFile(
         join(repository, '.agentic', 'reports', 'agentic-readiness.md'),
         'task harness result',
+        'utf8',
+      );
+      const result = await evaluateControl(await workspace(repository), control, null, null);
+      expect(result.status).toBe('not_met');
+      expect(result.evidence[0]?.references).toEqual([]);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes JSON assessment output outside the default report directory', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
+    const control = fixtureControl([
+      {
+        type: 'content_terms',
+        files: ['artifacts/**'],
+        terms: ['agentic-development-readiness', 'assessed_at', 'controls'],
+        min_terms: 3,
+      },
+    ]);
+    try {
+      await mkdir(join(repository, 'artifacts'), { recursive: true });
+      await writeFile(
+        join(repository, 'artifacts', 'stale-report.json'),
+        JSON.stringify({
+          schema_version: '0.2.0',
+          benchmark: { id: 'agentic-development-readiness', version: '0.2.0' },
+          assessed_at: '2026-07-17T12:00:00.000Z',
+          controls: [],
+        }),
         'utf8',
       );
       const result = await evaluateControl(await workspace(repository), control, null, null);

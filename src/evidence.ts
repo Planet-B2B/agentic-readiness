@@ -1,5 +1,5 @@
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { resolve, sep } from 'node:path';
 import fg from 'fast-glob';
 
 import { generatedEvidenceIgnores, type RepositoryContext } from './repository.js';
@@ -116,7 +116,7 @@ async function readSearchableFiles(
         continue;
       }
       const text = (await readFile(canonicalPath, 'utf8')).toLowerCase();
-      if (text.startsWith('# agentic development readiness assessment')) continue;
+      if (isGeneratedAssessment(text)) continue;
       totalBytes += metadata.size;
       files.push({ path, text });
     } catch {
@@ -124,6 +124,29 @@ async function readSearchableFiles(
     }
   }
   return files;
+}
+
+function isGeneratedAssessment(text: string): boolean {
+  const normalized = text.trimStart();
+  if (normalized.startsWith('# agentic development readiness assessment')) return true;
+  if (!normalized.startsWith('{')) return false;
+
+  try {
+    const candidate = JSON.parse(normalized) as unknown;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+    const report = candidate as Record<string, unknown>;
+    const benchmark = report.benchmark;
+    return (
+      Boolean(benchmark) &&
+      typeof benchmark === 'object' &&
+      !Array.isArray(benchmark) &&
+      (benchmark as Record<string, unknown>).id === 'agentic-development-readiness' &&
+      typeof report.assessed_at === 'string' &&
+      Array.isArray(report.controls)
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function evaluateLegacyContent(
@@ -158,14 +181,26 @@ async function evaluateContentTerms(
   const matchesByFile = files.map(({ path, text }) => ({
     path,
     matched: check.terms.filter((term) => containsTerm(text, term)).length,
+    requiredMatched:
+      check.required_any_terms?.filter((term) => containsTerm(text, term)).length ?? 0,
   }));
-  const qualifying = matchesByFile.filter(({ matched }) => matched >= check.min_terms);
+  const qualifying = matchesByFile.filter(
+    ({ matched, requiredMatched }) =>
+      matched >= check.min_terms && (check.required_any_terms === undefined || requiredMatched > 0),
+  );
   const strongest = matchesByFile.reduce((maximum, file) => Math.max(maximum, file.matched), 0);
+  const strongestRequired = matchesByFile.reduce(
+    (maximum, file) => Math.max(maximum, file.requiredMatched),
+    0,
+  );
+  const requiredSummary = check.required_any_terms
+    ? `; strongest required match ${strongestRequired}/${check.required_any_terms.length}`
+    : '';
   return result(
     check.type,
     check.scope,
     qualifying.length > 0 ? 'met' : 'not_met',
-    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
     qualifying.map(({ path }) => path),
   );
 }
@@ -320,9 +355,4 @@ export async function evaluateControl(
     attestation,
     remediation: control.remediation,
   };
-}
-
-export function repositoryLabel(repo: string, cwd = process.cwd()): string {
-  const label = relative(cwd, repo);
-  return label === '' ? '.' : label;
 }

@@ -10,3 +10,4 @@ coverage/
 .agentic/agent-evidence.*
 .agentic/evidence-request.*
 /assets/brand/*-source.png
+.claude/settings.local.json

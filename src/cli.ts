@@ -119,7 +119,22 @@ program
         }
       }
       const { benchmark, controls } = await loadBenchmark();
-      const context = await createRepositoryContext(repo, 'tracked');
+      const context = await createRepositoryContext(repo, 'tracked').catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          error.message.startsWith('Tracked assessment requires a Git worktree')
+        ) {
+          throw new Error(
+            'init-evidence requires a Git worktree with a commit so the bundle can be target-bound.',
+          );
+        }
+        throw error;
+      });
+      if (!context.metadata.git_head) {
+        throw new Error(
+          'init-evidence requires a Git commit so the bundle can be target-bound. Commit the assessed state and try again.',
+        );
+      }
       const eligibleControls = controls.filter(({ allow_agent_evidence: allowed }) => allowed);
       const bundle = {
         schema_version: '0.2.0',

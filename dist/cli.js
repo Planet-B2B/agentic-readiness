@@ -60,7 +60,8 @@ var ContentTermsSchema = z.object({
   scope: z.literal("repository").default("repository"),
   files: z.array(z.string().min(1)).min(1),
   terms: z.array(z.string().min(1)).min(1),
-  min_terms: z.number().int().positive()
+  min_terms: z.number().int().positive(),
+  required_any_terms: z.array(z.string().min(1)).min(1).optional()
 });
 var MaxBytesSchema = z.object({
   type: z.literal("max_bytes"),
@@ -95,9 +96,16 @@ var RawControlSchema = z.object({
   allow_not_applicable: z.boolean().default(false),
   allow_agent_evidence: z.boolean().default(false)
 });
+var LegacyRawControlSchema = RawControlSchema.extend({
+  allow_attestation: z.boolean().default(true)
+});
 var ControlFileSchema = z.object({
   dimension: DimensionIdSchema,
   controls: z.array(RawControlSchema).min(1)
+});
+var LegacyControlFileSchema = z.object({
+  dimension: DimensionIdSchema,
+  controls: z.array(LegacyRawControlSchema).min(1)
 });
 var DimensionSchema = z.object({
   id: DimensionIdSchema,
@@ -137,9 +145,16 @@ var AttestationSchema = z.object({
   reviewed_at: z.string().date(),
   expires_at: z.string().date()
 });
+var LegacyAttestationSchema = AttestationSchema.extend({
+  expires_at: z.string().date().nullable().default(null)
+});
 var AttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), AttestationSchema).default({})
+});
+var LegacyAttestationFileSchema = z.object({
+  benchmark_version: z.string().min(1),
+  attestations: z.record(z.string(), LegacyAttestationSchema).default({})
 });
 var AgentEvidenceClaimSchema = z.object({
   status: z.enum(["met", "not_met", "unknown"]),
@@ -183,7 +198,7 @@ async function loadBenchmark(root = defaultBenchmarkRoot) {
   const controlPaths = await fg("controls/*.yaml", { cwd: root, absolute: true, onlyFiles: true });
   const controls = [];
   for (const path of controlPaths.sort()) {
-    const file = ControlFileSchema.parse(await readYaml(path));
+    const file = benchmark.version === "0.1.0" ? LegacyControlFileSchema.parse(await readYaml(path)) : ControlFileSchema.parse(await readYaml(path));
     controls.push(...file.controls.map((control) => ({ ...control, dimension: file.dimension })));
   }
   validateCatalog(benchmark, controls);
@@ -191,7 +206,8 @@ async function loadBenchmark(root = defaultBenchmarkRoot) {
 }
 async function loadAttestations(path, benchmarkVersion) {
   try {
-    const file = AttestationFileSchema.parse(await readYaml(path));
+    const rawFile = await readYaml(path);
+    const file = benchmarkVersion === "0.1.0" ? LegacyAttestationFileSchema.parse(rawFile) : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
         `Attestation benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`
@@ -466,7 +482,7 @@ function repositoryEvidenceTarget(metadata) {
 
 // src/evidence.ts
 import { lstat, readFile as readFile2, realpath as realpath2, stat } from "fs/promises";
-import { relative as relative2, resolve as resolve3, sep as sep2 } from "path";
+import { resolve as resolve3, sep as sep2 } from "path";
 import fg2 from "fast-glob";
 var maxContentFileBytes = 512e3;
 var maxContentFiles = 250;
@@ -541,13 +557,27 @@ async function readSearchableFiles(context, patterns) {
         continue;
       }
       const text = (await readFile2(canonicalPath, "utf8")).toLowerCase();
-      if (text.startsWith("# agentic development readiness assessment")) continue;
+      if (isGeneratedAssessment(text)) continue;
       totalBytes += metadata.size;
       files.push({ path, text });
     } catch {
     }
   }
   return files;
+}
+function isGeneratedAssessment(text) {
+  const normalized = text.trimStart();
+  if (normalized.startsWith("# agentic development readiness assessment")) return true;
+  if (!normalized.startsWith("{")) return false;
+  try {
+    const candidate = JSON.parse(normalized);
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+    const report = candidate;
+    const benchmark = report.benchmark;
+    return Boolean(benchmark) && typeof benchmark === "object" && !Array.isArray(benchmark) && benchmark.id === "agentic-development-readiness" && typeof report.assessed_at === "string" && Array.isArray(report.controls);
+  } catch {
+    return false;
+  }
 }
 async function evaluateLegacyContent(context, check) {
   const files = await readSearchableFiles(context, check.files);
@@ -570,15 +600,23 @@ async function evaluateContentTerms(context, check) {
   const files = await readSearchableFiles(context, check.files);
   const matchesByFile = files.map(({ path, text }) => ({
     path,
-    matched: check.terms.filter((term) => containsTerm(text, term)).length
+    matched: check.terms.filter((term) => containsTerm(text, term)).length,
+    requiredMatched: check.required_any_terms?.filter((term) => containsTerm(text, term)).length ?? 0
   }));
-  const qualifying = matchesByFile.filter(({ matched }) => matched >= check.min_terms);
+  const qualifying = matchesByFile.filter(
+    ({ matched, requiredMatched }) => matched >= check.min_terms && (check.required_any_terms === void 0 || requiredMatched > 0)
+  );
   const strongest = matchesByFile.reduce((maximum, file) => Math.max(maximum, file.matched), 0);
+  const strongestRequired = matchesByFile.reduce(
+    (maximum, file) => Math.max(maximum, file.requiredMatched),
+    0
+  );
+  const requiredSummary = check.required_any_terms ? `; strongest required match ${strongestRequired}/${check.required_any_terms.length}` : "";
   return result(
     check.type,
     check.scope,
     qualifying.length > 0 ? "met" : "not_met",
-    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
     qualifying.map(({ path }) => path)
   );
 }
@@ -810,9 +848,9 @@ function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
       `Agent evidence target ${evidence.target.repository} does not match ${expectedTarget.repository}`
     );
   }
-  if (evidence.target.git_head && evidence.target.git_head !== expectedTarget.git_head) {
+  if (evidence.target.git_head !== expectedTarget.git_head) {
     throw new Error(
-      `Agent evidence commit ${evidence.target.git_head} does not match ${expectedTarget.git_head ?? "an unavailable Git commit"}`
+      `Agent evidence commit ${evidence.target.git_head ?? "unavailable"} does not match ${expectedTarget.git_head ?? "an unavailable Git commit"}`
     );
   }
   const controls = new Map(catalog.map((control) => [control.id, control]));
@@ -931,7 +969,19 @@ program.command("init-evidence").argument("[repository]", "repository to prepare
       }
     }
     const { benchmark, controls } = await loadBenchmark();
-    const context = await createRepositoryContext(repo, "tracked");
+    const context = await createRepositoryContext(repo, "tracked").catch((error) => {
+      if (error instanceof Error && error.message.startsWith("Tracked assessment requires a Git worktree")) {
+        throw new Error(
+          "init-evidence requires a Git worktree with a commit so the bundle can be target-bound."
+        );
+      }
+      throw error;
+    });
+    if (!context.metadata.git_head) {
+      throw new Error(
+        "init-evidence requires a Git commit so the bundle can be target-bound. Commit the assessed state and try again."
+      );
+    }
     const eligibleControls = controls.filter(({ allow_agent_evidence: allowed }) => allowed);
     const bundle = {
       schema_version: "0.2.0",
