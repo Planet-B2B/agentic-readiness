@@ -1,0 +1,51 @@
+name: Agentic Development Readiness
+description: Assess a repository against a versioned agentic-development readiness profile
+author: Agentic Readiness contributors
+branding:
+  icon: check-circle
+  color: blue
+inputs:
+  path:
+    description: Repository path to assess
+    default: .
+  profile:
+    description: Target readiness profile
+    default: pr-creation
+  report:
+    description: JSON report path
+    default: .agentic/report.json
+  enforce:
+    description: Fail when the target profile is not met
+    default: 'false'
+outputs:
+  score:
+    description: Overall score out of 40
+    value: ${{ steps.assess.outputs.score }}
+  percentage:
+    description: Display percentage
+    value: ${{ steps.assess.outputs.percentage }}
+  highest_profile:
+    description: Highest passed profile
+    value: ${{ steps.assess.outputs.highest_profile }}
+  target_passed:
+    description: Whether the requested profile passed
+    value: ${{ steps.assess.outputs.target_passed }}
+  report_path:
+    description: Generated JSON report path
+    value: ${{ steps.assess.outputs.report_path }}
+runs:
+  using: composite
+  steps:
+    - id: assess
+      shell: bash
+      env:
+        ADRB_PATH: ${{ inputs.path }}
+        ADRB_PROFILE: ${{ inputs.profile }}
+        ADRB_REPORT: ${{ inputs.report }}
+        ADRB_ENFORCE: ${{ inputs.enforce }}
+      run: |
+        args=(assess "$ADRB_PATH" --profile "$ADRB_PROFILE" --format json --output "$ADRB_REPORT" --github-output)
+        if [[ "$ADRB_ENFORCE" == "true" ]]; then
+          args+=(--enforce)
+        fi
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"

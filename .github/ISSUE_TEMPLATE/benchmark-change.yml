@@ -1,0 +1,30 @@
+name: Benchmark change
+description: Propose a control, evidence, scoring, or readiness-profile change
+title: '[benchmark]: '
+labels: [benchmark]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Affected or proposed version
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Observable problem
+      description: Include evidence, affected users, and why current controls are insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Vendor-neutral proposed outcome
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Scoring, privacy, security, and compatibility impact
+    validations:
+      required: true

@@ -1,0 +1,126 @@
+id: agentic-development-readiness
+version: 0.1.0
+title: Agentic Development Readiness Benchmark
+description: >-
+  A vendor-neutral, evidence-backed assessment of the engineering harness that surrounds AI agents.
+  It measures whether a repository can safely support increasing levels of delegated software work.
+
+maturity_levels:
+  0: Absent
+  1: Ad hoc
+  2: Documented
+  3: Enforced
+  4: Measured and improving
+
+dimensions:
+  - id: context
+    title: Context and knowledge
+    description: Agents can discover authoritative, scoped, current instructions without guesswork.
+  - id: environment
+    title: Reproducible environment
+    description: Agents can establish and verify a faithful development environment.
+  - id: specification
+    title: Specification and planning
+    description: Work starts from testable outcomes, constraints, and explicit acceptance criteria.
+  - id: tooling
+    title: Tooling and interfaces
+    description: Agent tools are discoverable, least-privileged, observable, and fail safely.
+  - id: security
+    title: Security and data governance
+    description: Credentials, data, autonomy, and untrusted content have explicit boundaries.
+  - id: testing
+    title: Verification and testing
+    description: Changes are checked at the right layers with trustworthy, reproducible signals.
+  - id: governance
+    title: Review and change governance
+    description: Human accountability, change scope, and merge authority remain explicit.
+  - id: learning
+    title: Learning and knowledge maintenance
+    description: Corrections compound into maintained instructions instead of being repeatedly rediscovered.
+  - id: observability
+    title: Outcome observability
+    description: Runs and outcomes can be evaluated by task class, risk, cost, and quality.
+  - id: resilience
+    title: Failure containment and recovery
+    description: Agent failures are bounded, reversible, diagnosed, and rehearsed.
+
+readiness_profiles:
+  - id: read-only-analysis
+    title: Read-only analysis
+    description: Agent may inspect approved repository content and return advice, without mutations.
+    floors:
+      context: 1
+      environment: 0
+      specification: 0
+      tooling: 0
+      security: 1
+      testing: 0
+      governance: 0
+      learning: 0
+      observability: 0
+      resilience: 0
+  - id: planning
+    title: Planning and specification
+    description: Agent may draft plans, specifications, and proposed changes for human review.
+    floors:
+      context: 2
+      environment: 0
+      specification: 1
+      tooling: 1
+      security: 1
+      testing: 0
+      governance: 1
+      learning: 0
+      observability: 0
+      resilience: 0
+  - id: local-implementation
+    title: Local implementation
+    description: Agent may edit an isolated checkout and run approved local verification.
+    floors:
+      context: 2
+      environment: 2
+      specification: 2
+      tooling: 2
+      security: 2
+      testing: 2
+      governance: 1
+      learning: 1
+      observability: 1
+      resilience: 1
+  - id: pr-creation
+    title: Pull request creation
+    description: Agent may create a branch and propose a pull request; a human retains merge authority.
+    floors:
+      context: 2
+      environment: 2
+      specification: 2
+      tooling: 2
+      security: 2
+      testing: 2
+      governance: 2
+      learning: 1
+      observability: 1
+      resilience: 2
+  - id: limited-autonomous-maintenance
+    title: Limited autonomous maintenance
+    description: >-
+      Agent may complete pre-approved, low-risk maintenance within strict scope, budget, and stop
+      conditions. This profile never grants production deployment authority.
+    floors:
+      context: 3
+      environment: 3
+      specification: 3
+      tooling: 3
+      security: 3
+      testing: 3
+      governance: 3
+      learning: 3
+      observability: 3
+      resilience: 3
+
+scoring:
+  dimension_method: consecutive-levels
+  overall_method: sum
+  maximum_score: 40
+  readiness_method: non-compensating-floors
+  attestation_counts_as_verified: false

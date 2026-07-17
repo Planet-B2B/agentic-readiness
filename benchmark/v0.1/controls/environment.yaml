@@ -1,0 +1,74 @@
+dimension: environment
+controls:
+  - id: ADRB-ENV-001
+    level: 1
+    title: Local setup is documented
+    outcome: A contributor can locate setup, dependency, and verification instructions.
+    risk: Agents improvise an environment and produce results that cannot be reproduced.
+    evidence:
+      - type: content_any
+        files: [README.md, CONTRIBUTING.md, docs/**]
+        needles: [install, setup, prerequisites, getting started]
+    remediation: Add minimal setup and verification commands to the repository documentation.
+  - id: ADRB-ENV-002
+    level: 2
+    title: Dependencies and runtime are reproducible
+    outcome: Runtime versions and dependencies are pinned, with non-secret configuration discoverable.
+    risk: Local and CI behavior diverges because agents resolve different tools or dependency graphs.
+    evidence:
+      - type: path_any
+        patterns:
+          [
+            package-lock.json,
+            pnpm-lock.yaml,
+            yarn.lock,
+            poetry.lock,
+            uv.lock,
+            Pipfile.lock,
+            go.sum,
+            Cargo.lock,
+          ]
+      - type: path_any
+        patterns:
+          [
+            .tool-versions,
+            .node-version,
+            .nvmrc,
+            .python-version,
+            mise.toml,
+            devcontainer.json,
+            .devcontainer/**,
+            Dockerfile,
+          ]
+    remediation: Commit a lockfile and pin supported runtime or container versions.
+  - id: ADRB-ENV-003
+    level: 3
+    title: CI proves environment fidelity
+    outcome: CI creates the supported environment from clean state and runs the canonical verification entry point.
+    risk: A documented setup can rot while cached or developer-specific environments continue to pass.
+    evidence:
+      - type: content_any
+        files: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml]
+        needles:
+          [
+            npm ci,
+            pnpm install --frozen-lockfile,
+            yarn --immutable,
+            uv sync,
+            poetry install,
+            go test,
+            cargo test,
+          ]
+      - type: content_any
+        files: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml]
+        needles: [test, check, verify, build]
+    remediation: Rebuild dependencies from the lockfile in CI and invoke one canonical check command.
+  - id: ADRB-ENV-004
+    level: 4
+    title: Environment reliability is measured
+    outcome: Clean-checkout setup success and time are measured across supported platforms.
+    risk: Environment friction consumes agent time and causes hidden workarounds without being visible.
+    evidence:
+      - type: manual
+        prompt: Provide clean-checkout setup success rate, setup duration, supported platforms, and a recent corrective action.
+    remediation: Run scheduled clean-room setup probes and trend failures and duration.

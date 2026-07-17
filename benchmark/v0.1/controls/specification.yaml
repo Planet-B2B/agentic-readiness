@@ -1,0 +1,42 @@
+dimension: specification
+controls:
+  - id: ADRB-SPC-001
+    level: 1
+    title: Work has an explicit objective
+    outcome: Engineering work starts from a recorded issue, request, or specification.
+    risk: Agents optimize an inferred problem and completion cannot be judged consistently.
+    evidence:
+      - type: path_any
+        patterns:
+          [.github/ISSUE_TEMPLATE/**, docs/requirements/**, specs/**, .ai/specs/**, .kiro/specs/**]
+    remediation: Adopt a lightweight work-request template with objective, owner, and expected outcome.
+  - id: ADRB-SPC-002
+    level: 2
+    title: Acceptance criteria and constraints are documented
+    outcome: Change requests state testable acceptance criteria, non-goals, and material constraints.
+    risk: Implementation appears plausible but cannot be traced to a shared definition of done.
+    evidence:
+      - type: content_any
+        files:
+          [.github/ISSUE_TEMPLATE/**, specs/**, .ai/specs/**, .kiro/specs/**, docs/requirements/**]
+        needles: [acceptance criteria, non-goals, constraints, requirements]
+    remediation: Extend the work template with testable outcomes, exclusions, constraints, and verification.
+  - id: ADRB-SPC-003
+    level: 3
+    title: Specification traceability is enforced
+    outcome: CI or review policy requires changes and tests to trace to approved acceptance criteria.
+    risk: Specifications become optional prose that neither implementation nor verification follows.
+    evidence:
+      - type: content_any
+        files: [.github/workflows/**, .github/pull_request_template.md, scripts/**, package.json]
+        needles: [acceptance criteria, traceability, spec check, requirements coverage, task id]
+    remediation: Gate applicable changes on a linked spec and acceptance-criteria verification record.
+  - id: ADRB-SPC-004
+    level: 4
+    title: Specification effectiveness is measured
+    outcome: The organization measures rework and escaped ambiguity attributable to specifications.
+    risk: Specification ceremony grows without improving delivery accuracy or reducing rework.
+    evidence:
+      - type: manual
+        prompt: Provide ambiguity or rework metrics by task class and an example of a template or process improvement.
+    remediation: Review rework causes and evolve specification templates using outcome data.

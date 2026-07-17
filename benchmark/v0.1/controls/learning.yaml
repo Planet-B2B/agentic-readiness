@@ -1,0 +1,40 @@
+dimension: learning
+controls:
+  - id: ADRB-LRN-001
+    level: 1
+    title: Agent corrections are recorded
+    outcome: Review corrections and post-merge lessons have an explicit durable home.
+    risk: Every agent session repeats the same repository-specific mistakes.
+    evidence:
+      - type: path_any
+        patterns: [.ai/lessons.md, docs/lessons/**, docs/decisions/**, ADR/**, docs/adr/**]
+    remediation: Create a concise correction log with context, rule, owner, and date.
+  - id: ADRB-LRN-002
+    level: 2
+    title: Knowledge promotion and ownership are documented
+    outcome: The team defines when a correction becomes an instruction, skill, decision, or reference page.
+    risk: The lesson store becomes a stale append-only archive rather than usable agent knowledge.
+    evidence:
+      - type: content_any
+        files: [AGENTS.md, .ai/lessons.md, docs/**, .agents/skills/**, .claude/skills/**]
+        needles: [curation, promote, lesson, correction, stale, owner]
+    remediation: Define a curation cadence, promotion rules, ownership, deduplication, and stale-content handling.
+  - id: ADRB-LRN-003
+    level: 3
+    title: Knowledge curation is an enforced workflow
+    outcome: A scheduled or release-gated process detects stale, duplicate, contradictory, or unpromoted knowledge.
+    risk: Knowledge quality relies on memory and quietly deteriorates as the repository evolves.
+    evidence:
+      - type: content_any
+        files: [.github/workflows/**, scripts/**, package.json, Makefile, AGENTS.md]
+        needles: [curator, curation, knowledge lint, lesson, stale, contradiction]
+    remediation: Automate mechanical checks and require periodic human judgement over knowledge quality.
+  - id: ADRB-LRN-004
+    level: 4
+    title: Knowledge effectiveness is measured
+    outcome: Recurring mistakes, stale guidance, retrieval success, and correction latency drive curation priorities.
+    risk: Knowledge grows without evidence that it changes agent behavior.
+    evidence:
+      - type: manual
+        prompt: Provide recurrence and knowledge-quality metrics plus a recent improvement linked to them.
+    remediation: Classify correction recurrence and measure whether promoted knowledge prevents repeat failures.

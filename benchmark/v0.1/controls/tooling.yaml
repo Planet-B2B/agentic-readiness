@@ -1,0 +1,48 @@
+dimension: tooling
+controls:
+  - id: ADRB-TOL-001
+    level: 1
+    title: Agent tools are declared
+    outcome: The repository identifies supported agent interfaces or configuration.
+    risk: Agents discover tools opportunistically and may use unsupported or unsafe paths.
+    evidence:
+      - type: path_any
+        patterns:
+          [
+            .codex/**,
+            .claude/**,
+            .agents/**,
+            .cursor/**,
+            .github/copilot-instructions.md,
+            mcp.json,
+            .mcp.json,
+          ]
+    remediation: Declare supported agent surfaces and their intended use in repository configuration.
+  - id: ADRB-TOL-002
+    level: 2
+    title: Tools have documented scope and failure behavior
+    outcome: Tool guidance covers authority, expected inputs, validation, and what to do when a tool fails.
+    risk: Agents bypass failed tools, widen scope, or mistake a partial response for success.
+    evidence:
+      - type: content_any
+        files: [AGENTS.md, CLAUDE.md, .agents/**, .claude/**, docs/**]
+        needles: [least privilege, permission, read-only, failure, fallback, approval, authority]
+    remediation: Document tool authority, data boundary, success signal, failure mode, and approved fallback.
+  - id: ADRB-TOL-003
+    level: 3
+    title: Tool authority is technically bounded and audited
+    outcome: High-impact tools enforce least privilege, authorization, structured validation, and audit records.
+    risk: Prompt instructions become the only barrier between an agent and an irreversible action.
+    evidence:
+      - type: manual
+        prompt: Show technical least-privilege controls, authorization tests, audit records, and fail-closed behavior for high-impact tools.
+    remediation: Enforce scoped credentials, explicit authorization, schema validation, audit logging, and deny-by-default behavior.
+  - id: ADRB-TOL-004
+    level: 4
+    title: Tool reliability is measured and improved
+    outcome: Tool success, partial failure, denial, latency, and unsafe-fallback attempts are trended.
+    risk: Tooling quality and risky workarounds remain anecdotal until an incident occurs.
+    evidence:
+      - type: manual
+        prompt: Provide tool reliability and denial metrics plus a recent improvement linked to those metrics.
+    remediation: Instrument tool outcomes and review reliability and fallback patterns by task and risk class.

@@ -1,0 +1,43 @@
+dimension: context
+controls:
+  - id: ADRB-CTX-001
+    level: 1
+    title: Repository guidance is discoverable
+    outcome: A new agent can find repository-specific working instructions from the repository root.
+    risk: The agent guesses conventions or applies generic advice that conflicts with local architecture.
+    evidence:
+      - type: path_any
+        patterns: [AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, .cursor/rules/**]
+    remediation: Add a concise root instruction file that points to authoritative deeper guidance.
+  - id: ADRB-CTX-002
+    level: 2
+    title: Instructions express authoritative architecture and scope
+    outcome: Guidance identifies architectural invariants, scoped instructions, and precedence rules.
+    risk: Multiple context files silently disagree or fail to protect architectural boundaries.
+    evidence:
+      - type: path_any
+        patterns: [.ai/constitution.md, docs/architecture/**, architecture/**, ADR/**, docs/adr/**]
+      - type: content_any
+        files: [AGENTS.md, CLAUDE.md, .github/copilot-instructions.md]
+        needles: [scope, architecture, precedence, invariant]
+    remediation: Document immutable constraints and how root, module, and task instructions compose.
+  - id: ADRB-CTX-003
+    level: 3
+    title: Context integrity is mechanically checked
+    outcome: CI detects broken links, oversized bootstrap context, invalid instruction structure, or drift.
+    risk: Guidance degrades unnoticed and agents operate with stale or contradictory context.
+    evidence:
+      - type: content_any
+        files:
+          [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, scripts/**, package.json, Makefile]
+        needles: [agent-doc, instruction, broken link, markdownlint, context budget, constitution]
+    remediation: Add a deterministic CI check for instruction validity, links, size budgets, and mirrors.
+  - id: ADRB-CTX-004
+    level: 4
+    title: Context quality is measured and improved
+    outcome: The organization measures agent orientation failures and improves context using those outcomes.
+    risk: More documentation accumulates without proving that agents reach the right decisions faster.
+    evidence:
+      - type: manual
+        prompt: Provide recent orientation or context-failure metrics, the review cadence, and one resulting improvement.
+    remediation: Sample failed runs, classify context causes, and track recurrence and time-to-orientation.

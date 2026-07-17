@@ -1,0 +1,42 @@
+dimension: testing
+controls:
+  - id: ADRB-TST-001
+    level: 1
+    title: Automated tests exist
+    outcome: The repository contains executable tests for at least one important behavior.
+    risk: Agent changes rely on plausibility or manual inspection alone.
+    evidence:
+      - type: path_any
+        patterns: ['**/*.test.*', '**/*.spec.*', tests/**, test/**]
+    remediation: Add a fast automated test for a critical behavior and document how to run it.
+  - id: ADRB-TST-002
+    level: 2
+    title: Verification layers and canonical commands are documented
+    outcome: Contributors know which unit, integration, end-to-end, static, and security checks apply.
+    risk: Agents run a convenient subset and overstate confidence in the result.
+    evidence:
+      - type: content_any
+        files: [README.md, CONTRIBUTING.md, AGENTS.md, docs/**, package.json, Makefile]
+        needles: [unit test, integration test, end-to-end, e2e, typecheck, lint, test]
+    remediation: Define the test taxonomy and one canonical command that matches CI.
+  - id: ADRB-TST-003
+    level: 3
+    title: Required verification is enforced before merge
+    outcome: CI runs required checks from clean state and blocks merge when they fail.
+    risk: Documented checks become optional, flaky, or bypassed under delivery pressure.
+    evidence:
+      - type: content_any
+        files: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml]
+        needles: [test, typecheck, lint, coverage, e2e]
+      - type: manual
+        prompt: Confirm required checks are branch-protection or merge-policy gates and provide the policy evidence.
+    remediation: Make appropriate tests and static checks required status gates with controlled exceptions.
+  - id: ADRB-TST-004
+    level: 4
+    title: Verification effectiveness is measured
+    outcome: Escaped defects, flakiness, mutation strength or equivalent outcome measures guide test investment.
+    risk: Test count and coverage rise while meaningful defects still escape.
+    evidence:
+      - type: manual
+        prompt: Provide verification outcome metrics by task class and a recent test-strategy improvement.
+    remediation: Trend escaped defects and signal quality, then target weak verification layers.

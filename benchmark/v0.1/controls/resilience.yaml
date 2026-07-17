@@ -1,0 +1,40 @@
+dimension: resilience
+controls:
+  - id: ADRB-RES-001
+    level: 1
+    title: Changes have a recovery path
+    outcome: Contributors can locate rollback, revert, incident, or recovery guidance.
+    risk: A harmful agent change persists because recovery is improvised under pressure.
+    evidence:
+      - type: content_any
+        files: [README.md, CONTRIBUTING.md, docs/**, runbooks/**, .github/**]
+        needles: [rollback, revert, recovery, incident]
+    remediation: Document how to stop work, revert code, recover data, and escalate an incident.
+  - id: ADRB-RES-002
+    level: 2
+    title: Failure containment and stop conditions are documented
+    outcome: Tasks define isolation, mutation limits, time or cost budgets, stop triggers, and recovery owner.
+    risk: A looping or confused agent continues spending or mutating beyond the intended scope.
+    evidence:
+      - type: content_any
+        files: [AGENTS.md, SECURITY.md, docs/**, runbooks/**, .agentic/**]
+        needles: [stop condition, rollback, isolation, budget, kill switch, recovery owner]
+    remediation: Add bounded scope, budget, retry, stop, escalation, and recovery requirements to the task preflight.
+  - id: ADRB-RES-003
+    level: 3
+    title: Containment and recovery controls are tested
+    outcome: The organization tests cancellation, credential revocation, rollback, timeout, and partial-failure recovery.
+    risk: Recovery mechanisms exist on paper but fail when the harness behaves unexpectedly.
+    evidence:
+      - type: manual
+        prompt: Show recent automated tests or exercises for stop, timeout, revocation, rollback, and partial failure.
+    remediation: Add failure-injection tests and periodic exercises for containment and reversible recovery.
+  - id: ADRB-RES-004
+    level: 4
+    title: Recovery performance drives improvement
+    outcome: Time-to-detect, time-to-stop, rollback success, impact, and recurrence are measured.
+    risk: The same failure patterns repeat because recovery performance and residual impact are unknown.
+    evidence:
+      - type: manual
+        prompt: Provide recovery outcome trends and a recent containment or rollback improvement based on them.
+    remediation: Trend containment and recovery outcomes and feed them into autonomy and tool design.

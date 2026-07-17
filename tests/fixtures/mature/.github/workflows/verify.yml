@@ -1,0 +1,13 @@
+name: Verify
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm ci
+      - run: npm run check
+      - run: npm test && npm run typecheck && npm run lint
+      - run: gitleaks detect
+      - run: npm run spec-check
+      - run: npm run agent-doc-check
+      - run: npm run knowledge-curator

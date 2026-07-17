@@ -1,0 +1,54 @@
+dimension: observability
+controls:
+  - id: ADRB-OBS-001
+    level: 1
+    title: Agent activity can be reconstructed
+    outcome: Material agent runs retain enough metadata to identify task, actor or harness, result, and time.
+    risk: Teams cannot explain what happened after a poor change or security concern.
+    evidence:
+      - type: path_any
+        patterns:
+          [
+            '**/docs/observability/**',
+            '**/docs/agentic/**',
+            '**/evals/**',
+            '**/evaluations/**',
+            .agentic/**,
+            '**/observability/**',
+          ]
+    remediation: Define a privacy-safe run record with task, harness, permissions, result, timing, and evidence links.
+  - id: ADRB-OBS-002
+    level: 2
+    title: Run envelope and outcome taxonomy are documented
+    outcome: Run records cover model or harness version, tools, authority, budget, stop reason, verification, and outcome.
+    risk: Comparisons confound model, tooling, permissions, task risk, and checkout state.
+    evidence:
+      - type: content_any
+        files:
+          [
+            '**/docs/observability/**',
+            '**/docs/agentic/**',
+            '**/evals/**',
+            .agentic/**,
+            '**/observability/**',
+          ]
+        needles: [task class, tool, permission, budget, stop reason, outcome, harness version]
+    remediation: Adopt a common run envelope and outcome taxonomy with privacy and retention rules.
+  - id: ADRB-OBS-003
+    level: 3
+    title: Outcome evidence is captured consistently
+    outcome: The harness or CI emits run metadata and verification outcomes for material agent changes.
+    risk: Only memorable successes and failures shape policy, creating selection bias.
+    evidence:
+      - type: manual
+        prompt: Show automated run-envelope capture, retention controls, access controls, and completeness monitoring.
+    remediation: Emit structured run and outcome records automatically, minimizing retained source and prompt content.
+  - id: ADRB-OBS-004
+    level: 4
+    title: Agent outcomes are compared by task and risk class
+    outcome: Quality, escape rate, cycle time, cost, intervention, and rollback are used to tune autonomy.
+    risk: Token use or completion rate becomes a misleading proxy for engineering value and safety.
+    evidence:
+      - type: manual
+        prompt: Provide outcome trends segmented by task and risk class and one autonomy or harness decision they changed.
+    remediation: Evaluate outcome quality and total effort by task class; use results to narrow or expand autonomy.

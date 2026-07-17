@@ -1,0 +1,53 @@
+dimension: governance
+controls:
+  - id: ADRB-GOV-001
+    level: 1
+    title: Change and review process is documented
+    outcome: Contributors can find how to propose, review, and approve a change.
+    risk: Agent changes bypass normal accountability or use inconsistent review expectations.
+    evidence:
+      - type: path_any
+        patterns:
+          [
+            CONTRIBUTING.md,
+            .github/pull_request_template.md,
+            .github/PULL_REQUEST_TEMPLATE/**,
+            docs/governance/**,
+          ]
+    remediation: Document the branch, pull request, review, and approval workflow.
+  - id: ADRB-GOV-002
+    level: 2
+    title: Human accountability and merge authority are explicit
+    outcome: Agent-authored changes identify provenance, responsible human, risk, verification, and human merge authority.
+    risk: Reviewers cannot tell who owns the decision or which work was delegated.
+    evidence:
+      - type: content_any
+        files:
+          [
+            CONTRIBUTING.md,
+            .github/pull_request_template.md,
+            .github/PULL_REQUEST_TEMPLATE/**,
+            docs/governance/**,
+          ]
+        needles: [agent, ai-assisted, responsible, human review, approval, verification]
+    remediation: Add agent provenance, responsible owner, risk, evidence, and approval fields to the PR process.
+  - id: ADRB-GOV-003
+    level: 3
+    title: Review scope and quality gates are enforced
+    outcome: Protected branches, required reviewers, checks, ownership, and exception handling are enforced.
+    risk: Policy depends on voluntary compliance and can be bypassed by the same actor making the change.
+    evidence:
+      - type: path_any
+        patterns: [.github/CODEOWNERS, CODEOWNERS]
+      - type: manual
+        prompt: Show branch protection, required reviews and checks, exception ownership, and auditability.
+    remediation: Configure protected branches, independent review, required checks, ownership, and expiring exceptions.
+  - id: ADRB-GOV-004
+    level: 4
+    title: Review precision and convergence are measured
+    outcome: Review escape rate, false-positive rate, convergence rounds, and human load guide policy changes.
+    risk: More agent reviewers create duplicate noise and approval theater instead of higher assurance.
+    evidence:
+      - type: manual
+        prompt: Provide review precision, escape, convergence, and reviewer-load metrics plus a resulting improvement.
+    remediation: Measure review outcomes, deduplicate findings, bound rounds, and tune reviewers by defect class.

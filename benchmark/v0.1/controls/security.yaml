@@ -1,0 +1,64 @@
+dimension: security
+controls:
+  - id: ADRB-SEC-001
+    level: 1
+    title: Security reporting and secret handling are documented
+    outcome: Contributors can find security contacts and rules for credentials and sensitive data.
+    risk: Agents expose secrets or sensitive data and responders lack a defined reporting path.
+    evidence:
+      - type: path_any
+        patterns: [SECURITY.md, .github/SECURITY.md, '**/docs/security/**']
+      - type: content_any
+        files: [SECURITY.md, .github/SECURITY.md, '**/docs/security/**', AGENTS.md]
+        needles: [secret, credential, sensitive, vulnerability]
+    remediation: Publish a security policy covering reporting, secrets, sensitive data, and agent-specific risks.
+  - id: ADRB-SEC-002
+    level: 2
+    title: Agent data and autonomy boundaries are explicit
+    outcome: A preflight defines permitted data, tools, mutations, credentials, budgets, approvals, and stop conditions.
+    risk: Operators grant an agent more data or authority than the task requires.
+    evidence:
+      - type: content_any
+        files: [SECURITY.md, AGENTS.md, '**/docs/security/**', '**/docs/agentic/**', .agentic/**]
+        needles:
+          [
+            stop condition,
+            data classification,
+            allowed tools,
+            mutation,
+            budget,
+            human approval,
+            autonomy,
+          ]
+    remediation: Add a task preflight that binds data, tools, write scope, budget, approvals, and stop conditions.
+  - id: ADRB-SEC-003
+    level: 3
+    title: Agent security controls are enforced
+    outcome: Sandboxing, secret scanning, untrusted-content handling, and high-impact approval are enforced and tested.
+    risk: Prompt injection or credential misuse can turn repository access into broader compromise.
+    evidence:
+      - type: content_any
+        files:
+          [.github/workflows/**, .gitlab-ci.yml, scripts/**, SECURITY.md, '**/docs/security/**']
+        needles:
+          [
+            secret scan,
+            gitleaks,
+            trufflehog,
+            sandbox,
+            prompt injection,
+            untrusted content,
+            approval gate,
+          ]
+      - type: manual
+        prompt: Show that high-impact actions are technically gated and that untrusted instructions cannot expand tool authority.
+    remediation: Combine isolation, scoped credentials, secret scanning, content-boundary rules, and approval gates with tests.
+  - id: ADRB-SEC-004
+    level: 4
+    title: Agent security outcomes are measured and exercised
+    outcome: Security denials, near misses, incidents, exceptions, and adversarial exercises drive improvements.
+    risk: Controls appear complete but their effectiveness against real agent failure modes is unknown.
+    evidence:
+      - type: manual
+        prompt: Provide recent agent-security metrics or exercise results and the control changes they produced.
+    remediation: Run adversarial exercises and trend denials, exceptions, near misses, and incident recurrence.

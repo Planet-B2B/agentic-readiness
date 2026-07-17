@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-readiness.dev/schema/v0.1/report.json",
+  "title": "ADRB v0.1 assessment report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "benchmark",
+    "target",
+    "assessed_at",
+    "score",
+    "evidence_summary",
+    "dimensions",
+    "controls",
+    "profiles",
+    "readiness",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "benchmark": { "type": "object" },
+    "target": { "type": "object" },
+    "assessed_at": { "type": "string", "format": "date-time" },
+    "score": { "type": "object" },
+    "evidence_summary": { "type": "object" },
+    "dimensions": { "type": "array", "minItems": 10, "maxItems": 10 },
+    "controls": { "type": "array" },
+    "profiles": { "type": "array" },
+    "readiness": { "type": "object" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,38 @@
+benchmark_version: 0.1.0
+attestations:
+  ADRB-TOL-003:
+    status: met
+    evidence: https://example.invalid/evidence/tool-authorization
+    owner: Platform owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
+  ADRB-SEC-003:
+    status: met
+    evidence: https://example.invalid/evidence/security-controls
+    owner: Security owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
+  ADRB-TST-003:
+    status: met
+    evidence: https://example.invalid/evidence/required-checks
+    owner: Quality owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
+  ADRB-GOV-003:
+    status: met
+    evidence: https://example.invalid/evidence/branch-protection
+    owner: Repository owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
+  ADRB-OBS-003:
+    status: met
+    evidence: https://example.invalid/evidence/run-capture
+    owner: Observability owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
+  ADRB-RES-003:
+    status: met
+    evidence: https://example.invalid/evidence/recovery-exercise
+    owner: Operations owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
