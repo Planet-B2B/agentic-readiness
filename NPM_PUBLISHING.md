@@ -3,7 +3,7 @@
 The public package is `agentic-scorecard`. Never place an npm write token in the repository or in a
 GitHub Actions secret.
 
-## Initial publication
+## Initial publication — completed for v0.1.0
 
 npm requires the package to exist before a trusted publisher can be configured. The first release is
 therefore a one-time direct publish by an authenticated maintainer with account-level two-factor
@@ -21,10 +21,11 @@ Review `npm pack --dry-run` before publishing. Version `0.1.0` is immutable once
 
 ## Configure trusted publishing immediately afterward
 
-Use npm CLI 11.5.1 or newer with Node 22.14 or newer. Configure the exact GitHub workflow identity:
+Trusted publishing requires npm CLI 11.5.1 or newer, while the `npm trust` management command requires
+npm CLI 11.15.0 or newer. Use Node 22.14 or newer and configure the exact GitHub workflow identity:
 
 ```bash
-npm install --global npm@11.5.1
+npm install --global npm@11.18.0
 npm trust github agentic-scorecard \
   --repo Planet-B2B/agentic-readiness \
   --file publish-npm.yml \

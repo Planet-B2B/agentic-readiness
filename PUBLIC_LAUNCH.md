@@ -1,12 +1,12 @@
 # Public launch checklist
 
-The implementation is ready for a private pilot. Do not make the repository public until every
-blocking item below has an accountable owner.
+The public v0.1.0 launch is complete. Checked items are finished; unchecked items are owned follow-up
+work for the pilot and first 90 days.
 
-## Blocking decisions
+## Launch decisions
 
 - [x] Confirm `Planet-B2B/agentic-readiness` as the GitHub repository.
-- [ ] Authenticate the initial npm publisher; `agentic-scorecard` is the confirmed package name.
+- [x] Publish `agentic-scorecard@0.1.0` from the 2FA-protected `planetb2b` npm account.
 - [x] Record Planet B2B Inc. as the Apache-2.0 copyright holder in `NOTICE` under the publication
       authorization received on 2026-07-17.
 - [x] Replace maintainer, security, conduct, and organization placeholders.
@@ -19,14 +19,15 @@ blocking item below has an accountable owner.
 
 ## Repository settings
 
-- [ ] Enable private vulnerability reporting and assign a response team.
-- [ ] Protect `main`; require independent review, CODEOWNERS, signed or verified commits if policy
-      requires them, the CI check, and conversation resolution.
-- [ ] Give workflows read-only permissions by default and pin third-party actions to reviewed commits
-      for the release branch.
-- [ ] Enable issue templates and discussions; publish a roadmap and maintainer expectations.
-- [ ] Add repository description, topics, license detection, social preview, and an archived project
-      website only after the canonical repository URL is known.
+- [x] Enable private vulnerability reporting and assign the CODEOWNER as initial response owner.
+- [x] Protect `main`; require independent review, CODEOWNERS, the `verify` status check, and
+      conversation resolution; prohibit force-push and deletion.
+- [x] Keep workflow permissions read-only by default and pin third-party actions to reviewed commits.
+- [ ] Decide whether organization policy additionally requires signed commits; tag `v0.1.0` is
+      annotated but not cryptographically signed.
+- [x] Enable issue templates and discussions; publish governance and launch expectations.
+- [x] Add the repository description, topics, license detection, and canonical npm homepage.
+- [ ] Add a social preview after the project establishes a visual identity.
 
 ## Pilot and release
 
@@ -36,9 +37,12 @@ blocking item below has an accountable owner.
       remediation effort, and assessment time.
 - [ ] Publish anonymized fixture-based conformance results, not private repository scores.
 - [ ] Resolve scoring-semantic feedback through an RFC and rerun all conformance fixtures.
-- [ ] Create a clean signed tag and GitHub release; publish the npm package with provenance and 2FA.
-- [ ] Pin the consumer example to the actual owner and released tag or commit SHA.
-- [ ] Announce the benchmark as a self-assessment and improvement guide, never certification.
+- [x] Create annotated tag `v0.1.0`, publish the GitHub release, and publish the initial npm package
+      with 2FA. Initial direct publication cannot carry GitHub build provenance.
+- [x] Configure future npm publishing through the exact GitHub OIDC workflow with automatic
+      provenance and no stored write token.
+- [x] Pin the consumer example to the actual owner and released tag.
+- [x] Announce the benchmark as a self-assessment and improvement guide, never certification.
 
 ## First 90 days
 
