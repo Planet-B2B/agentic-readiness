@@ -37,6 +37,31 @@ That is the recommended first assessment. The agent downloads the pinned benchma
 read-only local collector, and explains the results. For alternate authority levels or a guided
 remediation session, use the prompts in [AGENT_PROMPT.md](AGENT_PROMPT.md).
 
+## Feedback and community
+
+Real-world assessment feedback helps make the benchmark more accurate and useful across different
+engineering organizations and agent harnesses.
+
+- Share false positives, false negatives, unclear controls, and adoption experience through the
+  [assessment feedback form](https://github.com/Planet-B2B/agentic-readiness/issues/new?template=assessment-feedback.yml).
+- Propose scoring, control, evidence, or readiness-profile changes through the
+  [benchmark change form](https://github.com/Planet-B2B/agentic-readiness/issues/new?template=benchmark-change.yml).
+- Send private adoption questions or feedback that cannot be shared publicly to
+  [benchmark@planetb2b.com](mailto:benchmark@planetb2b.com). Do not email vulnerability reports;
+  follow [SECURITY.md](SECURITY.md) instead.
+
+Ask a coding agent to prepare privacy-safe feedback with this prompt:
+
+> Review my Agentic Development Readiness report and draft feedback for the
+> `Planet-B2B/agentic-readiness` repository. Include the benchmark version, target profile, relevant
+> control IDs, observed result, expected result, and a minimal sanitized explanation. Distinguish a
+> likely scanner defect from a proposed benchmark-policy change. Do not include credentials,
+> proprietary source, private URLs, personal data, customer data, or full report contents. Show me
+> the draft and ask for my approval before opening a GitHub issue.
+
+See [FEEDBACK.md](FEEDBACK.md) for the full feedback guide. If the project is useful to you, please
+[star the repository](https://github.com/Planet-B2B/agentic-readiness) so others can discover it.
+
 ## Quick start
 
 ### Installation and prerequisites

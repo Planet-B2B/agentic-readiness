@@ -1,0 +1,69 @@
+name: Assessment feedback
+description: Report a false positive, false negative, unclear result, usability issue, or adoption experience
+title: '[feedback]: '
+body:
+  - type: dropdown
+    id: feedback-type
+    attributes:
+      label: Feedback type
+      options:
+        - Likely false positive
+        - Likely false negative
+        - Unclear control or report
+        - Evidence collection problem
+        - Adoption experience
+        - Other implementation feedback
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Benchmark and package version
+      placeholder: 'Benchmark v0.2; agentic-scorecard 0.2.0'
+    validations:
+      required: true
+  - type: input
+    id: assessment
+    attributes:
+      label: Profile and scope
+      placeholder: 'pr-creation; tracked'
+    validations:
+      required: true
+  - type: input
+    id: controls
+    attributes:
+      label: Relevant control IDs
+      placeholder: 'ADRB-OBS-001, ADRB-TST-003'
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the observed result without pasting private report contents.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Explain the expected result and why it better represents the available evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized evidence or reproduction
+      description: Include only the minimum non-sensitive information needed to investigate.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Adoption or decision impact
+      description: How did this affect interpretation, remediation priorities, or use of the benchmark?
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy and security confirmation
+      options:
+        - label: I removed credentials, proprietary source, private URLs, personal data, customer data, and confidential report content.
+          required: true
+        - label: This is not a vulnerability report; security concerns will be submitted through the private process in SECURITY.md.
+          required: true
