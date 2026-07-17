@@ -14,6 +14,12 @@ inputs:
   report:
     description: JSON report path
     default: .agentic/report.json
+  scope:
+    description: Evidence path scope (tracked or workspace)
+    default: tracked
+  agent_evidence:
+    description: Optional agent-collected evidence bundle
+    required: false
   enforce:
     description: Fail when the target profile is not met
     default: 'false'
@@ -42,9 +48,14 @@ runs:
         ADRB_PATH: ${{ inputs.path }}
         ADRB_PROFILE: ${{ inputs.profile }}
         ADRB_REPORT: ${{ inputs.report }}
+        ADRB_SCOPE: ${{ inputs.scope }}
+        ADRB_AGENT_EVIDENCE: ${{ inputs.agent_evidence }}
         ADRB_ENFORCE: ${{ inputs.enforce }}
       run: |
-        args=(assess "$ADRB_PATH" --profile "$ADRB_PROFILE" --format json --output "$ADRB_REPORT" --github-output)
+        args=(assess "$ADRB_PATH" --profile "$ADRB_PROFILE" --scope "$ADRB_SCOPE" --format json --output "$ADRB_REPORT" --github-output)
+        if [[ -n "$ADRB_AGENT_EVIDENCE" ]]; then
+          args+=(--agent-evidence "$ADRB_AGENT_EVIDENCE")
+        fi
         if [[ "$ADRB_ENFORCE" == "true" ]]; then
           args+=(--enforce)
         fi

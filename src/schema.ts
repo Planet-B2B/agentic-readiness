@@ -19,36 +19,58 @@ export type DimensionId = z.infer<typeof DimensionIdSchema>;
 const LevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 export type Level = z.infer<typeof LevelSchema>;
 
+export const EvidenceScopeSchema = z.enum(['repository', 'platform', 'organization', 'outcome']);
+export type EvidenceScope = z.infer<typeof EvidenceScopeSchema>;
+
+export const AssessmentScopeSchema = z.enum(['tracked', 'workspace']);
+export type AssessmentScope = z.infer<typeof AssessmentScopeSchema>;
+
 const PathAnySchema = z.object({
   type: z.literal('path_any'),
+  scope: z.literal('repository').default('repository'),
   patterns: z.array(z.string().min(1)).min(1),
+  min_bytes: z.number().int().positive().default(1),
 });
 
 const PathAllSchema = z.object({
   type: z.literal('path_all'),
+  scope: z.literal('repository').default('repository'),
   patterns: z.array(z.string().min(1)).min(1),
+  min_bytes: z.number().int().positive().default(1),
 });
 
 const ContentAnySchema = z.object({
   type: z.literal('content_any'),
+  scope: z.literal('repository').default('repository'),
   files: z.array(z.string().min(1)).min(1),
   needles: z.array(z.string().min(1)).min(1),
 });
 
 const ContentAllSchema = z.object({
   type: z.literal('content_all'),
+  scope: z.literal('repository').default('repository'),
   files: z.array(z.string().min(1)).min(1),
   needles: z.array(z.string().min(1)).min(1),
 });
 
+const ContentTermsSchema = z.object({
+  type: z.literal('content_terms'),
+  scope: z.literal('repository').default('repository'),
+  files: z.array(z.string().min(1)).min(1),
+  terms: z.array(z.string().min(1)).min(1),
+  min_terms: z.number().int().positive(),
+});
+
 const MaxBytesSchema = z.object({
   type: z.literal('max_bytes'),
+  scope: z.literal('repository').default('repository'),
   patterns: z.array(z.string().min(1)).min(1),
   max_bytes: z.number().int().positive(),
 });
 
 const ManualSchema = z.object({
   type: z.literal('manual'),
+  scope: z.enum(['platform', 'organization', 'outcome']).default('organization'),
   prompt: z.string().min(1),
 });
 
@@ -57,6 +79,7 @@ export const EvidenceCheckSchema = z.discriminatedUnion('type', [
   PathAllSchema,
   ContentAnySchema,
   ContentAllSchema,
+  ContentTermsSchema,
   MaxBytesSchema,
   ManualSchema,
 ]);
@@ -71,8 +94,9 @@ const RawControlSchema = z.object({
   evidence: z.array(EvidenceCheckSchema).min(1),
   remediation: z.string().min(1),
   references: z.array(z.string().min(1)).default([]),
-  allow_attestation: z.boolean().default(true),
+  allow_attestation: z.boolean().default(false),
   allow_not_applicable: z.boolean().default(false),
+  allow_agent_evidence: z.boolean().default(false),
 });
 
 export const ControlFileSchema = z.object({
@@ -130,7 +154,7 @@ export const AttestationSchema = z.object({
   evidence: z.string().min(1),
   owner: z.string().min(1),
   reviewed_at: z.string().date(),
-  expires_at: z.string().date().nullable().default(null),
+  expires_at: z.string().date(),
 });
 
 export const AttestationFileSchema = z.object({
@@ -141,12 +165,57 @@ export const AttestationFileSchema = z.object({
 export type Attestation = z.infer<typeof AttestationSchema>;
 export type AttestationFile = z.infer<typeof AttestationFileSchema>;
 
+export const AgentEvidenceClaimSchema = z
+  .object({
+    status: z.enum(['met', 'not_met', 'unknown']),
+    scope: z.enum(['platform', 'organization', 'outcome']),
+    summary: z.string().min(1),
+    references: z.array(z.string().min(1)).min(1),
+    collected_at: z.string().datetime(),
+    expires_at: z.string().datetime(),
+    error: z.string().min(1).nullable().default(null),
+  })
+  .strict()
+  .superRefine((claim, context) => {
+    if (claim.error && claim.status !== 'unknown') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A claim with an error must have unknown status',
+        path: ['status'],
+      });
+    }
+  });
+
+export const AgentEvidenceFileSchema = z
+  .object({
+    schema_version: z.literal('0.2.0'),
+    benchmark_version: z.literal('0.2.0'),
+    target: z
+      .object({
+        repository: z.string().min(1),
+        git_head: z.string().min(1).nullable(),
+      })
+      .strict(),
+    collector: z
+      .object({
+        name: z.string().min(1),
+        version: z.string().min(1),
+      })
+      .strict(),
+    claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimSchema),
+  })
+  .strict();
+
+export type AgentEvidenceClaim = z.infer<typeof AgentEvidenceClaimSchema>;
+export type AgentEvidenceFile = z.infer<typeof AgentEvidenceFileSchema>;
+
 export type CheckStatus = 'met' | 'not_met' | 'unknown';
 export type ControlStatus = CheckStatus | 'not_applicable';
-export type EvidenceConfidence = 'verified' | 'attested' | 'none';
+export type EvidenceConfidence = 'repository-detected' | 'agent-collected' | 'attested' | 'none';
 
 export interface EvidenceResult {
   type: EvidenceCheck['type'];
+  scope: EvidenceScope;
   status: CheckStatus;
   summary: string;
   references: string[];
@@ -162,6 +231,7 @@ export interface ControlResult {
   status: ControlStatus;
   confidence: EvidenceConfidence;
   evidence: EvidenceResult[];
+  agent_evidence: AgentEvidenceClaim | null;
   attestation: Attestation | null;
   remediation: string;
 }
@@ -187,12 +257,25 @@ export interface ProfileResult {
 }
 
 export interface AssessmentReport {
-  schema_version: '0.1.0';
+  schema_version: '0.2.0';
   benchmark: { id: string; version: string };
-  target: { repository: string; profile: string };
+  target: {
+    repository: string;
+    profile: string;
+    scope: AssessmentScope;
+    git_head: string | null;
+    git_remote: string | null;
+    working_tree_dirty: boolean | null;
+  };
   assessed_at: string;
   score: { total: number; maximum: 40; percentage: number };
-  evidence_summary: { verified: number; attested: number; unmet_or_unknown: number };
+  evidence_summary: {
+    repository_detected: number;
+    agent_collected: number;
+    attested: number;
+    unmet: number;
+    unknown: number;
+  };
   dimensions: DimensionResult[];
   controls: ControlResult[];
   profiles: ProfileResult[];

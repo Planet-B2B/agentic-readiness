@@ -1,9 +1,9 @@
-# Claims are attested, never tool-verified. Link evidence; do not paste sensitive content.
-benchmark_version: 0.1.0
+# Claims are visibly human-attested. Link evidence; do not paste sensitive content.
+benchmark_version: 0.2.0
 attestations:
   ADRB-TOL-003:
     status: unknown
     evidence: TODO link to least-privilege, authorization, audit, and fail-closed evidence
     owner: TODO
-    reviewed_at: 2026-01-01
-    expires_at: null
+    reviewed_at: 2026-07-17
+    expires_at: 2026-10-15

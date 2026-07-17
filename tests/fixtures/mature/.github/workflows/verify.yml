@@ -8,6 +8,9 @@ jobs:
       - run: npm run check
       - run: npm test && npm run typecheck && npm run lint
       - run: gitleaks detect
-      - run: npm run spec-check
-      - run: npm run agent-doc-check
-      - run: npm run knowledge-curator
+      - name: Check acceptance criteria traceability
+        run: npm run spec-check
+      - name: Validate agent instructions
+        run: npm run agent-doc-check
+      - name: Run knowledge curation for stale and contradictory guidance
+        run: npm run knowledge-curator

@@ -17,7 +17,8 @@ npm run check
 npm publish --access public
 ```
 
-Review `npm pack --dry-run` before publishing. Version `0.1.0` is immutable once published.
+Review `npm pack --dry-run` before publishing. Every published package and benchmark version is
+immutable once published; release normative changes under a new versioned benchmark directory.
 
 ## Configure trusted publishing immediately afterward
 

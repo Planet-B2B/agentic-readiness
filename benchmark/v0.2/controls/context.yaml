@@ -1,0 +1,49 @@
+dimension: context
+controls:
+  - id: ADRB-CTX-001
+    level: 1
+    title: Agent guidance is discoverable
+    outcome: A contributor or agent can locate the repository's authoritative operating guidance.
+    risk: Agents infer repository rules from generic practice or stale neighboring files.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns: [AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, .agents/**, .claude/**]
+    remediation: Add a tracked, non-empty agent entry point that names the authoritative guidance.
+  - id: ADRB-CTX-002
+    level: 2
+    title: Guidance scope and precedence are explicit
+    outcome: Instructions state their scope, precedence, important constraints, and architecture boundaries.
+    risk: Conflicting or nested guidance produces plausible changes that violate local invariants.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, .agents/**/*.md, .claude/**/*.md]
+        terms: [scope, precedence, architecture, must, constraint]
+        min_terms: 2
+    remediation: Document instruction scope, precedence, non-negotiable constraints, and where deeper guidance lives.
+  - id: ADRB-CTX-003
+    level: 3
+    title: Agent guidance integrity is mechanically checked
+    outcome: Automated validation detects missing, broken, stale, or structurally invalid agent guidance.
+    risk: Critical instructions silently drift while agents continue treating them as authoritative.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, scripts/**, package.json, Makefile]
+        terms: [agent docs, agent instructions, validate, lint, stale, broken link]
+        min_terms: 2
+    remediation: Add a CI check for required agent files, links, ownership, and structural invariants.
+  - id: ADRB-CTX-004
+    level: 4
+    title: Guidance effectiveness drives improvement
+    outcome: Retrieval failures, repeated instruction errors, and correction latency are trended and improve guidance.
+    risk: Documentation volume grows without evidence that agents find and apply the right context.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide time-series guidance-quality outcomes and a recent instruction change driven by them.
+    remediation: Measure context retrieval and recurring instruction failures, then update guidance from the results.

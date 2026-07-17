@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-readiness.dev/schema/v0.2/report.json",
+  "title": "ADRB v0.2 assessment report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "benchmark",
+    "target",
+    "assessed_at",
+    "score",
+    "evidence_summary",
+    "dimensions",
+    "controls",
+    "profiles",
+    "readiness",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.2.0" },
+    "benchmark": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": { "version": { "const": "0.2.0" } }
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "repository",
+        "profile",
+        "scope",
+        "git_head",
+        "git_remote",
+        "working_tree_dirty"
+      ],
+      "properties": { "scope": { "enum": ["tracked", "workspace"] } }
+    },
+    "assessed_at": { "type": "string", "format": "date-time" },
+    "score": { "type": "object" },
+    "evidence_summary": { "type": "object" },
+    "dimensions": { "type": "array", "minItems": 10, "maxItems": 10 },
+    "controls": { "type": "array" },
+    "profiles": { "type": "array" },
+    "readiness": { "type": "object" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

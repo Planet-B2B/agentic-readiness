@@ -1,10 +1,10 @@
-# Ask an AI coding agent to run the benchmark
+# Ask an AI coding agent to run ADRB v0.2
 
-These prompts are deliberately vendor-neutral. The agent needs terminal access to the repository and
-permission to download the published npm package. The benchmark itself runs locally, invokes no
-model, uploads no source, and makes no network calls after package installation.
+These prompts are vendor-neutral. The agent needs terminal access to the repository and permission
+to download the published npm package. The default benchmark runs locally, reads only tracked paths,
+invokes no model, uploads no source, and makes no network calls after installation.
 
-## Recommended: first assessment
+## Recommended: repository baseline
 
 Copy and paste:
 
@@ -12,25 +12,57 @@ Copy and paste:
 Assess this repository's readiness for AI-agent pull-request work.
 
 From the repository root, run:
-npx --yes agentic-scorecard@0.1.0 assess . --profile pr-creation --format markdown --output .agentic/reports/agentic-readiness-v0.1.0.md
+npx --yes agentic-scorecard@0.2.0 assess . --profile pr-creation --scope tracked --format markdown --output .agentic/reports/agentic-readiness-v0.2.0.md
 
-Do not change product source code, configuration, policies, or tests. Do not create or mark manual
-attestations as met. Read the generated report and tell me:
+Do not change product source, configuration, policies, or tests. Do not invent evidence or mark an
+attestation as met. Read the report and tell me:
 1. the score and highest passed readiness profile;
 2. whether the pr-creation target passes;
-3. each target-profile blocker and the evidence that was or was not found;
-4. the five highest-value improvements in dependency order; and
-5. any likely false positive, false negative, or organizational control that repository inspection
-   cannot prove.
+3. each target-profile blocker and its evidence scope;
+4. the five highest-value improvements in dependency order;
+5. which findings are repository gaps versus external or outcome evidence not yet established; and
+6. any likely false positive or false negative.
 
-Keep tool-verified and self-attested evidence clearly separated. Leave the generated report
-uncommitted unless I explicitly ask you to commit it. If the command cannot run, explain the exact
-blocker without changing the repository to work around it.
+Keep repository-detected, agent-collected, and human-attested evidence separate. Leave generated
+artifacts uncommitted unless I explicitly ask otherwise. If the command cannot run, explain the
+exact blocker without modifying the repository to work around it.
 ```
+
+## Agent-assisted external evidence
+
+Use this only after reviewing the repository baseline:
+
+```text
+Collect the external evidence that ADRB v0.2 could not establish from tracked repository files.
+
+First run:
+npx --yes agentic-scorecard@0.2.0 init-evidence .
+
+Read `.agentic/evidence-request.md` and the empty target-bound
+`.agentic/agent-evidence.yaml` bundle. Before accessing any connected system, tell me which
+read-only tools, accounts, repositories, branches, dashboards, and time ranges you need. Wait for
+my authorization.
+
+After authorization, use only least-privileged read-only operations. For each eligible control,
+record the source-backed status, scope, concise derivation, collection time, 30-day-or-shorter
+expiry, and durable privacy-safe references. Add only claims you actually attempted. Do not paste
+credentials, prompts, source excerpts, raw logs, personal data, or sensitive dashboard contents. A
+permission error or inconclusive result must remain unknown and include the error; never infer a
+pass.
+
+Then run:
+npx --yes agentic-scorecard@0.2.0 assess . --profile pr-creation --scope tracked --agent-evidence .agentic/agent-evidence.yaml --format markdown --output .agentic/reports/agentic-readiness-v0.2.0-assisted.md
+
+Summarize every score change and keep agent-collected evidence distinct from repository evidence and
+human attestations. Do not describe the result as certified, compliant, safe, secure, or
+independently verified.
+```
+
+The agent is an evidence investigator. The scorecard remains the scoring authority.
 
 ## Choose a different authority level
 
-Replace `pr-creation` with exactly one of:
+Replace `pr-creation` with one of:
 
 - `read-only-analysis` — inspect approved source and return advice;
 - `planning` — draft plans and specifications;
@@ -42,23 +74,20 @@ No benchmark profile grants production deployment authority.
 
 ## Guided remediation
 
-Use this only after reviewing the first report:
-
 ```text
-Read .agentic/reports/agentic-readiness-v0.1.0.md and create a remediation proposal for the failed
-target-profile controls. Do not implement changes yet. Group recommendations into quick wins,
-foundational engineering, and organizational evidence. For each recommendation include the ADRB
-control ID, risk reduced, files or systems likely affected, accountable role, verification method,
-dependencies, and an effort estimate. Identify claims requiring a human owner or access to external
-systems; never invent an attestation. End by asking which recommendations I authorize you to
-implement.
+Read the latest ADRB v0.2 report and create a remediation proposal for the failed target-profile
+controls. Do not implement changes yet. Group recommendations into repository changes, platform or
+organizational controls, and outcome measurement. For each include the control ID, risk reduced,
+systems affected, accountable role, verification method, dependencies, and effort estimate. Never
+invent an attestation or convert unavailable evidence into a failure. End by asking which changes I
+authorize.
 ```
 
-## Reassessment after approved improvements
+## Reassessment
 
 ```text
-Re-run the pinned Agentic Development Readiness Benchmark v0.1.0 for the same readiness profile.
-Compare the new report to the previous report control by control. Explain score changes using evidence,
-not assumptions, and identify any regression or expired attestation. Do not overwrite the previous
-report; add the current date to the new report filename.
+Re-run the pinned ADRB v0.2.0 benchmark for the same profile and tracked scope. Compare reports
+control by control. Explain changes using evidence and identify changed commit state, expired claims,
+scope differences, regressions, or newly established controls. Write a new dated report; do not
+overwrite the previous one.
 ```

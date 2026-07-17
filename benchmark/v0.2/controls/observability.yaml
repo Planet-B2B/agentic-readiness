@@ -1,0 +1,76 @@
+dimension: observability
+controls:
+  - id: ADRB-OBS-001
+    level: 1
+    title: Agent run records are defined
+    outcome: A tracked schema or guide defines how material agent activity can be reconstructed.
+    risk: Teams cannot explain what happened after a poor change or security concern.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            docs/observability/**,
+            docs/agentic/**,
+            evals/**,
+            evaluations/**,
+            observability/**,
+            .agentic/run-envelope.*,
+          ]
+        terms: [task, actor, harness, result, timestamp, evidence]
+        min_terms: 3
+    remediation: Define a privacy-safe run record containing task, harness, result, timing, and evidence references.
+  - id: ADRB-OBS-002
+    level: 2
+    title: Run envelope and outcome taxonomy are documented
+    outcome: Run guidance covers authority, tools, budget, stop reason, verification, and outcome classification.
+    risk: Comparisons confound model, tooling, permissions, task risk, and checkout state.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            docs/observability/**,
+            docs/agentic/**,
+            evals/**,
+            evaluations/**,
+            observability/**,
+            .agentic/run-envelope.*,
+          ]
+        terms:
+          [
+            task class,
+            tool,
+            permission,
+            budget,
+            stop reason,
+            outcome,
+            harness version,
+            verification,
+          ]
+        min_terms: 4
+    remediation: Adopt a common run envelope and outcome taxonomy with privacy and retention rules.
+  - id: ADRB-OBS-003
+    level: 3
+    title: Outcome evidence is captured consistently
+    outcome: Material agent runs automatically emit retained metadata and verification outcomes.
+    risk: Only memorable successes and failures shape policy, creating selection bias.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show automated run-envelope capture, completeness monitoring, retention controls, and access controls.
+    remediation: Emit structured run and outcome records automatically while minimizing sensitive content.
+  - id: ADRB-OBS-004
+    level: 4
+    title: Agent outcomes drive autonomy decisions
+    outcome: Quality, escape rate, cycle time, cost, intervention, and rollback trends change autonomy or harness policy.
+    risk: Token use or completion rate becomes a misleading proxy for engineering value and safety.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide outcome trends segmented by task and risk class and an autonomy or harness decision they changed.
+    remediation: Evaluate quality and total effort by task class and use results to narrow or expand autonomy.

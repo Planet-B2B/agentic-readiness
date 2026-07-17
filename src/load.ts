@@ -5,17 +5,19 @@ import fg from 'fast-glob';
 import { parse } from 'yaml';
 
 import {
+  AgentEvidenceFileSchema,
   AttestationFileSchema,
   BenchmarkSchema,
   ControlFileSchema,
   dimensionIds,
+  type AgentEvidenceFile,
   type AttestationFile,
   type Benchmark,
   type Control,
 } from './schema.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.1');
+export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.2');
 
 async function readYaml(path: string): Promise<unknown> {
   return parse(await readFile(path, 'utf8')) as unknown;
@@ -56,11 +58,41 @@ export async function loadAttestations(
   }
 }
 
+export async function loadAgentEvidence(path: string): Promise<AgentEvidenceFile | null> {
+  try {
+    return AgentEvidenceFileSchema.parse(await readYaml(path));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 export function validateCatalog(benchmark: Benchmark, controls: Control[]): void {
   const ids = new Set<string>();
   for (const control of controls) {
     if (ids.has(control.id)) throw new Error(`Duplicate control id: ${control.id}`);
     ids.add(control.id);
+    if (
+      benchmark.version === '0.2.0' &&
+      control.evidence.some(({ type }) => type === 'content_any' || type === 'content_all')
+    ) {
+      throw new Error(`${control.id} uses a legacy broad content collector in benchmark v0.2.0`);
+    }
+    if (control.allow_agent_evidence && !control.evidence.some(({ type }) => type === 'manual')) {
+      throw new Error(`${control.id} allows agent evidence without an external evidence check`);
+    }
+    if (
+      benchmark.version === '0.2.0' &&
+      control.allow_attestation &&
+      !control.evidence.some(({ type }) => type === 'manual')
+    ) {
+      throw new Error(`${control.id} allows attestation for repository-detected evidence`);
+    }
+    for (const check of control.evidence) {
+      if (check.type === 'content_terms' && check.min_terms > check.terms.length) {
+        throw new Error(`${control.id} requires more content terms than it defines`);
+      }
+    }
   }
 
   const benchmarkDimensions = benchmark.dimensions.map(({ id }) => id);
