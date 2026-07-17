@@ -1,3 +1,5 @@
+![Agentic Development Readiness](https://raw.githubusercontent.com/Planet-B2B/agentic-readiness/main/assets/brand/banner.png)
+
 # Agentic Development Readiness Benchmark
 
 A vendor-neutral, evidence-backed benchmark for the engineering harness around AI coding agents.

@@ -6,3 +6,4 @@ coverage/
 .env.*
 !.env.example
 .agentic/reports/
+/assets/brand/*-source.png
