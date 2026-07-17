@@ -396,7 +396,7 @@ function toMarkdown(report) {
 // src/repository.ts
 import { execFile } from "child_process";
 import { realpath } from "fs/promises";
-import { relative, resolve as resolve2, sep } from "path";
+import { isAbsolute, relative, resolve as resolve2, sep } from "path";
 import { promisify } from "util";
 var execFileAsync = promisify(execFile);
 var generatedEvidenceIgnores = [
@@ -412,6 +412,18 @@ var generatedEvidenceIgnores = [
   "**/.agentic/agent-evidence.*",
   "**/.agentic/evidence-request.*"
 ];
+function relativePathWithin(root, path) {
+  const candidate = relative(root, path);
+  if (candidate === "") return candidate;
+  if (candidate === ".." || candidate.startsWith(`..${sep}`) || isAbsolute(candidate)) {
+    return null;
+  }
+  return candidate;
+}
+function normalizeExcludedPath(path, requestedRoot, canonicalRoot) {
+  const absolute = isAbsolute(path) ? resolve2(path) : resolve2(requestedRoot, path);
+  return relativePathWithin(requestedRoot, absolute) ?? relativePathWithin(canonicalRoot, absolute);
+}
 function sanitizeRemote(remote) {
   if (!remote) return null;
   try {
@@ -439,7 +451,8 @@ async function git(repo, args) {
   }
 }
 async function createRepositoryContext(repository, scope, excludedPaths = []) {
-  const root = await realpath(repository);
+  const requestedRoot = resolve2(repository);
+  const root = await realpath(requestedRoot);
   const [headOutput, remoteOutput, statusOutput] = await Promise.all([
     git(root, ["rev-parse", "HEAD"]),
     git(root, ["config", "--get", "remote.origin.url"]),
@@ -466,9 +479,8 @@ async function createRepositoryContext(repository, scope, excludedPaths = []) {
     includedPaths,
     excludedPaths: new Set(
       excludedPaths.flatMap((path) => {
-        const absolute = resolve2(path);
-        if (absolute !== root && !absolute.startsWith(`${root}${sep}`)) return [];
-        return [relative(root, absolute)];
+        const normalized = normalizeExcludedPath(path, requestedRoot, root);
+        return normalized === null ? [] : [normalized];
       })
     )
   };

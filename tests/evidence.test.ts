@@ -173,6 +173,59 @@ describe('v0.2 local evidence boundaries', () => {
     }
   });
 
+  it('resolves relative exclusions from the assessed repository root', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
+    const control = fixtureControl([
+      {
+        type: 'content_terms',
+        files: ['artifacts/**'],
+        terms: ['generated-marker'],
+        min_terms: 1,
+      },
+    ]);
+    try {
+      await mkdir(join(repository, 'artifacts'), { recursive: true });
+      await writeFile(join(repository, 'artifacts', 'report.md'), 'generated-marker', 'utf8');
+      const context = await createRepositoryContext(repository, 'workspace', [
+        'artifacts/report.md',
+      ]);
+      const result = await evaluateControl(context, control, null, null);
+      expect(context.excludedPaths).toEqual(new Set(['artifacts/report.md']));
+      expect(result.status).toBe('not_met');
+      expect(result.evidence[0]?.references).toEqual([]);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizes absolute exclusions beneath a symlinked repository root', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
+    const repository = join(parent, 'repository');
+    const linkedRepository = join(parent, 'linked-repository');
+    const control = fixtureControl([
+      {
+        type: 'content_terms',
+        files: ['artifacts/**'],
+        terms: ['generated-marker'],
+        min_terms: 1,
+      },
+    ]);
+    try {
+      await mkdir(join(repository, 'artifacts'), { recursive: true });
+      await writeFile(join(repository, 'artifacts', 'report.md'), 'generated-marker', 'utf8');
+      await symlink(repository, linkedRepository, 'dir');
+      const context = await createRepositoryContext(linkedRepository, 'workspace', [
+        join(linkedRepository, 'artifacts', 'report.md'),
+      ]);
+      const result = await evaluateControl(context, control, null, null);
+      expect(context.excludedPaths).toEqual(new Set(['artifacts/report.md']));
+      expect(result.status).toBe('not_met');
+      expect(result.evidence[0]?.references).toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it('never uses generated reports as evidence, even in workspace mode', async () => {
     const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
     const control = fixtureControl([

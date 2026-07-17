@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { AssessmentScope } from './schema.js';
@@ -33,6 +33,24 @@ export interface RepositoryContext {
   metadata: RepositoryMetadata;
   includedPaths: Set<string> | null;
   excludedPaths: Set<string>;
+}
+
+function relativePathWithin(root: string, path: string): string | null {
+  const candidate = relative(root, path);
+  if (candidate === '') return candidate;
+  if (candidate === '..' || candidate.startsWith(`..${sep}`) || isAbsolute(candidate)) {
+    return null;
+  }
+  return candidate;
+}
+
+function normalizeExcludedPath(
+  path: string,
+  requestedRoot: string,
+  canonicalRoot: string,
+): string | null {
+  const absolute = isAbsolute(path) ? resolve(path) : resolve(requestedRoot, path);
+  return relativePathWithin(requestedRoot, absolute) ?? relativePathWithin(canonicalRoot, absolute);
 }
 
 function sanitizeRemote(remote: string | null): string | null {
@@ -68,7 +86,8 @@ export async function createRepositoryContext(
   scope: AssessmentScope,
   excludedPaths: string[] = [],
 ): Promise<RepositoryContext> {
-  const root = await realpath(repository);
+  const requestedRoot = resolve(repository);
+  const root = await realpath(requestedRoot);
   const [headOutput, remoteOutput, statusOutput] = await Promise.all([
     git(root, ['rev-parse', 'HEAD']),
     git(root, ['config', '--get', 'remote.origin.url']),
@@ -97,9 +116,8 @@ export async function createRepositoryContext(
     includedPaths,
     excludedPaths: new Set(
       excludedPaths.flatMap((path) => {
-        const absolute = resolve(path);
-        if (absolute !== root && !absolute.startsWith(`${root}${sep}`)) return [];
-        return [relative(root, absolute)];
+        const normalized = normalizeExcludedPath(path, requestedRoot, root);
+        return normalized === null ? [] : [normalized];
       }),
     ),
   };
