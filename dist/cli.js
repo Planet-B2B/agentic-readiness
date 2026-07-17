@@ -396,6 +396,21 @@ var generatedEvidenceIgnores = [
   "**/.agentic/agent-evidence.*",
   "**/.agentic/evidence-request.*"
 ];
+function sanitizeRemote(remote) {
+  if (!remote) return null;
+  try {
+    const url = new URL(remote);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      url.username = "";
+      url.password = "";
+    } else if (url.password) {
+      url.password = "";
+    }
+    return url.toString();
+  } catch {
+    return remote;
+  }
+}
 async function git(repo, args) {
   try {
     const { stdout } = await execFileAsync("git", ["-C", repo, ...args], {
@@ -429,7 +444,7 @@ async function createRepositoryContext(repository, scope, excludedPaths = []) {
       root,
       scope,
       git_head: headOutput?.trim() || null,
-      git_remote: remoteOutput?.trim() || null,
+      git_remote: sanitizeRemote(remoteOutput?.trim() || null),
       working_tree_dirty: statusOutput === null ? null : statusOutput.length > 0
     },
     includedPaths,
@@ -902,12 +917,17 @@ program.command("init-evidence").argument("[repository]", "repository to prepare
     const requestPath = resolve4(
       options.requestOutput ?? join2(repo, ".agentic", "evidence-request.md")
     );
+    if (path === requestPath) {
+      throw new Error("Agent evidence bundle and request paths must be different");
+    }
     if (!options.force) {
-      try {
-        await readFile3(path, "utf8");
-        throw new Error(`${path} already exists; use --force to replace it`);
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
+      for (const candidate of [path, requestPath]) {
+        try {
+          await readFile3(candidate, "utf8");
+          throw new Error(`${candidate} already exists; use --force to replace it`);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
       }
     }
     const { benchmark, controls } = await loadBenchmark();
