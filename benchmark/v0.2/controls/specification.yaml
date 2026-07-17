@@ -1,0 +1,62 @@
+dimension: specification
+controls:
+  - id: ADRB-SPC-001
+    level: 1
+    title: Work has a durable objective
+    outcome: Engineering work starts from a tracked issue, request, or specification artifact.
+    risk: Agents optimize an inferred problem and completion cannot be judged consistently.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns:
+          [.github/ISSUE_TEMPLATE/**, docs/requirements/**, specs/**, .ai/specs/**, .kiro/specs/**]
+    remediation: Adopt a tracked work-request or specification template with objective, owner, and outcome.
+  - id: ADRB-SPC-002
+    level: 2
+    title: Acceptance criteria and constraints are documented
+    outcome: Work artifacts state testable acceptance criteria plus material constraints or exclusions.
+    risk: An implementation can appear plausible without satisfying a shared definition of done.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [.github/ISSUE_TEMPLATE/**, specs/**, .ai/specs/**, .kiro/specs/**, docs/requirements/**]
+        terms: [acceptance criteria, requirements, constraints, non-goals, verification]
+        min_terms: 2
+    remediation: Add testable outcomes, constraints, exclusions, and verification expectations to work artifacts.
+  - id: ADRB-SPC-003
+    level: 3
+    title: Specification traceability is mechanically checked
+    outcome: Automation checks that applicable changes and verification trace to an approved work artifact.
+    risk: Specifications become optional prose disconnected from implementation and tests.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, scripts/**, package.json, Makefile]
+        terms: [acceptance criteria, traceability, requirements coverage, spec check, task id]
+        min_terms: 2
+    remediation: Add a deterministic traceability check from change to work artifact and verification record.
+  - id: ADRB-SPC-005
+    level: 3
+    title: Specification traceability is required before merge
+    outcome: Repository merge policy requires the applicable traceability check or equivalent review evidence.
+    risk: A configured check can be skipped or bypassed when delivery pressure rises.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show that the traceability check or equivalent review requirement is an enforced merge gate with controlled exceptions.
+    remediation: Require the traceability check in merge policy and restrict, record, and review bypasses.
+  - id: ADRB-SPC-004
+    level: 4
+    title: Specification effectiveness drives improvement
+    outcome: Rework and escaped ambiguity attributable to specifications are trended and improve the process.
+    risk: Specification ceremony grows without reducing misunderstanding or rework.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide specification-related rework or ambiguity trends and a recent process change driven by them.
+    remediation: Classify rework causes and evolve specification practices using outcome evidence.

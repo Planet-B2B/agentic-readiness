@@ -9,11 +9,11 @@ all other guidance and records the repository-wide architecture invariants.
 
 | Task                               | Read first                                                                                   |
 | ---------------------------------- | -------------------------------------------------------------------------------------------- |
-| Change scoring or readiness floors | `benchmark/v0.1/benchmark.yaml`, `benchmark/v0.1/scoring-policy.md`                          |
-| Add or edit a control              | `.agents/skills/benchmark-authoring/SKILL.md`, the matching `benchmark/v0.1/controls/*.yaml` |
+| Change scoring or readiness floors | `benchmark/v0.2/benchmark.yaml`, `benchmark/v0.2/scoring-policy.md`                          |
+| Add or edit a control              | `.agents/skills/benchmark-authoring/SKILL.md`, the matching `benchmark/v0.2/controls/*.yaml` |
 | Change evidence collection         | `src/evidence.ts`, `src/schema.ts`                                                           |
 | Change reports or CLI behavior     | `src/report.ts`, `src/cli.ts`                                                                |
-| Add a vendor adapter               | `benchmark/v0.1/adapter-contract.md`; do not change portable control meaning                 |
+| Add a vendor adapter               | `benchmark/v0.2/adapter-contract.md`; do not change portable control meaning                 |
 
 ## Non-negotiables
 

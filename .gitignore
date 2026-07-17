@@ -6,3 +6,8 @@ coverage/
 .env.*
 !.env.example
 .agentic/reports/
+.agentic/report*.json
+.agentic/agent-evidence.*
+.agentic/evidence-request.*
+/assets/brand/*-source.png
+.claude/settings.local.json

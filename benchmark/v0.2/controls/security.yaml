@@ -1,0 +1,71 @@
+dimension: security
+controls:
+  - id: ADRB-SEC-001
+    level: 1
+    title: Security reporting and secret handling are documented
+    outcome: Contributors can find security contacts plus rules for credentials and sensitive data.
+    risk: Agents expose secrets or sensitive data and responders lack a defined reporting path.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [SECURITY.md, .github/SECURITY.md, docs/security/**]
+        terms: [report, vulnerability, secret, credential, sensitive]
+        min_terms: 2
+    remediation: Publish a security policy covering reporting, secrets, sensitive data, and agent-specific risks.
+  - id: ADRB-SEC-002
+    level: 2
+    title: Agent data and autonomy boundaries are explicit
+    outcome: Agent preflight guidance binds permitted data, tools, mutations, approvals, and stop conditions.
+    risk: Operators grant more data or authority than the task requires.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [SECURITY.md, AGENTS.md, docs/security/**, docs/agentic/**, templates/**]
+        terms:
+          [
+            data classification,
+            allowed tools,
+            mutation,
+            budget,
+            human approval,
+            autonomy,
+            stop condition,
+          ]
+        min_terms: 3
+    remediation: Add a task preflight that binds data, tools, write scope, budget, approvals, and stop conditions.
+  - id: ADRB-SEC-003
+    level: 3
+    title: Automated agent security safeguards are configured
+    outcome: Repository automation checks secrets and defines handling for untrusted agent input.
+    risk: Credential exposure or prompt-borne instructions can pass through an otherwise healthy pipeline.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, .gitlab-ci.yml, scripts/**, SECURITY.md, docs/security/**]
+        terms: [secret scan, gitleaks, trufflehog, prompt injection, untrusted content, sandbox]
+        min_terms: 2
+    remediation: Configure secret scanning and explicit untrusted-content or prompt-injection safeguards with tests.
+  - id: ADRB-SEC-005
+    level: 3
+    title: High-impact agent actions are technically gated
+    outcome: External authority controls prevent unapproved high-impact actions and record controlled exceptions.
+    risk: Repository instructions alone cannot prevent credential misuse or irreversible external actions.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show authorization gates, scoped credentials, approval enforcement, audit records, and controlled bypasses for high-impact agent actions.
+    remediation: Enforce least-privileged credentials, approval gates, auditability, and restricted exception handling.
+  - id: ADRB-SEC-004
+    level: 4
+    title: Agent security outcomes drive improvement
+    outcome: Denials, near misses, incidents, exceptions, and adversarial exercises are trended and improve controls.
+    risk: Controls appear complete while effectiveness against real failure modes remains unknown.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide agent-security outcome trends or exercise results and a recent control change driven by them.
+    remediation: Run adversarial exercises, trend security outcomes, and update boundaries from the results.

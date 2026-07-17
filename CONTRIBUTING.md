@@ -4,6 +4,8 @@ Thank you for helping make agentic development more measurable and safer across 
 
 Before contributing, read `.ai/constitution.md`, `AGENTS.md`, and
 `.agents/skills/benchmark-authoring/SKILL.md`. Open an issue before a large or normative change.
+For assessment results, false positives, false negatives, and adoption experience, follow
+[FEEDBACK.md](FEEDBACK.md).
 
 ## Development
 

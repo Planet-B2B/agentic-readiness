@@ -1,4 +1,4 @@
-benchmark_version: 0.1.0
+benchmark_version: 0.2.0
 attestations:
   ADRB-TOL-003:
     status: met
@@ -6,13 +6,13 @@ attestations:
     owner: Platform owner
     reviewed_at: 2026-07-01
     expires_at: 2027-07-01
-  ADRB-SEC-003:
+  ADRB-SEC-005:
     status: met
     evidence: https://example.invalid/evidence/security-controls
     owner: Security owner
     reviewed_at: 2026-07-01
     expires_at: 2027-07-01
-  ADRB-TST-003:
+  ADRB-TST-005:
     status: met
     evidence: https://example.invalid/evidence/required-checks
     owner: Quality owner
@@ -34,5 +34,11 @@ attestations:
     status: met
     evidence: https://example.invalid/evidence/recovery-exercise
     owner: Operations owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
+  ADRB-SPC-005:
+    status: met
+    evidence: https://example.invalid/evidence/specification-gate
+    owner: Product operations owner
     reviewed_at: 2026-07-01
     expires_at: 2027-07-01

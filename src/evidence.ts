@@ -1,64 +1,103 @@
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { resolve, sep } from 'node:path';
 import fg from 'fast-glob';
 
+import { generatedEvidenceIgnores, type RepositoryContext } from './repository.js';
 import type {
+  AgentEvidenceClaim,
   Attestation,
   AttestationFile,
   Control,
   ControlResult,
   EvidenceCheck,
   EvidenceResult,
+  EvidenceScope,
 } from './schema.js';
 
-const ignored = ['**/.git/**', '**/node_modules/**', '**/dist/**', '**/coverage/**'];
 const maxContentFileBytes = 512_000;
 const maxContentFiles = 250;
 const maxContentTotalBytes = 5_000_000;
 
-async function matches(repo: string, patterns: string[]): Promise<string[]> {
-  return (
-    await fg(patterns, {
-      cwd: repo,
-      dot: true,
-      onlyFiles: false,
-      unique: true,
-      followSymbolicLinks: false,
-      ignore: ignored,
-    })
-  ).sort();
+async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
+  const found = await fg(patterns, {
+    cwd: context.metadata.root,
+    dot: true,
+    onlyFiles: true,
+    unique: true,
+    followSymbolicLinks: false,
+    ignore: generatedEvidenceIgnores,
+  });
+  return found
+    .filter((path) => context.includedPaths === null || context.includedPaths.has(path))
+    .filter((path) => !context.excludedPaths.has(path))
+    .sort();
 }
 
-async function evaluatePathAny(repo: string, check: Extract<EvidenceCheck, { type: 'path_any' }>) {
-  const found = await matches(repo, check.patterns);
+async function safeFileSize(root: string, path: string): Promise<number | null> {
+  try {
+    const requestedPath = resolve(root, path);
+    if ((await lstat(requestedPath)).isSymbolicLink()) return null;
+    const canonicalPath = await realpath(requestedPath);
+    if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep}`)) return null;
+    const metadata = await stat(canonicalPath);
+    return metadata.isFile() ? metadata.size : null;
+  } catch {
+    return null;
+  }
+}
+
+async function nonEmptyMatches(
+  context: RepositoryContext,
+  patterns: string[],
+  minBytes: number,
+): Promise<string[]> {
+  const found = await matches(context, patterns);
+  const qualifying = await Promise.all(
+    found.map(async (path) => ({ path, size: await safeFileSize(context.metadata.root, path) })),
+  );
+  return qualifying.filter(({ size }) => size !== null && size >= minBytes).map(({ path }) => path);
+}
+
+async function evaluatePathAny(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'path_any' }>,
+) {
+  const found = await nonEmptyMatches(context, check.patterns, check.min_bytes);
   return result(
     check.type,
+    check.scope,
     found.length > 0 ? 'met' : 'not_met',
-    `${found.length} matching path(s)`,
+    `${found.length} safe, non-empty matching file(s)`,
     found,
   );
 }
 
-async function evaluatePathAll(repo: string, check: Extract<EvidenceCheck, { type: 'path_all' }>) {
-  const groups = await Promise.all(check.patterns.map(async (pattern) => matches(repo, [pattern])));
+async function evaluatePathAll(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'path_all' }>,
+) {
+  const groups = await Promise.all(
+    check.patterns.map(async (pattern) => nonEmptyMatches(context, [pattern], check.min_bytes)),
+  );
   const missing = check.patterns.filter((_, index) => groups[index]?.length === 0);
   const found = [...new Set(groups.flat())].sort();
   return result(
     check.type,
+    check.scope,
     missing.length === 0 ? 'met' : 'not_met',
     missing.length === 0
-      ? 'Every required path pattern matched'
-      : `Missing patterns: ${missing.join(', ')}`,
+      ? 'Every required pattern matched a safe, non-empty file'
+      : `Missing non-empty patterns: ${missing.join(', ')}`,
     found,
   );
 }
 
 async function readSearchableFiles(
-  repo: string,
+  context: RepositoryContext,
   patterns: string[],
 ): Promise<Array<{ path: string; text: string }>> {
-  const root = await realpath(repo);
-  const paths = (await matches(repo, patterns)).slice(0, maxContentFiles);
+  const root = context.metadata.root;
+  const paths = (await matches(context, patterns)).slice(0, maxContentFiles);
   const files: Array<{ path: string; text: string }> = [];
   let totalBytes = 0;
   for (const path of paths) {
@@ -70,25 +109,54 @@ async function readSearchableFiles(
       const metadata = await stat(canonicalPath);
       if (
         !metadata.isFile() ||
+        metadata.size === 0 ||
         metadata.size > maxContentFileBytes ||
         totalBytes + metadata.size > maxContentTotalBytes
       ) {
         continue;
       }
+      const text = (await readFile(canonicalPath, 'utf8')).toLowerCase();
+      if (isGeneratedAssessment(text)) continue;
       totalBytes += metadata.size;
-      files.push({ path, text: (await readFile(canonicalPath, 'utf8')).toLowerCase() });
+      files.push({ path, text });
     } catch {
-      // Races, unreadable files, and binary content are treated as unavailable evidence.
+      // Races, unreadable files, and binary content are unavailable evidence.
     }
   }
   return files;
 }
 
-async function evaluateContent(
-  repo: string,
+function isGeneratedAssessment(text: string): boolean {
+  const normalized = text.trimStart();
+  if (normalized.startsWith('# agentic development readiness assessment')) return true;
+  if (!normalized.startsWith('{')) return false;
+
+  try {
+    const candidate = JSON.parse(normalized) as unknown;
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+    const report = candidate as Record<string, unknown>;
+    const benchmark = report.benchmark;
+    return (
+      Boolean(benchmark) &&
+      typeof benchmark === 'object' &&
+      !Array.isArray(benchmark) &&
+      (benchmark as Record<string, unknown>).id === 'agentic-development-readiness' &&
+      typeof report.assessed_at === 'string' &&
+      Array.isArray(report.controls)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function evaluateLegacyContent(
+  context: RepositoryContext,
   check: Extract<EvidenceCheck, { type: 'content_any' | 'content_all' }>,
 ): Promise<EvidenceResult> {
-  const files = await readSearchableFiles(repo, check.files);
+  const files = await readSearchableFiles(context, check.files);
+  const matchingFiles = files.filter(({ text }) =>
+    check.needles.some((needle) => text.includes(needle.toLowerCase())),
+  );
   const matchedNeedles = check.needles.filter((needle) =>
     files.some(({ text }) => text.includes(needle.toLowerCase())),
   );
@@ -98,59 +166,105 @@ async function evaluateContent(
       : matchedNeedles.length === check.needles.length;
   return result(
     check.type,
+    check.scope,
     passed ? 'met' : 'not_met',
-    `Matched ${matchedNeedles.length}/${check.needles.length} required term(s) across ${files.length} file(s)`,
-    files.map(({ path }) => path),
+    `Matched ${matchedNeedles.length}/${check.needles.length} term(s) across ${files.length} candidate file(s)`,
+    matchingFiles.map(({ path }) => path),
   );
 }
 
-async function evaluateMaxBytes(
-  repo: string,
-  check: Extract<EvidenceCheck, { type: 'max_bytes' }>,
-) {
-  const paths = await matches(repo, check.patterns);
-  const root = await realpath(repo);
-  let total = 0;
-  let inspected = 0;
-  for (const path of paths) {
-    const requestedPath = resolve(root, path);
-    if ((await lstat(requestedPath)).isSymbolicLink()) continue;
-    const canonicalPath = await realpath(requestedPath);
-    if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep}`)) continue;
-    total += (await stat(canonicalPath)).size;
-    inspected += 1;
-  }
-  const passed = inspected > 0 && total <= check.max_bytes;
+async function evaluateContentTerms(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'content_terms' }>,
+): Promise<EvidenceResult> {
+  const files = await readSearchableFiles(context, check.files);
+  const matchesByFile = files.map(({ path, text }) => ({
+    path,
+    matched: check.terms.filter((term) => containsTerm(text, term)).length,
+    requiredMatched:
+      check.required_any_terms?.filter((term) => containsTerm(text, term)).length ?? 0,
+  }));
+  const qualifying = matchesByFile.filter(
+    ({ matched, requiredMatched }) =>
+      matched >= check.min_terms && (check.required_any_terms === undefined || requiredMatched > 0),
+  );
+  const strongest = matchesByFile.reduce((maximum, file) => Math.max(maximum, file.matched), 0);
+  const strongestRequired = matchesByFile.reduce(
+    (maximum, file) => Math.max(maximum, file.requiredMatched),
+    0,
+  );
+  const requiredSummary = check.required_any_terms
+    ? `; strongest required match ${strongestRequired}/${check.required_any_terms.length}`
+    : '';
   return result(
     check.type,
+    check.scope,
+    qualifying.length > 0 ? 'met' : 'not_met',
+    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    qualifying.map(({ path }) => path),
+  );
+}
+
+function containsTerm(text: string, term: string): boolean {
+  const pattern = term
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[\\s_-]+');
+  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
+}
+
+async function evaluateMaxBytes(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'max_bytes' }>,
+) {
+  const paths = await matches(context, check.patterns);
+  let total = 0;
+  const inspected: string[] = [];
+  for (const path of paths) {
+    const size = await safeFileSize(context.metadata.root, path);
+    if (size === null) continue;
+    total += size;
+    inspected.push(path);
+  }
+  const passed = inspected.length > 0 && total <= check.max_bytes;
+  return result(
+    check.type,
+    check.scope,
     passed ? 'met' : 'not_met',
-    `${total} byte(s) across ${inspected} safe matching file(s); maximum ${check.max_bytes}`,
-    paths,
+    `${total} byte(s) across ${inspected.length} safe matching file(s); maximum ${check.max_bytes}`,
+    inspected,
   );
 }
 
 function result(
   type: EvidenceCheck['type'],
+  scope: EvidenceScope,
   status: EvidenceResult['status'],
   summary: string,
   references: string[],
 ): EvidenceResult {
-  return { type, status, summary, references };
+  return { type, scope, status, summary, references };
 }
 
-async function evaluateCheck(repo: string, check: EvidenceCheck): Promise<EvidenceResult> {
+async function evaluateCheck(
+  context: RepositoryContext,
+  check: EvidenceCheck,
+): Promise<EvidenceResult> {
   switch (check.type) {
     case 'path_any':
-      return evaluatePathAny(repo, check);
+      return evaluatePathAny(context, check);
     case 'path_all':
-      return evaluatePathAll(repo, check);
+      return evaluatePathAll(context, check);
     case 'content_any':
     case 'content_all':
-      return evaluateContent(repo, check);
+      return evaluateLegacyContent(context, check);
+    case 'content_terms':
+      return evaluateContentTerms(context, check);
     case 'max_bytes':
-      return evaluateMaxBytes(repo, check);
+      return evaluateMaxBytes(context, check);
     case 'manual':
-      return result('manual', 'unknown', check.prompt, []);
+      return result('manual', check.scope, 'unknown', check.prompt, []);
   }
 }
 
@@ -159,6 +273,7 @@ function activeAttestation(
   attestations: AttestationFile | null,
   now: Date,
 ): Attestation | null {
+  if (!control.allow_attestation) return null;
   const attestation = attestations?.attestations[control.id];
   if (!attestation) return null;
   if (attestation.expires_at && new Date(attestation.expires_at) < now) return null;
@@ -166,32 +281,62 @@ function activeAttestation(
   return attestation;
 }
 
+function activeAgentEvidence(
+  control: Control,
+  claim: AgentEvidenceClaim | null,
+  now: Date,
+): AgentEvidenceClaim | null {
+  if (!claim || !control.allow_agent_evidence) return null;
+  if (new Date(claim.expires_at) < now) return null;
+  return claim;
+}
+
 export async function evaluateControl(
-  repo: string,
+  context: RepositoryContext,
   control: Control,
   attestations: AttestationFile | null,
+  agentClaim: AgentEvidenceClaim | null,
   now = new Date(),
 ): Promise<ControlResult> {
   const evidence = await Promise.all(
-    control.evidence.map(async (check) => evaluateCheck(repo, check)),
+    control.evidence.map(async (check) => evaluateCheck(context, check)),
   );
   const attestation = activeAttestation(control, attestations, now);
+  const agentEvidence = activeAgentEvidence(control, agentClaim, now);
   const checksPassed = evidence.every(({ status }) => status === 'met');
   const hasManualCheck = control.evidence.some(({ type }) => type === 'manual');
 
   let status: ControlResult['status'] = checksPassed ? 'met' : 'not_met';
   let confidence: ControlResult['confidence'] =
-    checksPassed && !hasManualCheck ? 'verified' : 'none';
+    checksPassed && !hasManualCheck ? 'repository-detected' : 'none';
+  const attestationStatus =
+    attestation?.status === 'unknown' ? null : (attestation?.status ?? null);
+  const hasExternalConflict =
+    agentEvidence !== null &&
+    agentEvidence.status !== 'unknown' &&
+    attestationStatus !== null &&
+    agentEvidence.status !== attestationStatus;
 
-  if (attestation?.status === 'not_applicable') {
+  if (checksPassed && !hasManualCheck) {
+    // Repository evidence is the strongest class emitted by the offline scanner.
+  } else if (hasExternalConflict) {
+    status = 'unknown';
+    confidence = 'none';
+  } else if (agentEvidence && agentEvidence.status !== 'unknown') {
+    status = agentEvidence.status;
+    confidence = 'agent-collected';
+  } else if (attestation?.status === 'not_applicable') {
     status = 'not_applicable';
     confidence = 'attested';
-  } else if (attestation?.status === 'met' && control.allow_attestation) {
+  } else if (attestation?.status === 'met') {
     status = 'met';
-    confidence = checksPassed && !hasManualCheck ? 'verified' : 'attested';
+    confidence = 'attested';
   } else if (attestation?.status === 'not_met' || attestation?.status === 'unknown') {
     status = attestation.status;
     confidence = 'attested';
+  } else if (agentEvidence?.status === 'unknown') {
+    status = 'unknown';
+    confidence = 'agent-collected';
   } else if (evidence.some(({ status: checkStatus }) => checkStatus === 'unknown')) {
     status = 'unknown';
   }
@@ -206,12 +351,8 @@ export async function evaluateControl(
     status,
     confidence,
     evidence,
+    agent_evidence: agentEvidence,
     attestation,
     remediation: control.remediation,
   };
-}
-
-export function repositoryLabel(repo: string, cwd = process.cwd()): string {
-  const label = relative(cwd, repo);
-  return label === '' ? '.' : label;
 }

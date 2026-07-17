@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-readiness.dev/schema/v0.2/attestations.json",
+  "title": "ADRB v0.2 human attestation file",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["benchmark_version", "attestations"],
+  "properties": {
+    "benchmark_version": { "const": "0.2.0" },
+    "attestations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "evidence", "owner", "reviewed_at", "expires_at"],
+        "properties": {
+          "status": { "enum": ["met", "not_met", "not_applicable", "unknown"] },
+          "evidence": { "type": "string", "minLength": 1 },
+          "owner": { "type": "string", "minLength": 1 },
+          "reviewed_at": { "type": "string", "format": "date" },
+          "expires_at": { "type": "string", "format": "date" }
+        }
+      }
+    }
+  }
+}

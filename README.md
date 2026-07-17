@@ -1,3 +1,9 @@
+![Agentic Development Readiness](assets/brand/banner.png)
+
+<p align="center">
+  <img src="assets/brand/avatar.png" width="96" height="96" alt="Agentic Development Readiness project mark">
+</p>
+
 # Agentic Development Readiness Benchmark
 
 A vendor-neutral, evidence-backed benchmark for the engineering harness around AI coding agents.
@@ -10,8 +16,9 @@ The benchmark measures the harness, not the model brand. It assesses ten dimensi
 maturity levels and applies non-compensating floors to five autonomy profiles. A high total score
 cannot hide a critical security, testing, governance, or recovery gap.
 
-This repository is an early **v0.1 reference implementation** intended for public review and
-piloting. It is not a certification standard.
+This repository is a **v0.2 reference implementation** intended for public review and piloting. It
+is not a certification standard. The immutable v0.1 benchmark remains available for historical
+reproduction; v0.1 and v0.2 scores are not directly comparable.
 
 ## Ask your coding agent
 
@@ -19,16 +26,41 @@ You do not need to install or learn the CLI yourself. Paste this prompt into Cod
 GitHub Copilot, Cursor, or another coding agent that has terminal access to your repository:
 
 > Assess this repository's readiness for AI-agent pull-request work. From the repository root, run
-> `npx --yes agentic-scorecard@0.1.0 assess . --profile pr-creation --format markdown --output .agentic/reports/agentic-readiness-v0.1.0.md`.
+> `npx --yes agentic-scorecard@0.2.0 assess . --profile pr-creation --scope tracked --format markdown --output .agentic/reports/agentic-readiness-v0.2.0.md`.
 > Do not change product source code or invent attestations. Read the resulting report and summarize
 > the score, highest passed profile, whether `pr-creation` passes, target-profile blockers, and the
-> five highest-value improvements. Clearly separate tool-verified evidence from self-attested
-> evidence and flag likely false positives or missing organizational evidence. Leave the report
-> uncommitted unless I ask you to commit it.
+> five highest-value improvements. Separate repository gaps from external and outcome evidence, and
+> keep repository-detected, agent-collected, and human-attested evidence distinct. Flag likely false
+> positives or negatives. Leave generated artifacts uncommitted unless I ask you to commit them.
 
 That is the recommended first assessment. The agent downloads the pinned benchmark package, runs the
 read-only local collector, and explains the results. For alternate authority levels or a guided
 remediation session, use the prompts in [AGENT_PROMPT.md](AGENT_PROMPT.md).
+
+## Feedback and community
+
+Real-world assessment feedback helps make the benchmark more accurate and useful across different
+engineering organizations and agent harnesses.
+
+- Share false positives, false negatives, unclear controls, and adoption experience through the
+  [assessment feedback form](https://github.com/Planet-B2B/agentic-readiness/issues/new?template=assessment-feedback.yml).
+- Propose scoring, control, evidence, or readiness-profile changes through the
+  [benchmark change form](https://github.com/Planet-B2B/agentic-readiness/issues/new?template=benchmark-change.yml).
+- Send private adoption questions or feedback that cannot be shared publicly to
+  [benchmark@planetb2b.com](mailto:benchmark@planetb2b.com). Do not email vulnerability reports;
+  follow [SECURITY.md](SECURITY.md) instead.
+
+Ask a coding agent to prepare privacy-safe feedback with this prompt:
+
+> Review my Agentic Development Readiness report and draft feedback for the
+> `Planet-B2B/agentic-readiness` repository. Include the benchmark version, target profile, relevant
+> control IDs, observed result, expected result, and a minimal sanitized explanation. Distinguish a
+> likely scanner defect from a proposed benchmark-policy change. Do not include credentials,
+> proprietary source, private URLs, personal data, customer data, or full report contents. Show me
+> the draft and ask for my approval before opening a GitHub issue.
+
+See [FEEDBACK.md](FEEDBACK.md) for the full feedback guide. If the project is useful to you, please
+[star the repository](https://github.com/Planet-B2B/agentic-readiness) so others can discover it.
 
 ## Quick start
 
@@ -38,8 +70,9 @@ A supported Node.js LTS release (20.19+, 22.13+, or 24+) is required. Assessment
 read-only, and offline by default.
 
 ```bash
-npx agentic-scorecard@0.1.0 assess /path/to/repository \
+npx agentic-scorecard@0.2.0 assess /path/to/repository \
   --profile pr-creation \
+  --scope tracked \
   --format markdown \
   --output agentic-readiness.md
 ```
@@ -47,11 +80,31 @@ npx agentic-scorecard@0.1.0 assess /path/to/repository \
 To record controls that repository inspection cannot prove:
 
 ```bash
-npx agentic-scorecard@0.1.0 init /path/to/repository
+npx agentic-scorecard@0.2.0 init /path/to/repository
 ```
 
-Complete `.agentic/attestations.yaml` with owners and links to durable evidence, then assess again.
-Attested evidence remains visibly distinct from tool-verified evidence in every report.
+Complete `.agentic/attestations.yaml` with owners and durable evidence links, then assess again.
+Human-attested evidence remains visibly distinct in every report.
+
+To let an authorized coding agent collect evidence from Git hosting, CI, dashboards, or other
+external systems, first generate a target-bound template. The repository must be a Git worktree
+with at least one commit so the bundle can bind to the exact assessed state:
+
+```bash
+npx agentic-scorecard@0.2.0 init-evidence /path/to/repository
+```
+
+Ask the agent to review `.agentic/evidence-request.md`, obtain approval before using
+least-privileged read-only connectors, add attempted claims to `.agentic/agent-evidence.yaml`, and
+rerun with `--agent-evidence`. The default bundle path is loaded automatically. See
+[AGENT_PROMPT.md](AGENT_PROMPT.md) for the complete copy-and-paste workflow.
+
+### Migrating from v0.1
+
+Run a new tracked-scope baseline and retain the old report as historical evidence. Do not present the
+score change as improvement or regression because v0.2 changes evidence semantics. Re-review v0.1
+attestations before recreating them for v0.2; v0.2 repository-artifact controls cannot be overridden
+by declaration, and every human or agent-collected external claim must expire.
 
 For development from this checkout:
 
@@ -104,30 +157,32 @@ No profile grants production deployment authority. Organizations should evaluate
 through a separate, system-specific safety case.
 
 The exact floors live in
-[`benchmark/v0.1/benchmark.yaml`](benchmark/v0.1/benchmark.yaml) and their rationale in
-[`benchmark/v0.1/scoring-policy.md`](benchmark/v0.1/scoring-policy.md).
+[`benchmark/v0.2/benchmark.yaml`](benchmark/v0.2/benchmark.yaml) and their rationale in
+[`benchmark/v0.2/scoring-policy.md`](benchmark/v0.2/scoring-policy.md).
 
-## Evidence and trust labels
+## Evidence scopes and trust labels
 
-- **Verified:** a deterministic local collector found the configured repository evidence.
-- **Attested:** an accountable owner supplied an evidence link or explanation. This may satisfy a
-  control, but it never becomes verified evidence.
-- **Unmet/unknown:** evidence is absent, expired, contradictory, or still requires review.
-- **Independently reviewed:** reserved for a future external review protocol; the CLI does not issue
-  this label.
+- **Repository-detected:** the local collector found qualifying evidence in the selected path scope.
+  This proves an artifact match, not consistent practice or external enforcement.
+- **Agent-collected:** an authorized agent supplied a target-bound, expiring, source-backed external
+  claim. It is not independently verified.
+- **Human-attested:** an accountable owner supplied a dated evidence link or explanation.
+- **Unknown:** evidence is unavailable, expired, unauthorized, mismatched, or inconclusive.
 
-Repository heuristics are intentionally explainable and conservative. They prove that an artifact
-or term exists—not that a team consistently follows it. Manual claims make organizational controls
-portable across GitHub, GitLab, Azure DevOps, internal systems, and different agent harnesses while
-preserving provenance.
+Controls also identify whether their evidence belongs in the repository, hosting platform,
+organization, or outcome systems. This prevents expected external unknowns from masquerading as
+missing files. Future independently conformant adapters require a separate protocol; v0.2 does not
+issue certification or independent-verification claims.
 
 ## Reports and CI
 
 The CLI emits Markdown for people and stable JSON for automation:
 
 ```bash
-agentic-scorecard assess . --format json --output .agentic/report.json
+agentic-scorecard assess . --scope tracked --format json --output .agentic/report.json
+agentic-scorecard assess . --profile pr-creation --agent-evidence .agentic/agent-evidence.yaml
 agentic-scorecard assess . --profile pr-creation --enforce
+agentic-scorecard init-evidence .
 agentic-scorecard explain ADRB-SEC-003
 agentic-scorecard validate
 ```
@@ -142,11 +197,12 @@ funded the remediation plan. See
 The default collector:
 
 - makes no network calls and invokes no model;
-- reads only the target checkout;
-- ignores `.git`, dependency, build, and coverage directories;
+- reads only Git-tracked paths and records commit and dirty-worktree metadata;
+- ignores `.git`, dependencies, build output, coverage, generated reports, attestations, and imported
+  evidence bundles;
 - caps content-scanned files at 512 KB;
 - reports file paths and match counts, never matching source snippets;
-- writes nothing unless `--output` or `init` is explicitly requested.
+- writes nothing unless `--output`, `init`, or `init-evidence` is explicitly requested.
 
 Do not place credentials, private prompts, source excerpts, or personal data in attestations. Link to
 access-controlled evidence instead. Report suspected vulnerabilities through [SECURITY.md](SECURITY.md).
@@ -154,7 +210,8 @@ access-controlled evidence instead. Report suspected vulnerabilities through [SE
 ## Repository structure
 
 ```text
-benchmark/v0.1/       immutable benchmark definition and controls
+benchmark/v0.1/       immutable historical v0.1 definition
+benchmark/v0.2/       current normative benchmark, schemas, and controls
 benchmark/mappings/   informative mappings to external frameworks
 src/                  reference CLI and local evidence collectors
 templates/            adoption, preflight, attestation, and remediation templates
@@ -171,21 +228,23 @@ OIDC-provenance release process.
 
 1. Run a local baseline for the least-authoritative profile you actually need.
 2. Review every result with security, platform, and representative delivery teams.
-3. Supply owned attestations for controls that cannot be mechanically verified.
-4. Publish the report internally with explicit limitations and benchmark version.
-5. Fund the smallest improvements that close target-profile blockers.
-6. Reassess on material harness changes and at least quarterly.
-7. Add a non-blocking CI report; enforce only the agreed target profile after a pilot.
+3. Use an authorized agent to collect source-backed external evidence where appropriate.
+4. Supply owned human attestations only where deterministic collection is unavailable.
+5. Publish the report internally with explicit limitations, scope, commit, and benchmark version.
+6. Fund the smallest improvements that close target-profile blockers.
+7. Reassess on material harness changes and at least quarterly.
+8. Add a non-blocking CI report; enforce only the agreed target profile after a pilot.
 
 Never optimize to the number alone. Use the control evidence and outcome metrics to improve the
 system, and keep exceptions narrow, owned, expiring, and visible.
 
 ## Status and roadmap
 
-v0.1 includes the normative control catalog, local collectors, attestations, JSON/Markdown reports,
-fixtures, and a CI example. Candidate next steps include SARIF/HTML reports, signed reports, a stable
-adapter SDK, organization-level aggregation, statistically designed benchmark tasks, and an
-independent-review protocol. These require public design review before becoming normative.
+v0.2 adds integrity-safe tracked-path collection, evidence scopes, precise co-located content
+matching, agent-collected external evidence, and transparent report grouping. Candidate next steps
+include conformant signed adapters, SARIF/HTML reports, organization-level aggregation,
+statistically designed benchmark tasks, and an independent-review protocol. These require public
+design review before becoming normative.
 
 Apache-2.0 licensed. The benchmark is a community engineering tool, not legal, compliance, or
 security advice.

@@ -4,9 +4,10 @@ import { dirname, join, resolve } from 'node:path';
 import { Command } from 'commander';
 import { stringify } from 'yaml';
 
-import { loadAttestations, loadBenchmark } from './load.js';
+import { loadAgentEvidence, loadAttestations, loadBenchmark } from './load.js';
 import { toMarkdown } from './report.js';
-import type { EvidenceCheck } from './schema.js';
+import { createRepositoryContext, repositoryEvidenceTarget } from './repository.js';
+import type { AssessmentScope, EvidenceCheck } from './schema.js';
 import { assess } from './score.js';
 
 const program = new Command();
@@ -14,7 +15,7 @@ const program = new Command();
 program
   .name('agentic-scorecard')
   .description('Evidence-backed readiness assessment for agentic software development harnesses')
-  .version('0.1.0');
+  .version('0.2.0');
 
 program
   .command('validate')
@@ -56,6 +57,9 @@ program
       }
     }
     const { benchmark, controls } = await loadBenchmark();
+    const reviewedAt = new Date();
+    const expiresAt = new Date(reviewedAt);
+    expiresAt.setDate(expiresAt.getDate() + 90);
     const attestations = Object.fromEntries(
       controls
         .filter((control) => control.evidence.some(({ type }) => type === 'manual'))
@@ -69,8 +73,8 @@ program
               status: 'unknown',
               evidence: `TODO: ${manualCheck?.prompt ?? control.outcome}`,
               owner: 'TODO',
-              reviewed_at: new Date().toISOString().slice(0, 10),
-              expires_at: null,
+              reviewed_at: reviewedAt.toISOString().slice(0, 10),
+              expires_at: expiresAt.toISOString().slice(0, 10),
             },
           ];
         }),
@@ -78,11 +82,105 @@ program
     await mkdir(dirname(path), { recursive: true });
     await writeFile(
       path,
-      `# Claims are visible as attested, never tool-verified. Link durable evidence; do not paste secrets.\n${stringify({ benchmark_version: benchmark.version, attestations })}`,
+      `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.\n${stringify({ benchmark_version: benchmark.version, attestations })}`,
       'utf8',
     );
     process.stdout.write(`Created ${path}\n`);
   });
+
+program
+  .command('init-evidence')
+  .argument('[repository]', 'repository to prepare external evidence for', '.')
+  .option('--output <path>', 'agent evidence bundle path')
+  .option('--request-output <path>', 'human-readable evidence request path')
+  .option('--force', 'replace an existing agent evidence bundle', false)
+  .description('Create a target-bound template for agent-collected external evidence')
+  .action(
+    async (
+      repository: string,
+      options: { output?: string; requestOutput?: string; force: boolean },
+    ) => {
+      const repo = resolve(repository);
+      const path = resolve(options.output ?? join(repo, '.agentic', 'agent-evidence.yaml'));
+      const requestPath = resolve(
+        options.requestOutput ?? join(repo, '.agentic', 'evidence-request.md'),
+      );
+      if (path === requestPath) {
+        throw new Error('Agent evidence bundle and request paths must be different');
+      }
+      if (!options.force) {
+        for (const candidate of [path, requestPath]) {
+          try {
+            await readFile(candidate, 'utf8');
+            throw new Error(`${candidate} already exists; use --force to replace it`);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+        }
+      }
+      const { benchmark, controls } = await loadBenchmark();
+      const context = await createRepositoryContext(repo, 'tracked').catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          error.message.startsWith('Tracked assessment requires a Git worktree')
+        ) {
+          throw new Error(
+            'init-evidence requires a Git worktree with a commit so the bundle can be target-bound.',
+          );
+        }
+        throw error;
+      });
+      if (!context.metadata.git_head) {
+        throw new Error(
+          'init-evidence requires a Git commit so the bundle can be target-bound. Commit the assessed state and try again.',
+        );
+      }
+      const eligibleControls = controls.filter(({ allow_agent_evidence: allowed }) => allowed);
+      const bundle = {
+        schema_version: '0.2.0',
+        benchmark_version: benchmark.version,
+        target: repositoryEvidenceTarget(context.metadata),
+        collector: { name: 'TODO: agent or adapter name', version: 'TODO' },
+        claims: {},
+      };
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        `# Use authorized read-only tools. Do not paste secrets or raw sensitive content.\n${stringify(bundle)}`,
+        'utf8',
+      );
+      await mkdir(dirname(requestPath), { recursive: true });
+      await writeFile(
+        requestPath,
+        [
+          '# ADRB v0.2 external evidence request',
+          '',
+          `- Repository: ${bundle.target.repository}`,
+          `- Git commit: ${bundle.target.git_head ?? 'unavailable'}`,
+          `- Benchmark: ${benchmark.version}`,
+          '',
+          'Obtain authorization before accessing connected systems. Use read-only, least-privileged tools. Add only attempted claims to the bundle; errors remain `unknown`. Never paste secrets or raw sensitive content.',
+          '',
+          ...eligibleControls.flatMap((control) => {
+            const manualCheck = control.evidence.find(
+              (check): check is Extract<EvidenceCheck, { type: 'manual' }> =>
+                check.type === 'manual',
+            );
+            return [
+              `## ${control.id} — ${control.title}`,
+              '',
+              `- Scope: ${manualCheck?.scope ?? 'organization'}`,
+              `- Request: ${manualCheck?.prompt ?? control.outcome}`,
+              `- Risk: ${control.risk}`,
+              '',
+            ];
+          }),
+        ].join('\n'),
+        'utf8',
+      );
+      process.stdout.write(`Created ${path}\nCreated ${requestPath}\n`);
+    },
+  );
 
 program
   .command('assess')
@@ -91,6 +189,8 @@ program
   .option('--format <format>', 'json or markdown', 'markdown')
   .option('--output <path>', 'write the report to a file')
   .option('--attestations <path>', 'manual attestation file')
+  .option('--agent-evidence <path>', 'agent-collected external evidence bundle')
+  .option('--scope <scope>', 'tracked or workspace', 'tracked')
   .option('--enforce', 'exit non-zero when the target profile fails', false)
   .option('--github-output', 'append summary values to $GITHUB_OUTPUT', false)
   .description('Assess a repository using local, read-only evidence collection')
@@ -102,6 +202,8 @@ program
         format: string;
         output?: string;
         attestations?: string;
+        agentEvidence?: string;
+        scope: string;
         enforce: boolean;
         githubOutput: boolean;
       },
@@ -109,19 +211,30 @@ program
       if (!['json', 'markdown'].includes(options.format)) {
         throw new Error('--format must be json or markdown');
       }
+      if (!['tracked', 'workspace'].includes(options.scope)) {
+        throw new Error('--scope must be tracked or workspace');
+      }
       const repo = resolve(repository);
       const { benchmark, controls } = await loadBenchmark();
       const attestationPath = resolve(
         options.attestations ?? join(repo, '.agentic', 'attestations.yaml'),
       );
       const attestations = await loadAttestations(attestationPath, benchmark.version);
-      const report = await assess(repo, benchmark, controls, options.profile, attestations);
+      const agentEvidencePath = resolve(
+        options.agentEvidence ?? join(repo, '.agentic', 'agent-evidence.yaml'),
+      );
+      const agentEvidence = await loadAgentEvidence(agentEvidencePath);
+      const reportPath = options.output ? resolve(options.output) : null;
+      const report = await assess(repo, benchmark, controls, options.profile, {
+        scope: options.scope as AssessmentScope,
+        attestations,
+        agentEvidence,
+        excludedPaths: [attestationPath, agentEvidencePath, ...(reportPath ? [reportPath] : [])],
+      });
       const output =
         options.format === 'json' ? `${JSON.stringify(report, null, 2)}\n` : toMarkdown(report);
 
-      let reportPath: string | null = null;
-      if (options.output) {
-        reportPath = resolve(options.output);
+      if (reportPath) {
         await mkdir(dirname(reportPath), { recursive: true });
         await writeFile(reportPath, output, 'utf8');
         process.stdout.write(`Wrote ${reportPath}\n`);

@@ -1,0 +1,58 @@
+dimension: tooling
+controls:
+  - id: ADRB-TOL-001
+    level: 1
+    title: Supported agent tools are declared
+    outcome: The tracked repository identifies supported agent interfaces or tool configuration.
+    risk: Agents discover tools opportunistically and use unsupported or unsafe paths.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns:
+          [
+            .codex/**,
+            .claude/**,
+            .agents/**,
+            .cursor/**,
+            .github/copilot-instructions.md,
+            mcp.json,
+            .mcp.json,
+          ]
+    remediation: Commit a non-empty declaration of supported agent surfaces and their intended use.
+  - id: ADRB-TOL-002
+    level: 2
+    title: Tool scope and failure behavior are documented
+    outcome: Tool guidance defines authority, validation, success signals, failure handling, and approved fallback.
+    risk: Agents bypass failures, widen scope, or mistake partial results for success.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [AGENTS.md, CLAUDE.md, .agents/**/*.md, .claude/**/*.md, docs/agentic/**, docs/tools/**]
+        terms: [authority, permission, read-only, validation, failure, fallback, approval]
+        min_terms: 3
+    remediation: Document each high-impact tool's authority, inputs, validation, failure mode, and fallback.
+  - id: ADRB-TOL-003
+    level: 3
+    title: High-impact tool authority is technically bounded and audited
+    outcome: High-impact tools enforce least privilege, authorization, structured validation, and audit records.
+    risk: Prompt instructions become the only barrier between an agent and an irreversible action.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show technical least-privilege enforcement, authorization tests, validation, audit records, and fail-closed behavior for high-impact tools.
+    remediation: Enforce scoped credentials, authorization, schema validation, audit logging, and deny-by-default behavior.
+  - id: ADRB-TOL-004
+    level: 4
+    title: Tool reliability drives improvement
+    outcome: Tool success, partial failure, denial, latency, and unsafe-fallback attempts are trended and improved.
+    risk: Tooling quality and risky workarounds remain anecdotal until an incident occurs.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide tool reliability trends and a recent tool or fallback improvement driven by them.
+    remediation: Trend tool outcomes by task and risk class and improve weak or bypassed interfaces.

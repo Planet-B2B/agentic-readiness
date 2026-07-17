@@ -1,0 +1,11 @@
+# Normally generated with `agentic-scorecard init-evidence .` so the target is bound correctly.
+# Use authorized read-only tools. Never paste credentials or raw sensitive content.
+schema_version: 0.2.0
+benchmark_version: 0.2.0
+target:
+  repository: https://example.invalid/owner/repository.git
+  git_head: null
+collector:
+  name: 'TODO: agent or adapter name'
+  version: TODO
+claims: {}

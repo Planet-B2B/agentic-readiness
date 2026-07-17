@@ -1,0 +1,60 @@
+dimension: governance
+controls:
+  - id: ADRB-GOV-001
+    level: 1
+    title: Contribution and review expectations are documented
+    outcome: Contributors can find non-empty guidance describing how changes are proposed and reviewed.
+    risk: Agents submit changes without a shared review or accountability process.
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            CONTRIBUTING.md,
+            .github/pull_request_template.md,
+            .github/PULL_REQUEST_TEMPLATE/**,
+            docs/contributing/**,
+          ]
+        terms: [pull request, review, approval, testing, contribution]
+        min_terms: 2
+    remediation: Publish contribution guidance covering change proposals, verification, reviewers, and approvals.
+  - id: ADRB-GOV-002
+    level: 2
+    title: Ownership and merge authority are declared
+    outcome: The tracked repository assigns review ownership and states who may approve or merge changes.
+    risk: Sensitive or cross-cutting changes reach reviewers without accountable ownership.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns: [.github/CODEOWNERS, CODEOWNERS]
+      - type: content_terms
+        scope: repository
+        files:
+          [CONTRIBUTING.md, GOVERNANCE.md, .github/pull_request_template.md, docs/governance/**]
+        terms: [owner, reviewer, approval, merge authority, required review]
+        min_terms: 2
+    remediation: Commit ownership rules and document reviewer, approval, merge, and exception authority.
+  - id: ADRB-GOV-003
+    level: 3
+    title: Protected merge governance is enforced
+    outcome: Platform rules enforce reviews, required checks, protected branches, and controlled exceptions.
+    risk: Repository-side declarations can be bypassed because platform enforcement is absent or too broad.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show protected branch or ruleset coverage, required reviews and checks, merge authority, bypass actors, and exception records.
+    remediation: Enforce branch or merge rules for relevant branches and restrict, record, and review bypasses.
+  - id: ADRB-GOV-004
+    level: 4
+    title: Governance outcomes drive improvement
+    outcome: Review escapes, bypasses, rollback causes, and approval latency are trended and improve governance.
+    risk: Governance becomes ceremony without evidence that it catches risk efficiently.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide governance outcome trends and a recent review or merge-policy improvement driven by them.
+    remediation: Trend governance outcomes by risk class and tune ownership, review depth, and exceptions.
