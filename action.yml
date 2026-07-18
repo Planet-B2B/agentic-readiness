@@ -30,6 +30,15 @@ outputs:
   percentage:
     description: Display percentage
     value: ${{ steps.assess.outputs.percentage }}
+  repository_score:
+    description: Consecutive maturity established by deterministic repository evidence
+    value: ${{ steps.assess.outputs.repository_score }}
+  repository_ceiling:
+    description: Maximum consecutive maturity the offline repository collector can establish
+    value: ${{ steps.assess.outputs.repository_ceiling }}
+  repository_percentage:
+    description: Repository-detected progress against the offline ceiling
+    value: ${{ steps.assess.outputs.repository_percentage }}
   highest_profile:
     description: Highest passed profile
     value: ${{ steps.assess.outputs.highest_profile }}

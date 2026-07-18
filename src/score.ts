@@ -34,6 +34,57 @@ function dimensionScore(controls: ControlResult[], dimension: DimensionId): Leve
   return score;
 }
 
+function repositoryScore(
+  catalog: Control[],
+  results: ControlResult[],
+  dimensions: Benchmark['dimensions'],
+): { achieved: number; ceiling: number; percentage: number } {
+  let achieved = 0;
+  let ceiling = 0;
+
+  for (const { id: dimension } of dimensions) {
+    let dimensionAchieved: Level = 0;
+    let dimensionCeiling: Level = 0;
+    let achievedOpen = true;
+    let ceilingOpen = true;
+
+    for (const level of [1, 2, 3, 4] as const) {
+      const controlsAtLevel = catalog.filter(
+        (control) => control.dimension === dimension && control.level === level,
+      );
+      const repositoryDetectable = controlsAtLevel.every((control) =>
+        control.evidence.every(
+          (evidence) => evidence.scope === 'repository' && evidence.type !== 'manual',
+        ),
+      );
+      if (ceilingOpen && repositoryDetectable) {
+        dimensionCeiling = level;
+      } else {
+        ceilingOpen = false;
+      }
+
+      const repositoryEstablished = controlsAtLevel.every((control) => {
+        const result = results.find(({ id }) => id === control.id);
+        return result?.status === 'met' && result.confidence === 'repository-detected';
+      });
+      if (achievedOpen && repositoryDetectable && repositoryEstablished) {
+        dimensionAchieved = level;
+      } else {
+        achievedOpen = false;
+      }
+    }
+
+    achieved += dimensionAchieved;
+    ceiling += dimensionCeiling;
+  }
+
+  return {
+    achieved,
+    ceiling,
+    percentage: ceiling === 0 ? 0 : Math.round((achieved / ceiling) * 100),
+  };
+}
+
 function assessProfiles(
   benchmark: Benchmark,
   dimensions: DimensionResult[],
@@ -110,11 +161,15 @@ export async function assess(
   });
   const profiles = assessProfiles(benchmark, dimensions, controls);
   const total = dimensions.reduce((sum, { score }) => sum + score, 0);
+  const repository =
+    benchmark.version === '0.3.0'
+      ? repositoryScore(catalog, controls, benchmark.dimensions)
+      : undefined;
   const highestProfile = [...profiles].reverse().find(({ passed }) => passed)?.id ?? null;
   const targetPassed = profiles.find(({ id }) => id === profileId)?.passed ?? false;
 
   return {
-    schema_version: '0.2.0',
+    schema_version: benchmark.version === '0.3.0' ? '0.3.0' : '0.2.0',
     benchmark: { id: benchmark.id, version: benchmark.version },
     target: {
       repository: repo,
@@ -125,7 +180,12 @@ export async function assess(
       working_tree_dirty: context.metadata.working_tree_dirty,
     },
     assessed_at: now.toISOString(),
-    score: { total, maximum: 40, percentage: Math.round((total / 40) * 100) },
+    score: {
+      total,
+      maximum: 40,
+      percentage: Math.round((total / 40) * 100),
+      ...(repository ? { repository } : {}),
+    },
     evidence_summary: {
       repository_detected: controls.filter(
         ({ confidence, status }) => confidence === 'repository-detected' && status === 'met',
@@ -138,6 +198,12 @@ export async function assess(
       ).length,
       unmet: controls.filter(({ status }) => status === 'not_met').length,
       unknown: controls.filter(({ status }) => status === 'unknown').length,
+      ...(benchmark.version === '0.3.0'
+        ? {
+            resolved: controls.filter(({ status }) => status !== 'unknown').length,
+            total: controls.length,
+          }
+        : {}),
     },
     dimensions,
     controls,
@@ -148,6 +214,12 @@ export async function assess(
         ? 'Tracked mode considers only Git-tracked paths, using current working-tree contents; uncommitted edits to tracked files can affect the result.'
         : 'Workspace mode includes untracked local files and is provisional; do not compare it directly with tracked-mode reports.',
       'Repository-detected evidence proves a qualifying artifact match, not consistent practice or external enforcement.',
+      ...(benchmark.version === '0.3.0'
+        ? [
+            'Repository-detected progress uses only deterministic offline evidence and its attainable ceiling; it is explanatory and does not replace the normative score or readiness floors.',
+            'Agent-collected repository evidence is semantic, target-bound, and source-backed but is not independently verified or relabelled as repository-detected.',
+          ]
+        : []),
       'Agent-collected evidence and human attestations are reported separately and are not independently verified.',
       'This assessment does not grant production access, deployment authority, or certification.',
     ],
@@ -178,6 +250,9 @@ function validateAgentEvidence(
       `Agent evidence commit ${evidence.target.git_head ?? 'unavailable'} does not match ${expectedTarget.git_head ?? 'an unavailable Git commit'}`,
     );
   }
+  if (benchmark.version === '0.3.0' && context.metadata.tracked_tree_dirty) {
+    throw new Error('ADRB v0.3 agent evidence requires tracked files to match the bound commit');
+  }
 
   const controls = new Map(catalog.map((control) => [control.id, control]));
   if (
@@ -192,11 +267,26 @@ function validateAgentEvidence(
     if (!control.allow_agent_evidence) {
       throw new Error(`${controlId} does not permit agent-collected evidence`);
     }
-    const allowedScopes = control.evidence
+    const manualScopes = control.evidence
       .filter(({ type }) => type === 'manual')
       .map(({ scope: evidenceScope }) => evidenceScope);
+    const allowedScopes =
+      control.agent_evidence_scopes.length > 0 ? control.agent_evidence_scopes : manualScopes;
     if (!allowedScopes.includes(claim.scope)) {
       throw new Error(`${controlId} does not accept ${claim.scope} evidence`);
+    }
+    if (claim.scope === 'repository') {
+      for (const reference of claim.references) {
+        const path = repositoryReferencePath(reference);
+        if (
+          !path ||
+          context.includedPaths === null ||
+          !context.includedPaths.has(path) ||
+          context.excludedPaths.has(path)
+        ) {
+          throw new Error(`${controlId} references an unavailable tracked path: ${reference}`);
+        }
+      }
     }
     if (new Date(claim.collected_at) > new Date(claim.expires_at)) {
       throw new Error(`${controlId} expires before it was collected`);
@@ -211,4 +301,19 @@ function validateAgentEvidence(
       throw new Error(`${controlId} contains unresolved TODO evidence`);
     }
   }
+}
+
+function repositoryReferencePath(reference: string): string | null {
+  if (!reference.startsWith('repo:')) return null;
+  const withoutPrefix = reference.slice('repo:'.length);
+  const path = withoutPrefix.replace(/#L\d+(?:-L?\d+)?$/, '');
+  if (
+    path.length === 0 ||
+    path.startsWith('/') ||
+    path.includes('\\') ||
+    path.split('/').some((part) => part === '..' || part === '.')
+  ) {
+    return null;
+  }
+  return path;
 }

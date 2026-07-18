@@ -16,9 +16,9 @@ The benchmark measures the harness, not the model brand. It assesses ten dimensi
 maturity levels and applies non-compensating floors to five autonomy profiles. A high total score
 cannot hide a critical security, testing, governance, or recovery gap.
 
-This repository is a **v0.2 reference implementation** intended for public review and piloting. It
-is not a certification standard. The immutable v0.1 benchmark remains available for historical
-reproduction; v0.1 and v0.2 scores are not directly comparable.
+This repository is a **v0.3 reference implementation** intended for public review and piloting. It
+is not a certification standard. The immutable v0.1 and v0.2 benchmarks remain available for
+historical reproduction; scores from different benchmark versions are not directly comparable.
 
 ## Ask your coding agent
 
@@ -26,7 +26,7 @@ You do not need to install or learn the CLI yourself. Paste this prompt into Cod
 GitHub Copilot, Cursor, or another coding agent that has terminal access to your repository:
 
 > Assess this repository's readiness for AI-agent pull-request work. From the repository root, run
-> `npx --yes agentic-scorecard@0.2.0 assess . --profile pr-creation --scope tracked --format markdown --output .agentic/reports/agentic-readiness-v0.2.0.md`.
+> `npx --yes agentic-scorecard@0.3.0 assess . --profile pr-creation --scope tracked --format markdown --output .agentic/reports/agentic-readiness-v0.3.0.md`.
 > Do not change product source code or invent attestations. Read the resulting report and summarize
 > the score, highest passed profile, whether `pr-creation` passes, target-profile blockers, and the
 > five highest-value improvements. Separate repository gaps from external and outcome evidence, and
@@ -70,7 +70,7 @@ A supported Node.js LTS release (20.19+, 22.13+, or 24+) is required. Assessment
 read-only, and offline by default.
 
 ```bash
-npx agentic-scorecard@0.2.0 assess /path/to/repository \
+npx agentic-scorecard@0.3.0 assess /path/to/repository \
   --profile pr-creation \
   --scope tracked \
   --format markdown \
@@ -80,7 +80,7 @@ npx agentic-scorecard@0.2.0 assess /path/to/repository \
 To record controls that repository inspection cannot prove:
 
 ```bash
-npx agentic-scorecard@0.2.0 init /path/to/repository
+npx agentic-scorecard@0.3.0 init /path/to/repository
 ```
 
 Complete `.agentic/attestations.yaml` with owners and durable evidence links, then assess again.
@@ -91,7 +91,7 @@ external systems, first generate a target-bound template. The repository must be
 with at least one commit so the bundle can bind to the exact assessed state:
 
 ```bash
-npx agentic-scorecard@0.2.0 init-evidence /path/to/repository
+npx agentic-scorecard@0.3.0 init-evidence /path/to/repository
 ```
 
 Ask the agent to review `.agentic/evidence-request.md`, obtain approval before using
@@ -99,19 +99,20 @@ least-privileged read-only connectors, add attempted claims to `.agentic/agent-e
 rerun with `--agent-evidence`. The default bundle path is loaded automatically. See
 [AGENT_PROMPT.md](AGENT_PROMPT.md) for the complete copy-and-paste workflow.
 
-### Migrating from v0.1
+### Migrating from v0.1 or v0.2
 
 Run a new tracked-scope baseline and retain the old report as historical evidence. Do not present the
-score change as improvement or regression because v0.2 changes evidence semantics. Re-review v0.1
-attestations before recreating them for v0.2; v0.2 repository-artifact controls cannot be overridden
-by declaration, and every human or agent-collected external claim must expire.
+score change as improvement or regression because v0.3 changes evidence and control semantics.
+Re-review prior attestations and agent evidence before recreating them for v0.3. All claims must
+expire, and repository-scoped semantic claims require tracked files to match the commit-bound target
+plus `repo:<path>[#Lx-Ly]` references. Untracked generated reports do not block this workflow.
 
 For development from this checkout:
 
 ```bash
 npm ci
 npm run check
-npm run dev -- assess tests/fixtures/mature --profile pr-creation
+npm run dev -- assess tests/fixtures/mature --profile pr-creation --attestations tests/fixtures/mature/.agentic/attestations-v0.3.yaml
 ```
 
 ## What it assesses
@@ -157,22 +158,32 @@ No profile grants production deployment authority. Organizations should evaluate
 through a separate, system-specific safety case.
 
 The exact floors live in
-[`benchmark/v0.2/benchmark.yaml`](benchmark/v0.2/benchmark.yaml) and their rationale in
-[`benchmark/v0.2/scoring-policy.md`](benchmark/v0.2/scoring-policy.md).
+[`benchmark/v0.3/benchmark.yaml`](benchmark/v0.3/benchmark.yaml) and their rationale in
+[`benchmark/v0.3/scoring-policy.md`](benchmark/v0.3/scoring-policy.md).
 
 ## Evidence scopes and trust labels
 
 - **Repository-detected:** the local collector found qualifying evidence in the selected path scope.
   This proves an artifact match, not consistent practice or external enforcement.
-- **Agent-collected:** an authorized agent supplied a target-bound, expiring, source-backed external
-  claim. It is not independently verified.
+- **Agent-collected:** an authorized agent supplied a target-bound, expiring, source-backed semantic
+  repository or external claim for an explicitly eligible control. It is not independently
+  verified and is never relabelled as repository-detected.
 - **Human-attested:** an accountable owner supplied a dated evidence link or explanation.
 - **Unknown:** evidence is unavailable, expired, unauthorized, mismatched, or inconclusive.
 
 Controls also identify whether their evidence belongs in the repository, hosting platform,
 organization, or outcome systems. This prevents expected external unknowns from masquerading as
-missing files. Future independently conformant adapters require a separate protocol; v0.2 does not
-issue certification or independent-verification claims.
+missing files. Declarative detector adapters recognize common harness layouts without changing
+portable control outcomes; future independently conformant external adapters require a separate
+protocol. v0.3 does not issue certification or independent-verification claims.
+
+### Interpreting the two score views
+
+The normative score remains `N/40` and drives readiness profiles. v0.3 also reports
+`repository-detected progress: A/C`, where `C` is the maximum consecutive maturity the offline
+collector can establish without platform, organization, outcome, agent-collected, or human-attested
+evidence. This second view explains how complete the visible repository harness is; it does not
+normalize away UNKNOWNs, change readiness floors, or certify the project.
 
 ## Reports and CI
 
@@ -200,7 +211,8 @@ The default collector:
 - reads only Git-tracked paths and records commit and dirty-worktree metadata;
 - ignores `.git`, dependencies, build output, coverage, generated reports, attestations, and imported
   evidence bundles;
-- caps content-scanned files at 512 KB;
+- caps content scanning at 512 KB per file, 5 MB total, and 250 candidates per check, with v0.3
+  per-pattern balancing where configured;
 - reports file paths and match counts, never matching source snippets;
 - writes nothing unless `--output`, `init`, or `init-evidence` is explicitly requested.
 
@@ -211,7 +223,9 @@ access-controlled evidence instead. Report suspected vulnerabilities through [SE
 
 ```text
 benchmark/v0.1/       immutable historical v0.1 definition
-benchmark/v0.2/       current normative benchmark, schemas, and controls
+benchmark/v0.2/       immutable historical v0.2 definition
+benchmark/v0.3/       current normative benchmark, schemas, and controls
+  adapters/           declarative path/term aliases for recognized agent harness layouts
 benchmark/mappings/   informative mappings to external frameworks
 src/                  reference CLI and local evidence collectors
 templates/            adoption, preflight, attestation, and remediation templates
@@ -240,8 +254,9 @@ system, and keep exceptions narrow, owned, expiring, and visible.
 
 ## Status and roadmap
 
-v0.2 adds integrity-safe tracked-path collection, evidence scopes, precise co-located content
-matching, agent-collected external evidence, and transparent report grouping. Candidate next steps
+v0.3 adds portable harness discovery with declarative detector adapters, proximity-bounded content evidence, prioritized candidate
+selection for large repositories, source-backed semantic repository claims, and an explanatory
+repository-only score and ceiling. Candidate next steps
 include conformant signed adapters, SARIF/HTML reports, organization-level aggregation,
 statistically designed benchmark tasks, and an independent-review protocol. These require public
 design review before becoming normative.

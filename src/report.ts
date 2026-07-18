@@ -100,9 +100,14 @@ export function toMarkdown(report: AssessmentReport): string {
     `- Working tree dirty: ${report.target.working_tree_dirty === null ? 'unknown' : String(report.target.working_tree_dirty)}`,
     `- Assessed: ${report.assessed_at}`,
     `- Score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
+    ...(report.score.repository
+      ? [
+          `- Repository-detected progress: **${report.score.repository.achieved}/${report.score.repository.ceiling} (${report.score.repository.percentage}%)** of the maturity levels the offline repository collector can establish`,
+        ]
+      : []),
     `- Highest readiness profile: **${report.readiness.highest_profile ?? 'none'}**`,
     `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? 'PASS' : 'FAIL'}**`,
-    `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown`,
+    `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== undefined && report.evidence_summary.total !== undefined ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ''}`,
     '',
     '## Dimensions',
     '',

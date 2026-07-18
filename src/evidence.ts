@@ -95,9 +95,12 @@ async function evaluatePathAll(
 async function readSearchableFiles(
   context: RepositoryContext,
   patterns: string[],
+  maxFilesPerPattern?: number,
 ): Promise<Array<{ path: string; text: string }>> {
   const root = context.metadata.root;
-  const paths = (await matches(context, patterns)).slice(0, maxContentFiles);
+  const paths = maxFilesPerPattern
+    ? await prioritizedMatches(context, patterns, maxFilesPerPattern)
+    : (await matches(context, patterns)).slice(0, maxContentFiles);
   const files: Array<{ path: string; text: string }> = [];
   let totalBytes = 0;
   for (const path of paths) {
@@ -124,6 +127,31 @@ async function readSearchableFiles(
     }
   }
   return files;
+}
+
+async function prioritizedMatches(
+  context: RepositoryContext,
+  patterns: string[],
+  maxFilesPerPattern: number,
+): Promise<string[]> {
+  const selected: string[] = [];
+  const seen = new Set<string>();
+  const groups = await Promise.all(
+    patterns.map(async (pattern) =>
+      (await matches(context, [pattern])).slice(0, maxFilesPerPattern),
+    ),
+  );
+  for (let candidateIndex = 0; candidateIndex < maxFilesPerPattern; candidateIndex += 1) {
+    for (const group of groups) {
+      const path = group[candidateIndex];
+      if (!path) continue;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      selected.push(path);
+      if (selected.length === maxContentFiles) return selected;
+    }
+  }
+  return selected;
 }
 
 function isGeneratedAssessment(text: string): boolean {
@@ -177,17 +205,18 @@ async function evaluateContentTerms(
   context: RepositoryContext,
   check: Extract<EvidenceCheck, { type: 'content_terms' }>,
 ): Promise<EvidenceResult> {
-  const files = await readSearchableFiles(context, check.files);
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
   const matchesByFile = files.map(({ path, text }) => ({
     path,
-    matched: check.terms.filter((term) => containsTerm(text, term)).length,
-    requiredMatched:
-      check.required_any_terms?.filter((term) => containsTerm(text, term)).length ?? 0,
+    ...strongestContentMatch(
+      text,
+      check.terms,
+      check.required_any_terms ?? [],
+      check.min_terms,
+      check.max_span_lines,
+    ),
   }));
-  const qualifying = matchesByFile.filter(
-    ({ matched, requiredMatched }) =>
-      matched >= check.min_terms && (check.required_any_terms === undefined || requiredMatched > 0),
-  );
+  const qualifying = matchesByFile.filter(({ qualifies }) => qualifies);
   const strongest = matchesByFile.reduce((maximum, file) => Math.max(maximum, file.matched), 0);
   const strongestRequired = matchesByFile.reduce(
     (maximum, file) => Math.max(maximum, file.requiredMatched),
@@ -196,13 +225,66 @@ async function evaluateContentTerms(
   const requiredSummary = check.required_any_terms
     ? `; strongest required match ${strongestRequired}/${check.required_any_terms.length}`
     : '';
+  const proximitySummary = check.max_span_lines
+    ? ` within ${check.max_span_lines}-line window(s)`
+    : '';
   return result(
     check.type,
     check.scope,
     qualifying.length > 0 ? 'met' : 'not_met',
-    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary}${proximitySummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
     qualifying.map(({ path }) => path),
   );
+}
+
+function strongestContentMatch(
+  text: string,
+  terms: string[],
+  requiredTerms: string[],
+  minTerms: number,
+  maxSpanLines?: number,
+): { matched: number; requiredMatched: number; qualifies: boolean } {
+  if (!maxSpanLines) {
+    const matched = terms.filter((term) => containsTerm(text, term)).length;
+    const requiredMatched = requiredTerms.filter((term) => containsTerm(text, term)).length;
+    return {
+      matched,
+      requiredMatched,
+      qualifies: matched >= minTerms && (requiredTerms.length === 0 || requiredMatched > 0),
+    };
+  }
+
+  const termCounts = terms.map(() => 0);
+  const requiredCounts = requiredTerms.map(() => 0);
+  const lines = text.split(/\r?\n/);
+  let strongest = 0;
+  let strongestRequired = 0;
+  let qualifies = false;
+
+  const update = (line: string, direction: 1 | -1) => {
+    terms.forEach((term, index) => {
+      if (containsTerm(line, term)) termCounts[index] = (termCounts[index] ?? 0) + direction;
+    });
+    requiredTerms.forEach((term, index) => {
+      if (containsTerm(line, term)) {
+        requiredCounts[index] = (requiredCounts[index] ?? 0) + direction;
+      }
+    });
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? '', 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? '', -1);
+    const matched = termCounts.filter((count) => count > 0).length;
+    const requiredMatched = requiredCounts.filter((count) => count > 0).length;
+    strongest = Math.max(strongest, matched);
+    strongestRequired = Math.max(strongestRequired, requiredMatched);
+    if (matched >= minTerms && (requiredTerms.length === 0 || requiredMatched > 0)) {
+      qualifies = true;
+    }
+  }
+
+  return { matched: strongest, requiredMatched: strongestRequired, qualifies };
 }
 
 function containsTerm(text: string, term: string): boolean {

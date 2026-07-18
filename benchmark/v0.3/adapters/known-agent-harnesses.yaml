@@ -1,0 +1,177 @@
+id: known-agent-harnesses
+benchmark_version: 0.3.0
+extensions:
+  - control_id: ADRB-CTX-001
+    evidence_index: 0
+    patterns:
+      [
+        CLAUDE.md,
+        .github/copilot-instructions.md,
+        .claude/**,
+        .codex/**,
+        .cursor/rules/**,
+        .cursor/agents/**,
+        .cursor/skills/**,
+        .opencode/**,
+      ]
+  - control_id: ADRB-CTX-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .github/copilot-instructions.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/agents/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-CTX-003
+    evidence_index: 0
+    required_any_terms: [CLAUDE.md, copilot instructions]
+  - control_id: ADRB-ENV-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-SPC-001
+    evidence_index: 0
+    patterns: [.kiro/specs/**, .cursor/plans/**, .codex/plans/**]
+  - control_id: ADRB-SPC-002
+    evidence_index: 0
+    files: [.kiro/specs/**, .cursor/plans/**, .codex/plans/**]
+  - control_id: ADRB-TOL-001
+    evidence_index: 0
+    patterns:
+      [
+        .claude/**,
+        .codex/**,
+        .cursor/**,
+        .opencode/**,
+        .github/copilot-instructions.md,
+        opencode.json,
+      ]
+  - control_id: ADRB-TOL-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-SEC-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-SEC-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-TST-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-GOV-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-GOV-002
+    evidence_index: 1
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-LRN-001
+    evidence_index: 0
+    patterns: [.claude/memory/**, .codex/memory/**, .cursor/memory/**, .opencode/memory/**]
+  - control_id: ADRB-LRN-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-OBS-001
+    evidence_index: 0
+    files: [.cursor/runs/README*, .codex/runs/README*, .claude/runs/README*]
+  - control_id: ADRB-OBS-002
+    evidence_index: 0
+    files: [.cursor/runs/README*, .codex/runs/README*, .claude/runs/README*]
+  - control_id: ADRB-RES-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-RES-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]

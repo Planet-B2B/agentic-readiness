@@ -21,6 +21,7 @@ const fixtureControl = (evidence: unknown[], overrides: Partial<Control> = {}): 
   allow_attestation: false,
   allow_not_applicable: false,
   allow_agent_evidence: false,
+  agent_evidence_scopes: [],
   ...overrides,
 });
 
@@ -87,6 +88,69 @@ describe('v0.2 local evidence boundaries', () => {
       result = await evaluateControl(await workspace(repository), control, null, null);
       expect(result.status).toBe('met');
       expect(result.evidence[0]?.references).toEqual(['RECOVERY.md']);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('requires related terms to appear inside a configured line window', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
+    const control = fixtureControl([
+      {
+        type: 'content_terms',
+        files: ['CHECK.md'],
+        terms: ['stale', 'knowledge lint'],
+        min_terms: 2,
+        required_any_terms: ['knowledge lint'],
+        max_span_lines: 5,
+      },
+    ]);
+    try {
+      await writeFile(
+        join(repository, 'CHECK.md'),
+        ['stale cache test', '', '', '', '', '', 'knowledge lint for agent guidance'].join('\n'),
+        'utf8',
+      );
+      let result = await evaluateControl(await workspace(repository), control, null, null);
+      expect(result.status).toBe('not_met');
+
+      await writeFile(
+        join(repository, 'CHECK.md'),
+        ['knowledge lint', 'detects stale agent guidance'].join('\n'),
+        'utf8',
+      );
+      result = await evaluateControl(await workspace(repository), control, null, null);
+      expect(result.status).toBe('met');
+      expect(result.evidence[0]?.references).toEqual(['CHECK.md']);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves pattern priority when limiting large candidate corpora', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'adrb-evidence-'));
+    const control = fixtureControl([
+      {
+        type: 'content_terms',
+        files: ['bulk/**', 'AUTHORITATIVE.md'],
+        terms: ['agent authority', 'approval'],
+        min_terms: 2,
+        max_files_per_pattern: 1,
+      },
+    ]);
+    try {
+      await mkdir(join(repository, 'bulk'), { recursive: true });
+      await writeFile(join(repository, 'bulk', 'a.md'), 'unrelated', 'utf8');
+      await writeFile(join(repository, 'bulk', 'b.md'), 'agent authority approval', 'utf8');
+      await writeFile(
+        join(repository, 'AUTHORITATIVE.md'),
+        'agent authority requires approval',
+        'utf8',
+      );
+      const result = await evaluateControl(await workspace(repository), control, null, null);
+      expect(result.status).toBe('met');
+      expect(result.evidence[0]?.references).toEqual(['AUTHORITATIVE.md']);
+      expect(result.evidence[0]?.summary).toContain('across 2 candidate file(s)');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

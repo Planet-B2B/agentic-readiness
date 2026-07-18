@@ -1,0 +1,79 @@
+dimension: context
+controls:
+  - id: ADRB-CTX-001
+    level: 1
+    title: Agent guidance is discoverable
+    outcome: A contributor or agent can locate the repository's authoritative operating guidance.
+    risk: Agents infer repository rules from generic practice or stale neighboring files.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns:
+          [
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**,
+            .ai/rules/**,
+            .agents/**,
+          ]
+    remediation: Add a tracked, non-empty agent entry point that names the authoritative guidance.
+  - id: ADRB-CTX-002
+    level: 2
+    title: Guidance scope and precedence are explicit
+    outcome: Instructions state their scope, precedence, important constraints, and architecture boundaries.
+    risk: Conflicting or nested guidance produces plausible changes that violate local invariants.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+          ]
+        terms: [scope, precedence, architecture, must, constraint]
+        min_terms: 2
+        max_span_lines: 120
+        max_files_per_pattern: 50
+    remediation: Document instruction scope, precedence, non-negotiable constraints, and where deeper guidance lives.
+  - id: ADRB-CTX-003
+    level: 3
+    title: Agent guidance integrity is mechanically checked
+    outcome: Automated validation detects missing, broken, stale, or structurally invalid agent guidance.
+    risk: Critical instructions silently drift while agents continue treating them as authoritative.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, scripts/**, package.json, Makefile]
+        terms: [validate, lint, stale, broken link, integrity, check]
+        min_terms: 1
+        required_any_terms: [agent docs, agent instructions, AGENTS.md, Agents.md]
+        max_span_lines: 25
+    remediation: Add a CI check for required agent files, links, ownership, and structural invariants.
+  - id: ADRB-CTX-004
+    level: 4
+    title: Guidance effectiveness drives improvement
+    outcome: Retrieval failures, repeated instruction errors, and correction latency are trended and improve guidance.
+    risk: Documentation volume grows without evidence that agents find and apply the right context.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide time-series guidance-quality outcomes and a recent instruction change driven by them.
+    remediation: Measure context retrieval and recurring instruction failures, then update guidance from the results.

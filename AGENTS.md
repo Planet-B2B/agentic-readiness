@@ -9,11 +9,11 @@ all other guidance and records the repository-wide architecture invariants.
 
 | Task                               | Read first                                                                                   |
 | ---------------------------------- | -------------------------------------------------------------------------------------------- |
-| Change scoring or readiness floors | `benchmark/v0.2/benchmark.yaml`, `benchmark/v0.2/scoring-policy.md`                          |
-| Add or edit a control              | `.agents/skills/benchmark-authoring/SKILL.md`, the matching `benchmark/v0.2/controls/*.yaml` |
+| Change scoring or readiness floors | `benchmark/v0.3/benchmark.yaml`, `benchmark/v0.3/scoring-policy.md`                          |
+| Add or edit a control              | `.agents/skills/benchmark-authoring/SKILL.md`, the matching `benchmark/v0.3/controls/*.yaml` |
 | Change evidence collection         | `src/evidence.ts`, `src/schema.ts`                                                           |
 | Change reports or CLI behavior     | `src/report.ts`, `src/cli.ts`                                                                |
-| Add a vendor adapter               | `benchmark/v0.2/adapter-contract.md`; do not change portable control meaning                 |
+| Add a vendor adapter               | `benchmark/v0.3/adapter-contract.md`; do not change portable control meaning                 |
 
 ## Non-negotiables
 
@@ -33,7 +33,7 @@ Before pushing, run:
 
 ```bash
 npm run check
-node dist/cli.js assess tests/fixtures/mature --profile pr-creation --format markdown
+node dist/cli.js assess tests/fixtures/mature --profile pr-creation --format markdown --attestations tests/fixtures/mature/.agentic/attestations-v0.3.yaml
 ```
 
 Human approval is required before publishing a release, changing a readiness floor, or claiming

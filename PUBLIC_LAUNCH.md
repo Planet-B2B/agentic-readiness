@@ -48,4 +48,4 @@ blocking item below has an accountable owner.
 - [ ] Recruit maintainers from multiple organizations before positioning the benchmark as a neutral
       industry standard.
 - [ ] Decide through RFCs whether SARIF/HTML, signed reports, adapter conformance, organization-level
-      aggregation, and an independent-review protocol belong in v0.2.
+      aggregation, and an independent-review protocol belong in a future benchmark version.

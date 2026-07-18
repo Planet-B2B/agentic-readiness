@@ -27,6 +27,7 @@ export interface RepositoryMetadata {
   git_head: string | null;
   git_remote: string | null;
   working_tree_dirty: boolean | null;
+  tracked_tree_dirty: boolean | null;
 }
 
 export interface RepositoryContext {
@@ -88,10 +89,11 @@ export async function createRepositoryContext(
 ): Promise<RepositoryContext> {
   const requestedRoot = resolve(repository);
   const root = await realpath(requestedRoot);
-  const [headOutput, remoteOutput, statusOutput] = await Promise.all([
+  const [headOutput, remoteOutput, statusOutput, trackedStatusOutput] = await Promise.all([
     git(root, ['rev-parse', 'HEAD']),
     git(root, ['config', '--get', 'remote.origin.url']),
     git(root, ['status', '--porcelain']),
+    git(root, ['status', '--porcelain', '--untracked-files=no']),
   ]);
 
   let includedPaths: Set<string> | null = null;
@@ -112,6 +114,7 @@ export async function createRepositoryContext(
       git_head: headOutput?.trim() || null,
       git_remote: sanitizeRemote(remoteOutput?.trim() || null),
       working_tree_dirty: statusOutput === null ? null : statusOutput.length > 0,
+      tracked_tree_dirty: trackedStatusOutput === null ? null : trackedStatusOutput.length > 0,
     },
     includedPaths,
     excludedPaths: new Set(
