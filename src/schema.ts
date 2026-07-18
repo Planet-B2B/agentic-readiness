@@ -21,6 +21,7 @@ export type Level = z.infer<typeof LevelSchema>;
 
 export const EvidenceScopeSchema = z.enum(['repository', 'platform', 'organization', 'outcome']);
 export type EvidenceScope = z.infer<typeof EvidenceScopeSchema>;
+const ManualEvidenceScopeSchema = z.enum(['platform', 'organization', 'outcome']);
 
 export const AssessmentScopeSchema = z.enum(['tracked', 'workspace']);
 export type AssessmentScope = z.infer<typeof AssessmentScopeSchema>;
@@ -60,6 +61,8 @@ const ContentTermsSchema = z.object({
   terms: z.array(z.string().min(1)).min(1),
   min_terms: z.number().int().positive(),
   required_any_terms: z.array(z.string().min(1)).min(1).optional(),
+  max_span_lines: z.number().int().positive().max(200).optional(),
+  max_files_per_pattern: z.number().int().positive().max(250).optional(),
 });
 
 const MaxBytesSchema = z.object({
@@ -71,7 +74,7 @@ const MaxBytesSchema = z.object({
 
 const ManualSchema = z.object({
   type: z.literal('manual'),
-  scope: z.enum(['platform', 'organization', 'outcome']).default('organization'),
+  scope: ManualEvidenceScopeSchema.default('organization'),
   prompt: z.string().min(1),
 });
 
@@ -98,6 +101,7 @@ const RawControlSchema = z.object({
   allow_attestation: z.boolean().default(false),
   allow_not_applicable: z.boolean().default(false),
   allow_agent_evidence: z.boolean().default(false),
+  agent_evidence_scopes: z.array(EvidenceScopeSchema).default([]),
 });
 
 const LegacyRawControlSchema = RawControlSchema.extend({
@@ -115,6 +119,42 @@ export const LegacyControlFileSchema = z.object({
 });
 
 export type Control = z.infer<typeof RawControlSchema> & { dimension: DimensionId };
+
+const DetectorAdapterExtensionSchema = z
+  .object({
+    control_id: z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/),
+    evidence_index: z.number().int().nonnegative(),
+    patterns: z.array(z.string().min(1)).min(1).optional(),
+    files: z.array(z.string().min(1)).min(1).optional(),
+    terms: z.array(z.string().min(1)).min(1).optional(),
+    required_any_terms: z.array(z.string().min(1)).min(1).optional(),
+  })
+  .strict()
+  .superRefine((extension, context) => {
+    const extensionKinds = [
+      extension.patterns,
+      extension.files,
+      extension.terms,
+      extension.required_any_terms,
+    ].filter(Boolean).length;
+    if (extensionKinds !== 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'A detector extension must declare exactly one of patterns, files, terms, or required_any_terms',
+      });
+    }
+  });
+
+export const DetectorAdapterSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9-]+$/),
+    benchmark_version: z.string().regex(/^\d+\.\d+\.\d+$/),
+    extensions: z.array(DetectorAdapterExtensionSchema).min(1),
+  })
+  .strict();
+
+export type DetectorAdapter = z.infer<typeof DetectorAdapterSchema>;
 
 const DimensionSchema = z.object({
   id: DimensionIdSchema,
@@ -229,8 +269,61 @@ export const AgentEvidenceFileSchema = z
   })
   .strict();
 
-export type AgentEvidenceClaim = z.infer<typeof AgentEvidenceClaimSchema>;
-export type AgentEvidenceFile = z.infer<typeof AgentEvidenceFileSchema>;
+export const AgentEvidenceClaimV03Schema = z
+  .object({
+    status: z.enum(['met', 'not_met', 'unknown']),
+    scope: EvidenceScopeSchema,
+    summary: z.string().min(1),
+    references: z.array(z.string().min(1)).min(1),
+    collected_at: z.string().datetime(),
+    expires_at: z.string().datetime(),
+    error: z.string().min(1).nullable().default(null),
+  })
+  .strict()
+  .superRefine((claim, context) => {
+    if (claim.error && claim.status !== 'unknown') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A claim with an error must have unknown status',
+        path: ['status'],
+      });
+    }
+    if (
+      claim.scope === 'repository' &&
+      claim.references.some((reference) => !reference.startsWith('repo:'))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Repository claims must use repo:<tracked-path>[#Lx-Ly] references',
+        path: ['references'],
+      });
+    }
+  });
+
+export const AgentEvidenceFileV03Schema = z
+  .object({
+    schema_version: z.literal('0.3.0'),
+    benchmark_version: z.literal('0.3.0'),
+    target: z
+      .object({
+        repository: z.string().min(1),
+        git_head: z.string().min(1),
+      })
+      .strict(),
+    collector: z
+      .object({
+        name: z.string().min(1),
+        version: z.string().min(1),
+      })
+      .strict(),
+    claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema),
+  })
+  .strict();
+
+export type AgentEvidenceClaim =
+  z.infer<typeof AgentEvidenceClaimSchema> | z.infer<typeof AgentEvidenceClaimV03Schema>;
+export type AgentEvidenceFile =
+  z.infer<typeof AgentEvidenceFileSchema> | z.infer<typeof AgentEvidenceFileV03Schema>;
 
 export type CheckStatus = 'met' | 'not_met' | 'unknown';
 export type ControlStatus = CheckStatus | 'not_applicable';
@@ -277,10 +370,14 @@ export interface ProfileResult {
     required: Level;
     control_ids: string[];
   }>;
+  evidence_dependencies?: {
+    agent_collected: number;
+    attested: number;
+  };
 }
 
 export interface AssessmentReport {
-  schema_version: '0.2.0';
+  schema_version: '0.2.0' | '0.3.0';
   benchmark: { id: string; version: string };
   target: {
     repository: string;
@@ -291,13 +388,25 @@ export interface AssessmentReport {
     working_tree_dirty: boolean | null;
   };
   assessed_at: string;
-  score: { total: number; maximum: 40; percentage: number };
+  warnings?: string[];
+  score: {
+    total: number;
+    maximum: 40;
+    percentage: number;
+    repository?: {
+      achieved: number;
+      ceiling: number;
+      percentage: number;
+    };
+  };
   evidence_summary: {
     repository_detected: number;
     agent_collected: number;
     attested: number;
     unmet: number;
     unknown: number;
+    resolved?: number;
+    total?: number;
   };
   dimensions: DimensionResult[];
   controls: ControlResult[];

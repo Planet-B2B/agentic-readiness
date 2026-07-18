@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name('agentic-scorecard')
   .description('Evidence-backed readiness assessment for agentic software development harnesses')
-  .version('0.2.0');
+  .version('0.3.0');
 
 program
   .command('validate')
@@ -94,7 +94,7 @@ program
   .option('--output <path>', 'agent evidence bundle path')
   .option('--request-output <path>', 'human-readable evidence request path')
   .option('--force', 'replace an existing agent evidence bundle', false)
-  .description('Create a target-bound template for agent-collected external evidence')
+  .description('Create a target-bound template for unresolved agent-collected evidence')
   .action(
     async (
       repository: string,
@@ -135,9 +135,24 @@ program
           'init-evidence requires a Git commit so the bundle can be target-bound. Commit the assessed state and try again.',
         );
       }
-      const eligibleControls = controls.filter(({ allow_agent_evidence: allowed }) => allowed);
+      if (context.metadata.tracked_tree_dirty) {
+        throw new Error(
+          'init-evidence requires tracked files to match HEAD so every claim binds to the exact assessed commit.',
+        );
+      }
+      const baseline = await assess(repo, benchmark, controls, 'read-only-analysis', {
+        scope: 'tracked',
+      });
+      const unresolved = new Set(
+        baseline.controls
+          .filter(({ status }) => status !== 'met' && status !== 'not_applicable')
+          .map(({ id }) => id),
+      );
+      const eligibleControls = controls.filter(
+        ({ allow_agent_evidence: allowed, id }) => allowed && unresolved.has(id),
+      );
       const bundle = {
-        schema_version: '0.2.0',
+        schema_version: benchmark.version,
         benchmark_version: benchmark.version,
         target: repositoryEvidenceTarget(context.metadata),
         collector: { name: 'TODO: agent or adapter name', version: 'TODO' },
@@ -153,23 +168,27 @@ program
       await writeFile(
         requestPath,
         [
-          '# ADRB v0.2 external evidence request',
+          '# ADRB v0.3 evidence request',
           '',
           `- Repository: ${bundle.target.repository}`,
           `- Git commit: ${bundle.target.git_head ?? 'unavailable'}`,
           `- Benchmark: ${benchmark.version}`,
           '',
-          'Obtain authorization before accessing connected systems. Use read-only, least-privileged tools. Add only attempted claims to the bundle; errors remain `unknown`. Never paste secrets or raw sensitive content.',
+          'Repository claims may cite only tracked paths from the bound commit and remain agent-collected, not repository-detected. Obtain authorization before accessing connected systems. Use read-only, least-privileged tools. Add only attempted claims to the bundle; partial or inconclusive evidence remains `unknown`. Never paste source excerpts, secrets, prompts, personal data, or raw sensitive content.',
           '',
           ...eligibleControls.flatMap((control) => {
             const manualCheck = control.evidence.find(
               (check): check is Extract<EvidenceCheck, { type: 'manual' }> =>
                 check.type === 'manual',
             );
+            const scopes =
+              control.agent_evidence_scopes.length > 0
+                ? control.agent_evidence_scopes
+                : [manualCheck?.scope ?? 'organization'];
             return [
               `## ${control.id} — ${control.title}`,
               '',
-              `- Scope: ${manualCheck?.scope ?? 'organization'}`,
+              `- Scope: ${scopes.join(', ')}`,
               `- Request: ${manualCheck?.prompt ?? control.outcome}`,
               `- Risk: ${control.risk}`,
               '',
@@ -189,7 +208,7 @@ program
   .option('--format <format>', 'json or markdown', 'markdown')
   .option('--output <path>', 'write the report to a file')
   .option('--attestations <path>', 'manual attestation file')
-  .option('--agent-evidence <path>', 'agent-collected external evidence bundle')
+  .option('--agent-evidence <path>', 'agent-collected repository or external evidence bundle')
   .option('--scope <scope>', 'tracked or workspace', 'tracked')
   .option('--enforce', 'exit non-zero when the target profile fails', false)
   .option('--github-output', 'append summary values to $GITHUB_OUTPUT', false)
@@ -216,19 +235,27 @@ program
       }
       const repo = resolve(repository);
       const { benchmark, controls } = await loadBenchmark();
+      const warnings: string[] = [];
       const attestationPath = resolve(
         options.attestations ?? join(repo, '.agentic', 'attestations.yaml'),
       );
-      const attestations = await loadAttestations(attestationPath, benchmark.version);
+      const attestations = await loadAttestations(attestationPath, benchmark.version, {
+        ignoreVersionMismatch: options.attestations === undefined,
+        onWarning: (warning) => warnings.push(warning),
+      });
       const agentEvidencePath = resolve(
         options.agentEvidence ?? join(repo, '.agentic', 'agent-evidence.yaml'),
       );
-      const agentEvidence = await loadAgentEvidence(agentEvidencePath);
+      const agentEvidence = await loadAgentEvidence(agentEvidencePath, benchmark.version, {
+        ignoreVersionMismatch: options.agentEvidence === undefined,
+        onWarning: (warning) => warnings.push(warning),
+      });
       const reportPath = options.output ? resolve(options.output) : null;
       const report = await assess(repo, benchmark, controls, options.profile, {
         scope: options.scope as AssessmentScope,
         attestations,
         agentEvidence,
+        warnings,
         excludedPaths: [attestationPath, agentEvidencePath, ...(reportPath ? [reportPath] : [])],
       });
       const output =
@@ -247,7 +274,7 @@ program
         if (!githubOutput) throw new Error('$GITHUB_OUTPUT is unavailable');
         await appendFile(
           githubOutput,
-          `score=${report.score.total}\npercentage=${report.score.percentage}\nhighest_profile=${report.readiness.highest_profile ?? 'none'}\ntarget_passed=${String(report.readiness.target_passed)}\nreport_path=${reportPath ?? ''}\n`,
+          `score=${report.score.total}\npercentage=${report.score.percentage}\nrepository_score=${report.score.repository?.achieved ?? ''}\nrepository_ceiling=${report.score.repository?.ceiling ?? ''}\nrepository_percentage=${report.score.repository?.percentage ?? ''}\nhighest_profile=${report.readiness.highest_profile ?? 'none'}\ntarget_passed=${String(report.readiness.target_passed)}\nreport_path=${reportPath ?? ''}\n`,
           'utf8',
         );
       }

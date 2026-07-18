@@ -1,0 +1,93 @@
+dimension: environment
+controls:
+  - id: ADRB-ENV-001
+    level: 1
+    title: Development setup is documented
+    outcome: Contributors can identify supported runtime prerequisites and the canonical setup path.
+    risk: Agents improvise dependencies or run commands in an incompatible environment.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            README.md,
+            CONTRIBUTING.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/setup/**,
+            docs/development/**,
+          ]
+        terms: [install, setup, runtime, prerequisites, dependencies, development]
+        min_terms: 2
+        max_span_lines: 120
+        max_files_per_pattern: 50
+    remediation: Document supported runtimes, prerequisites, installation, and the first verification command.
+  - id: ADRB-ENV-002
+    level: 2
+    title: Dependencies and toolchain are reproducibly pinned
+    outcome: The repository records deterministic dependency resolution and a supported runtime or container definition.
+    risk: Local and CI behavior diverge as dependency or runtime versions float.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns:
+          [
+            package-lock.json,
+            pnpm-lock.yaml,
+            yarn.lock,
+            uv.lock,
+            poetry.lock,
+            Pipfile.lock,
+            Cargo.lock,
+            go.sum,
+          ]
+      - type: path_any
+        scope: repository
+        patterns:
+          [
+            .node-version,
+            .nvmrc,
+            .python-version,
+            mise.toml,
+            .tool-versions,
+            Dockerfile,
+            .devcontainer/**,
+          ]
+    remediation: Commit a lockfile and a supported runtime, toolchain, or development-container declaration.
+  - id: ADRB-ENV-003
+    level: 3
+    title: CI recreates the canonical environment
+    outcome: Continuous integration installs from locked inputs and runs canonical verification in a clean environment.
+    risk: A local-only setup passes while clean automation fails or uses materially different dependencies.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml]
+        terms: [npm ci, frozen-lockfile, uv sync, lockfile, checkout, test, typecheck]
+        min_terms: 2
+        max_span_lines: 160
+    remediation: Make CI install locked dependencies from a clean checkout and run the documented verification path.
+  - id: ADRB-ENV-004
+    level: 4
+    title: Environment reliability drives improvement
+    outcome: Setup failures, cache misses, drift, and reproducibility incidents are trended and reduced.
+    risk: Environment friction and nondeterminism remain anecdotal and repeatedly consume agent time.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide environment reliability trends and a recent setup or CI improvement driven by them.
+    remediation: Track clean-setup and CI-environment outcomes, then prioritize the largest sources of drift.

@@ -10,10 +10,11 @@ import { assess } from '../src/score.js';
 import type { AgentEvidenceFile } from '../src/schema.js';
 
 const fixture = (name: string) => resolve(import.meta.dirname, 'fixtures', name);
+const v02Benchmark = () => loadBenchmark(resolve(import.meta.dirname, '..', 'benchmark', 'v0.2'));
 
 describe('v0.2 assessment', () => {
   it('does not let a total score compensate for profile floors', async () => {
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await v02Benchmark();
     const report = await assess(fixture('minimal'), benchmark, controls, 'pr-creation');
     expect(report.readiness.target_passed).toBe(false);
     expect(report.profiles.find(({ id }) => id === 'pr-creation')?.blockers.length).toBeGreaterThan(
@@ -23,7 +24,7 @@ describe('v0.2 assessment', () => {
 
   it('passes the level-three fixture with separately labelled attestations', async () => {
     const repo = fixture('mature');
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await v02Benchmark();
     const attestations = await loadAttestations(
       resolve(repo, '.agentic', 'attestations.yaml'),
       benchmark.version,
@@ -40,7 +41,7 @@ describe('v0.2 assessment', () => {
 
   it('ignores expired attestations', async () => {
     const repo = fixture('mature');
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await v02Benchmark();
     const attestations = await loadAttestations(
       resolve(repo, '.agentic', 'attestations.yaml'),
       benchmark.version,
@@ -54,7 +55,7 @@ describe('v0.2 assessment', () => {
   });
 
   it('keeps source snippets out of Markdown reports and separates unresolved scopes', async () => {
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await v02Benchmark();
     const report = await assess(fixture('minimal'), benchmark, controls, 'planning');
     const markdown = toMarkdown(report);
     expect(markdown).toContain('Agentic Development Readiness Assessment');
@@ -66,7 +67,7 @@ describe('v0.2 assessment', () => {
 
   it('is idempotent when its generated report is added to the workspace', async () => {
     const repository = await mkdtemp(join(tmpdir(), 'adrb-assessment-'));
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await v02Benchmark();
     try {
       await writeFile(join(repository, 'README.md'), 'minimal repository', 'utf8');
       const before = await assess(repository, benchmark, controls, 'planning', {
@@ -94,7 +95,7 @@ describe('v0.2 assessment', () => {
 
   it('accepts target-bound agent evidence only for eligible external controls', async () => {
     const repository = await mkdtemp(join(tmpdir(), 'adrb-assessment-'));
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await v02Benchmark();
     try {
       execFileSync('git', ['-C', repository, 'init', '--quiet']);
       execFileSync('git', [

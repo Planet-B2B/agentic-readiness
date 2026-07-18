@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { appendFile, mkdir, readFile as readFile3, writeFile } from "fs/promises";
-import { dirname as dirname2, join as join2, resolve as resolve4 } from "path";
+import { appendFile, mkdir, readFile as readFile4, writeFile } from "fs/promises";
+import { dirname as dirname2, join as join3, resolve as resolve4 } from "path";
 import { Command } from "commander";
 import { stringify } from "yaml";
 
@@ -30,6 +30,7 @@ var dimensionIds = [
 var DimensionIdSchema = z.enum(dimensionIds);
 var LevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 var EvidenceScopeSchema = z.enum(["repository", "platform", "organization", "outcome"]);
+var ManualEvidenceScopeSchema = z.enum(["platform", "organization", "outcome"]);
 var AssessmentScopeSchema = z.enum(["tracked", "workspace"]);
 var PathAnySchema = z.object({
   type: z.literal("path_any"),
@@ -61,7 +62,9 @@ var ContentTermsSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
   terms: z.array(z.string().min(1)).min(1),
   min_terms: z.number().int().positive(),
-  required_any_terms: z.array(z.string().min(1)).min(1).optional()
+  required_any_terms: z.array(z.string().min(1)).min(1).optional(),
+  max_span_lines: z.number().int().positive().max(200).optional(),
+  max_files_per_pattern: z.number().int().positive().max(250).optional()
 });
 var MaxBytesSchema = z.object({
   type: z.literal("max_bytes"),
@@ -71,7 +74,7 @@ var MaxBytesSchema = z.object({
 });
 var ManualSchema = z.object({
   type: z.literal("manual"),
-  scope: z.enum(["platform", "organization", "outcome"]).default("organization"),
+  scope: ManualEvidenceScopeSchema.default("organization"),
   prompt: z.string().min(1)
 });
 var EvidenceCheckSchema = z.discriminatedUnion("type", [
@@ -94,7 +97,8 @@ var RawControlSchema = z.object({
   references: z.array(z.string().min(1)).default([]),
   allow_attestation: z.boolean().default(false),
   allow_not_applicable: z.boolean().default(false),
-  allow_agent_evidence: z.boolean().default(false)
+  allow_agent_evidence: z.boolean().default(false),
+  agent_evidence_scopes: z.array(EvidenceScopeSchema).default([])
 });
 var LegacyRawControlSchema = RawControlSchema.extend({
   allow_attestation: z.boolean().default(true)
@@ -107,6 +111,32 @@ var LegacyControlFileSchema = z.object({
   dimension: DimensionIdSchema,
   controls: z.array(LegacyRawControlSchema).min(1)
 });
+var DetectorAdapterExtensionSchema = z.object({
+  control_id: z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/),
+  evidence_index: z.number().int().nonnegative(),
+  patterns: z.array(z.string().min(1)).min(1).optional(),
+  files: z.array(z.string().min(1)).min(1).optional(),
+  terms: z.array(z.string().min(1)).min(1).optional(),
+  required_any_terms: z.array(z.string().min(1)).min(1).optional()
+}).strict().superRefine((extension, context) => {
+  const extensionKinds = [
+    extension.patterns,
+    extension.files,
+    extension.terms,
+    extension.required_any_terms
+  ].filter(Boolean).length;
+  if (extensionKinds !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A detector extension must declare exactly one of patterns, files, terms, or required_any_terms"
+    });
+  }
+});
+var DetectorAdapterSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/),
+  benchmark_version: z.string().regex(/^\d+\.\d+\.\d+$/),
+  extensions: z.array(DetectorAdapterExtensionSchema).min(1)
+}).strict();
 var DimensionSchema = z.object({
   id: DimensionIdSchema,
   title: z.string().min(1),
@@ -186,10 +216,47 @@ var AgentEvidenceFileSchema = z.object({
   }).strict(),
   claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimSchema)
 }).strict();
+var AgentEvidenceClaimV03Schema = z.object({
+  status: z.enum(["met", "not_met", "unknown"]),
+  scope: EvidenceScopeSchema,
+  summary: z.string().min(1),
+  references: z.array(z.string().min(1)).min(1),
+  collected_at: z.string().datetime(),
+  expires_at: z.string().datetime(),
+  error: z.string().min(1).nullable().default(null)
+}).strict().superRefine((claim, context) => {
+  if (claim.error && claim.status !== "unknown") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A claim with an error must have unknown status",
+      path: ["status"]
+    });
+  }
+  if (claim.scope === "repository" && claim.references.some((reference) => !reference.startsWith("repo:"))) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Repository claims must use repo:<tracked-path>[#Lx-Ly] references",
+      path: ["references"]
+    });
+  }
+});
+var AgentEvidenceFileV03Schema = z.object({
+  schema_version: z.literal("0.3.0"),
+  benchmark_version: z.literal("0.3.0"),
+  target: z.object({
+    repository: z.string().min(1),
+    git_head: z.string().min(1)
+  }).strict(),
+  collector: z.object({
+    name: z.string().min(1),
+    version: z.string().min(1)
+  }).strict(),
+  claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema)
+}).strict();
 
 // src/load.ts
 var packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-var defaultBenchmarkRoot = join(packageRoot, "benchmark", "v0.2");
+var defaultBenchmarkRoot = join(packageRoot, "benchmark", "v0.3");
 async function readYaml(path) {
   return parse(await readFile(path, "utf8"));
 }
@@ -201,12 +268,85 @@ async function loadBenchmark(root = defaultBenchmarkRoot) {
     const file = benchmark.version === "0.1.0" ? LegacyControlFileSchema.parse(await readYaml(path)) : ControlFileSchema.parse(await readYaml(path));
     controls.push(...file.controls.map((control) => ({ ...control, dimension: file.dimension })));
   }
+  const adapterPaths = await fg("adapters/*.yaml", {
+    cwd: root,
+    absolute: true,
+    onlyFiles: true
+  });
+  for (const path of adapterPaths.sort()) {
+    const adapter = DetectorAdapterSchema.parse(await readYaml(path));
+    applyDetectorAdapter(benchmark, controls, adapter);
+  }
   validateCatalog(benchmark, controls);
   return { benchmark, controls };
 }
-async function loadAttestations(path, benchmarkVersion) {
+function applyDetectorAdapter(benchmark, controls, adapter) {
+  if (adapter.benchmark_version !== benchmark.version) {
+    throw new Error(
+      `Detector adapter ${adapter.id} targets ${adapter.benchmark_version}, not ${benchmark.version}`
+    );
+  }
+  for (const extension of adapter.extensions) {
+    const control = controls.find(({ id }) => id === extension.control_id);
+    if (!control) {
+      throw new Error(`Detector adapter ${adapter.id} references unknown ${extension.control_id}`);
+    }
+    const check = control.evidence[extension.evidence_index];
+    if (!check) {
+      throw new Error(
+        `Detector adapter ${adapter.id} references missing evidence index ${extension.evidence_index} on ${control.id}`
+      );
+    }
+    if (extension.patterns) {
+      if (!("patterns" in check)) {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add patterns to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      check.patterns = [.../* @__PURE__ */ new Set([...check.patterns, ...extension.patterns])];
+    }
+    if (extension.files) {
+      if (!("files" in check)) {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add files to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      check.files = [.../* @__PURE__ */ new Set([...check.files, ...extension.files])];
+    }
+    if (extension.terms) {
+      if (check.type !== "content_terms") {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add terms to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      check.terms = [.../* @__PURE__ */ new Set([...check.terms, ...extension.terms])];
+    }
+    if (extension.required_any_terms) {
+      if (check.type !== "content_terms") {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add required terms to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      check.required_any_terms = [
+        .../* @__PURE__ */ new Set([...check.required_any_terms ?? [], ...extension.required_any_terms])
+      ];
+    }
+  }
+}
+async function loadAttestations(path, benchmarkVersion, options = {}) {
   try {
     const rawFile = await readYaml(path);
+    const artifactVersion = versionField(rawFile, "benchmark_version");
+    if (artifactVersion && handleVersionMismatch(
+      "Attestation",
+      path,
+      artifactVersion,
+      benchmarkVersion,
+      "init --force",
+      options
+    )) {
+      return null;
+    }
     const file = benchmarkVersion === "0.1.0" ? LegacyAttestationFileSchema.parse(rawFile) : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
@@ -219,26 +359,80 @@ async function loadAttestations(path, benchmarkVersion) {
     throw error;
   }
 }
-async function loadAgentEvidence(path) {
+async function loadAgentEvidence(path, benchmarkVersion, options = {}) {
   try {
-    return AgentEvidenceFileSchema.parse(await readYaml(path));
+    const rawFile = await readYaml(path);
+    const artifactVersion = versionField(rawFile, "benchmark_version");
+    const schemaVersion = versionField(rawFile, "schema_version");
+    const mismatchedVersion = [artifactVersion, schemaVersion].find(
+      (version) => version && version !== benchmarkVersion
+    );
+    if (mismatchedVersion && handleVersionMismatch(
+      "Agent evidence",
+      path,
+      mismatchedVersion,
+      benchmarkVersion,
+      "init-evidence --force",
+      options
+    )) {
+      return null;
+    }
+    const file = (() => {
+      if (benchmarkVersion === "0.2.0") return AgentEvidenceFileSchema.parse(rawFile);
+      if (benchmarkVersion === "0.3.0") return AgentEvidenceFileV03Schema.parse(rawFile);
+      throw new Error(`Agent evidence bundles are unsupported for benchmark ${benchmarkVersion}`);
+    })();
+    if (file.benchmark_version !== benchmarkVersion) {
+      throw new Error(
+        `Agent evidence benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`
+      );
+    }
+    return file;
   } catch (error) {
     if (error.code === "ENOENT") return null;
     throw error;
   }
+}
+function versionField(value, field) {
+  if (!value || typeof value !== "object" || !(field in value)) return null;
+  const version = value[field];
+  return typeof version === "string" ? version : null;
+}
+function handleVersionMismatch(label, path, artifactVersion, benchmarkVersion, regenerateCommand, options) {
+  if (artifactVersion === benchmarkVersion) return false;
+  const mismatch = `${label} file ${path} targets ADRB v${artifactVersion}, not v${benchmarkVersion}`;
+  if (!options.ignoreVersionMismatch) {
+    throw new Error(
+      `${mismatch}. Regenerate it with \`agentic-scorecard ${regenerateCommand}\` or pass a v${benchmarkVersion} file.`
+    );
+  }
+  options.onWarning?.(
+    `Ignored auto-loaded ${label.toLowerCase()} file ${path} because it targets ADRB v${artifactVersion}, not v${benchmarkVersion}. Regenerate it with \`agentic-scorecard ${regenerateCommand}\` before relying on its claims.`
+  );
+  return true;
 }
 function validateCatalog(benchmark, controls) {
   const ids = /* @__PURE__ */ new Set();
   for (const control of controls) {
     if (ids.has(control.id)) throw new Error(`Duplicate control id: ${control.id}`);
     ids.add(control.id);
-    if (benchmark.version === "0.2.0" && control.evidence.some(({ type }) => type === "content_any" || type === "content_all")) {
-      throw new Error(`${control.id} uses a legacy broad content collector in benchmark v0.2.0`);
+    if (["0.2.0", "0.3.0"].includes(benchmark.version) && control.evidence.some(({ type }) => type === "content_any" || type === "content_all")) {
+      throw new Error(
+        `${control.id} uses a legacy broad content collector in benchmark ${benchmark.version}`
+      );
     }
-    if (control.allow_agent_evidence && !control.evidence.some(({ type }) => type === "manual")) {
-      throw new Error(`${control.id} allows agent evidence without an external evidence check`);
+    const manualScopes = control.evidence.filter(({ type }) => type === "manual").map(({ scope }) => scope);
+    const allowedAgentScopes = control.agent_evidence_scopes.length > 0 ? control.agent_evidence_scopes : manualScopes;
+    if (control.allow_agent_evidence && allowedAgentScopes.length === 0) {
+      throw new Error(`${control.id} allows agent evidence without an eligible evidence scope`);
     }
-    if (benchmark.version === "0.2.0" && control.allow_attestation && !control.evidence.some(({ type }) => type === "manual")) {
+    if (!control.allow_agent_evidence && control.agent_evidence_scopes.length > 0) {
+      throw new Error(`${control.id} declares agent evidence scopes but does not allow it`);
+    }
+    if (benchmark.version === "0.2.0" && control.agent_evidence_scopes.some((scope) => scope === "repository")) {
+      throw new Error(`${control.id} changes immutable v0.2 repository evidence semantics`);
+    }
+    if (["0.2.0", "0.3.0"].includes(benchmark.version) && control.allow_attestation && !control.evidence.some(({ type }) => type === "manual")) {
       throw new Error(`${control.id} allows attestation for repository-detected evidence`);
     }
     for (const check of control.evidence) {
@@ -326,6 +520,12 @@ function appendControlDetails(lines, heading, controls) {
 }
 function toMarkdown(report) {
   const target = report.profiles.find(({ id }) => id === report.target.profile);
+  const targetDependencies = target?.evidence_dependencies;
+  const dependencyCount = (targetDependencies?.agent_collected ?? 0) + (targetDependencies?.attested ?? 0);
+  const targetProvenance = target?.passed && dependencyCount > 0 ? ` (depends on ${[
+    targetDependencies?.agent_collected ? `${targetDependencies.agent_collected} agent-collected` : null,
+    targetDependencies?.attested ? `${targetDependencies.attested} human-attested` : null
+  ].filter(Boolean).join(" and ")} required ${dependencyCount === 1 ? "control" : "controls"})` : "";
   const established = report.controls.filter(
     ({ status }) => status === "met" || status === "not_applicable"
   );
@@ -347,10 +547,20 @@ function toMarkdown(report) {
     `- Working tree dirty: ${report.target.working_tree_dirty === null ? "unknown" : String(report.target.working_tree_dirty)}`,
     `- Assessed: ${report.assessed_at}`,
     `- Score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
+    ...report.score.repository ? [
+      `- Repository-detected progress: **${report.score.repository.achieved}/${report.score.repository.ceiling} (${report.score.repository.percentage}%)** of the maturity levels the offline repository collector can establish`
+    ] : [],
     `- Highest readiness profile: **${report.readiness.highest_profile ?? "none"}**`,
-    `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? "PASS" : "FAIL"}**`,
-    `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown`,
+    `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? `PASS${targetProvenance}` : "FAIL"}**`,
+    `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== void 0 && report.evidence_summary.total !== void 0 ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ""}`,
+    ...report.warnings && report.warnings.length > 0 ? [`- Warnings: **${report.warnings.length} \u2014 review before using this assessment**`] : [],
     "",
+    ...report.warnings && report.warnings.length > 0 ? [
+      "## Warnings",
+      "",
+      ...report.warnings.map((warning) => `- WARNING: ${safeText(warning)}`),
+      ""
+    ] : [],
     "## Dimensions",
     "",
     "| Dimension | Score | Controls met |",
@@ -453,10 +663,11 @@ async function git(repo, args) {
 async function createRepositoryContext(repository, scope, excludedPaths = []) {
   const requestedRoot = resolve2(repository);
   const root = await realpath(requestedRoot);
-  const [headOutput, remoteOutput, statusOutput] = await Promise.all([
+  const [headOutput, remoteOutput, statusOutput, trackedStatusOutput] = await Promise.all([
     git(root, ["rev-parse", "HEAD"]),
     git(root, ["config", "--get", "remote.origin.url"]),
-    git(root, ["status", "--porcelain"])
+    git(root, ["status", "--porcelain"]),
+    git(root, ["status", "--porcelain", "--untracked-files=no"])
   ]);
   let includedPaths = null;
   if (scope === "tracked") {
@@ -474,7 +685,8 @@ async function createRepositoryContext(repository, scope, excludedPaths = []) {
       scope,
       git_head: headOutput?.trim() || null,
       git_remote: sanitizeRemote(remoteOutput?.trim() || null),
-      working_tree_dirty: statusOutput === null ? null : statusOutput.length > 0
+      working_tree_dirty: statusOutput === null ? null : statusOutput.length > 0,
+      tracked_tree_dirty: trackedStatusOutput === null ? null : trackedStatusOutput.length > 0
     },
     includedPaths,
     excludedPaths: new Set(
@@ -491,6 +703,10 @@ function repositoryEvidenceTarget(metadata) {
     git_head: metadata.git_head
   };
 }
+
+// src/score.ts
+import { readFile as readFile3 } from "fs/promises";
+import { join as join2 } from "path";
 
 // src/evidence.ts
 import { lstat, readFile as readFile2, realpath as realpath2, stat } from "fs/promises";
@@ -553,9 +769,9 @@ async function evaluatePathAll(context, check) {
     found
   );
 }
-async function readSearchableFiles(context, patterns) {
+async function readSearchableFiles(context, patterns, maxFilesPerPattern) {
   const root = context.metadata.root;
-  const paths = (await matches(context, patterns)).slice(0, maxContentFiles);
+  const paths = maxFilesPerPattern ? await prioritizedMatches(context, patterns, maxFilesPerPattern) : (await matches(context, patterns)).slice(0, maxContentFiles);
   const files = [];
   let totalBytes = 0;
   for (const path of paths) {
@@ -576,6 +792,26 @@ async function readSearchableFiles(context, patterns) {
     }
   }
   return files;
+}
+async function prioritizedMatches(context, patterns, maxFilesPerPattern) {
+  const selected = [];
+  const seen = /* @__PURE__ */ new Set();
+  const groups = await Promise.all(
+    patterns.map(
+      async (pattern) => (await matches(context, [pattern])).slice(0, maxFilesPerPattern)
+    )
+  );
+  for (let candidateIndex = 0; candidateIndex < maxFilesPerPattern; candidateIndex += 1) {
+    for (const group of groups) {
+      const path = group[candidateIndex];
+      if (!path) continue;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      selected.push(path);
+      if (selected.length === maxContentFiles) return selected;
+    }
+  }
+  return selected;
 }
 function isGeneratedAssessment(text) {
   const normalized = text.trimStart();
@@ -609,28 +845,71 @@ async function evaluateLegacyContent(context, check) {
   );
 }
 async function evaluateContentTerms(context, check) {
-  const files = await readSearchableFiles(context, check.files);
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
   const matchesByFile = files.map(({ path, text }) => ({
     path,
-    matched: check.terms.filter((term) => containsTerm(text, term)).length,
-    requiredMatched: check.required_any_terms?.filter((term) => containsTerm(text, term)).length ?? 0
+    ...strongestContentMatch(
+      text,
+      check.terms,
+      check.required_any_terms ?? [],
+      check.min_terms,
+      check.max_span_lines
+    )
   }));
-  const qualifying = matchesByFile.filter(
-    ({ matched, requiredMatched }) => matched >= check.min_terms && (check.required_any_terms === void 0 || requiredMatched > 0)
-  );
+  const qualifying = matchesByFile.filter(({ qualifies }) => qualifies);
   const strongest = matchesByFile.reduce((maximum, file) => Math.max(maximum, file.matched), 0);
   const strongestRequired = matchesByFile.reduce(
     (maximum, file) => Math.max(maximum, file.requiredMatched),
     0
   );
   const requiredSummary = check.required_any_terms ? `; strongest required match ${strongestRequired}/${check.required_any_terms.length}` : "";
+  const proximitySummary = check.max_span_lines ? ` within ${check.max_span_lines}-line window(s)` : "";
   return result(
     check.type,
     check.scope,
     qualifying.length > 0 ? "met" : "not_met",
-    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    `${qualifying.length} qualifying file(s); strongest co-located match ${strongest}/${check.terms.length} term(s)${requiredSummary}${proximitySummary} across ${files.length} candidate file(s); threshold ${check.min_terms}`,
     qualifying.map(({ path }) => path)
   );
+}
+function strongestContentMatch(text, terms, requiredTerms, minTerms, maxSpanLines) {
+  if (!maxSpanLines) {
+    const matched = terms.filter((term) => containsTerm(text, term)).length;
+    const requiredMatched = requiredTerms.filter((term) => containsTerm(text, term)).length;
+    return {
+      matched,
+      requiredMatched,
+      qualifies: matched >= minTerms && (requiredTerms.length === 0 || requiredMatched > 0)
+    };
+  }
+  const termCounts = terms.map(() => 0);
+  const requiredCounts = requiredTerms.map(() => 0);
+  const lines = text.split(/\r?\n/);
+  let strongest = 0;
+  let strongestRequired = 0;
+  let qualifies = false;
+  const update = (line, direction) => {
+    terms.forEach((term, index) => {
+      if (containsTerm(line, term)) termCounts[index] = (termCounts[index] ?? 0) + direction;
+    });
+    requiredTerms.forEach((term, index) => {
+      if (containsTerm(line, term)) {
+        requiredCounts[index] = (requiredCounts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    const matched = termCounts.filter((count) => count > 0).length;
+    const requiredMatched = requiredCounts.filter((count) => count > 0).length;
+    strongest = Math.max(strongest, matched);
+    strongestRequired = Math.max(strongestRequired, requiredMatched);
+    if (matched >= minTerms && (requiredTerms.length === 0 || requiredMatched > 0)) {
+      qualifies = true;
+    }
+  }
+  return { matched: strongest, requiredMatched: strongestRequired, qualifies };
 }
 function containsTerm(text, term) {
   const pattern = term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");
@@ -753,6 +1032,46 @@ function dimensionScore(controls, dimension) {
   }
   return score;
 }
+function repositoryScore(catalog, results, dimensions) {
+  let achieved = 0;
+  let ceiling = 0;
+  const resultsById = new Map(results.map((result2) => [result2.id, result2]));
+  for (const { id: dimension } of dimensions) {
+    let dimensionAchieved = 0;
+    let dimensionCeiling = 0;
+    let achievedOpen = true;
+    let ceilingOpen = true;
+    for (const level of [1, 2, 3, 4]) {
+      const controlsAtLevel = catalog.filter(
+        (control) => control.dimension === dimension && control.level === level
+      );
+      const repositoryDetectable = controlsAtLevel.every(
+        (control) => control.evidence.every((evidence) => evidence.scope === "repository")
+      );
+      if (ceilingOpen && repositoryDetectable) {
+        dimensionCeiling = level;
+      } else {
+        ceilingOpen = false;
+      }
+      const repositoryEstablished = controlsAtLevel.every((control) => {
+        const result2 = resultsById.get(control.id);
+        return result2?.status === "met" && result2.confidence === "repository-detected";
+      });
+      if (achievedOpen && repositoryDetectable && repositoryEstablished) {
+        dimensionAchieved = level;
+      } else {
+        achievedOpen = false;
+      }
+    }
+    achieved += dimensionAchieved;
+    ceiling += dimensionCeiling;
+  }
+  return {
+    achieved,
+    ceiling,
+    percentage: ceiling === 0 ? 0 : Math.round(achieved / ceiling * 100)
+  };
+}
 function assessProfiles(benchmark, dimensions, controls) {
   return benchmark.readiness_profiles.map((profile) => {
     const blockers = benchmark.dimensions.flatMap(({ id }) => {
@@ -770,7 +1089,23 @@ function assessProfiles(benchmark, dimensions, controls) {
         }
       ];
     });
-    return { id: profile.id, title: profile.title, passed: blockers.length === 0, blockers };
+    const requiredControls = controls.filter(
+      (control) => control.level <= profile.floors[control.dimension] && controlPasses(control)
+    );
+    return {
+      id: profile.id,
+      title: profile.title,
+      passed: blockers.length === 0,
+      blockers,
+      ...benchmark.version === "0.3.0" ? {
+        evidence_dependencies: {
+          agent_collected: requiredControls.filter(
+            ({ confidence }) => confidence === "agent-collected"
+          ).length,
+          attested: requiredControls.filter(({ confidence }) => confidence === "attested").length
+        }
+      } : {}
+    };
   });
 }
 async function assess(repo, benchmark, catalog, profileId, options = {}) {
@@ -783,7 +1118,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   const scope = options.scope ?? "tracked";
   const now = options.now ?? /* @__PURE__ */ new Date();
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
-  validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
+  await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
   const controls = await Promise.all(
     catalog.map(
       async (control) => evaluateControl(
@@ -807,10 +1142,11 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   });
   const profiles = assessProfiles(benchmark, dimensions, controls);
   const total = dimensions.reduce((sum, { score }) => sum + score, 0);
+  const repository = benchmark.version === "0.3.0" ? repositoryScore(catalog, controls, benchmark.dimensions) : void 0;
   const highestProfile = [...profiles].reverse().find(({ passed }) => passed)?.id ?? null;
   const targetPassed = profiles.find(({ id }) => id === profileId)?.passed ?? false;
   return {
-    schema_version: "0.2.0",
+    schema_version: benchmark.version === "0.3.0" ? "0.3.0" : "0.2.0",
     benchmark: { id: benchmark.id, version: benchmark.version },
     target: {
       repository: repo,
@@ -821,7 +1157,13 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       working_tree_dirty: context.metadata.working_tree_dirty
     },
     assessed_at: now.toISOString(),
-    score: { total, maximum: 40, percentage: Math.round(total / 40 * 100) },
+    ...benchmark.version === "0.3.0" ? { warnings: options.warnings ?? [] } : {},
+    score: {
+      total,
+      maximum: 40,
+      percentage: Math.round(total / 40 * 100),
+      ...repository ? { repository } : {}
+    },
     evidence_summary: {
       repository_detected: controls.filter(
         ({ confidence, status }) => confidence === "repository-detected" && status === "met"
@@ -833,7 +1175,11 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
         ({ confidence, status }) => confidence === "attested" && status === "met"
       ).length,
       unmet: controls.filter(({ status }) => status === "not_met").length,
-      unknown: controls.filter(({ status }) => status === "unknown").length
+      unknown: controls.filter(({ status }) => status === "unknown").length,
+      ...benchmark.version === "0.3.0" ? {
+        resolved: controls.filter(({ status }) => status !== "unknown").length,
+        total: controls.length
+      } : {}
     },
     dimensions,
     controls,
@@ -842,12 +1188,16 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     limitations: [
       scope === "tracked" ? "Tracked mode considers only Git-tracked paths, using current working-tree contents; uncommitted edits to tracked files can affect the result." : "Workspace mode includes untracked local files and is provisional; do not compare it directly with tracked-mode reports.",
       "Repository-detected evidence proves a qualifying artifact match, not consistent practice or external enforcement.",
+      ...benchmark.version === "0.3.0" ? [
+        "Repository-detected progress uses only deterministic offline evidence and its attainable ceiling; it is explanatory and does not replace the normative score or readiness floors.",
+        "Agent-collected repository evidence is semantic, target-bound, and source-backed but is not independently verified or relabelled as repository-detected."
+      ] : [],
       "Agent-collected evidence and human attestations are reported separately and are not independently verified.",
       "This assessment does not grant production access, deployment authority, or certification."
     ]
   };
 }
-function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
+async function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
   if (!evidence) return;
   if (evidence.benchmark_version !== benchmark.version) {
     throw new Error(
@@ -865,6 +1215,9 @@ function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
       `Agent evidence commit ${evidence.target.git_head ?? "unavailable"} does not match ${expectedTarget.git_head ?? "an unavailable Git commit"}`
     );
   }
+  if (benchmark.version === "0.3.0" && context.metadata.tracked_tree_dirty) {
+    throw new Error("ADRB v0.3 agent evidence requires tracked files to match the bound commit");
+  }
   const controls = new Map(catalog.map((control) => [control.id, control]));
   if (Object.keys(evidence.claims).length > 0 && (evidence.collector.name.startsWith("TODO") || evidence.collector.version.startsWith("TODO"))) {
     throw new Error("Agent evidence with claims must identify the collector name and version");
@@ -875,9 +1228,38 @@ function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
     if (!control.allow_agent_evidence) {
       throw new Error(`${controlId} does not permit agent-collected evidence`);
     }
-    const allowedScopes = control.evidence.filter(({ type }) => type === "manual").map(({ scope: evidenceScope }) => evidenceScope);
+    const manualScopes = control.evidence.filter(({ type }) => type === "manual").map(({ scope: evidenceScope }) => evidenceScope);
+    const allowedScopes = control.agent_evidence_scopes.length > 0 ? control.agent_evidence_scopes : manualScopes;
     if (!allowedScopes.includes(claim.scope)) {
       throw new Error(`${controlId} does not accept ${claim.scope} evidence`);
+    }
+    if (claim.scope === "repository") {
+      if (context.includedPaths === null) {
+        throw new Error(
+          `${controlId} uses repository-scoped agent evidence, which requires --scope tracked`
+        );
+      }
+      for (const reference of claim.references) {
+        const parsedReference = repositoryReference(reference);
+        if (!parsedReference || !context.includedPaths.has(parsedReference.path) || context.excludedPaths.has(parsedReference.path)) {
+          throw new Error(`${controlId} references an unavailable tracked path: ${reference}`);
+        }
+        if (parsedReference.lines) {
+          const contents = await readFile3(
+            join2(context.metadata.root, parsedReference.path),
+            "utf8"
+          );
+          const lineCount = countLines(contents);
+          if (parsedReference.lines.start < 1 || parsedReference.lines.end < parsedReference.lines.start) {
+            throw new Error(`${controlId} references an invalid line range: ${reference}`);
+          }
+          if (parsedReference.lines.end > lineCount) {
+            throw new Error(
+              `${controlId} references lines beyond ${parsedReference.path}'s ${lineCount} lines: ${reference}`
+            );
+          }
+        }
+      }
     }
     if (new Date(claim.collected_at) > new Date(claim.expires_at)) {
       throw new Error(`${controlId} expires before it was collected`);
@@ -890,10 +1272,30 @@ function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
     }
   }
 }
+function repositoryReference(reference) {
+  if (!reference.startsWith("repo:")) return null;
+  const withoutPrefix = reference.slice("repo:".length);
+  const lineMatch = withoutPrefix.match(/#L(\d+)(?:-L?(\d+))?$/);
+  const path = lineMatch ? withoutPrefix.slice(0, lineMatch.index) : withoutPrefix;
+  if (path.length === 0 || path.startsWith("/") || path.includes("#") || path.includes("\\") || path.split("/").some((part) => part === ".." || part === ".")) {
+    return null;
+  }
+  const start = lineMatch ? Number(lineMatch[1]) : null;
+  const end = lineMatch ? Number(lineMatch[2] ?? lineMatch[1]) : null;
+  return {
+    path,
+    lines: start === null || end === null ? null : { start, end }
+  };
+}
+function countLines(contents) {
+  if (contents.length === 0) return 0;
+  const lines = contents.split("\n").length;
+  return contents.endsWith("\n") ? lines - 1 : lines;
+}
 
 // src/cli.ts
 var program = new Command();
-program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.2.0");
+program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.3.0");
 program.command("validate").description("Validate the bundled benchmark catalog").action(async () => {
   const { benchmark, controls } = await loadBenchmark();
   process.stdout.write(
@@ -920,10 +1322,10 @@ ${control.evidence.map((check) => `- ${stringify(check).trim().replaceAll("\n", 
 });
 program.command("init").argument("[repository]", "repository to initialize", ".").option("--force", "replace an existing attestation file", false).description("Create a manual-attestation template").action(async (repository, options) => {
   const repo = resolve4(repository);
-  const path = join2(repo, ".agentic", "attestations.yaml");
+  const path = join3(repo, ".agentic", "attestations.yaml");
   if (!options.force) {
     try {
-      await readFile3(path, "utf8");
+      await readFile4(path, "utf8");
       throw new Error(`${path} already exists; use --force to replace it`);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
@@ -960,12 +1362,12 @@ ${stringify({ benchmark_version: benchmark.version, attestations })}`,
   process.stdout.write(`Created ${path}
 `);
 });
-program.command("init-evidence").argument("[repository]", "repository to prepare external evidence for", ".").option("--output <path>", "agent evidence bundle path").option("--request-output <path>", "human-readable evidence request path").option("--force", "replace an existing agent evidence bundle", false).description("Create a target-bound template for agent-collected external evidence").action(
+program.command("init-evidence").argument("[repository]", "repository to prepare external evidence for", ".").option("--output <path>", "agent evidence bundle path").option("--request-output <path>", "human-readable evidence request path").option("--force", "replace an existing agent evidence bundle", false).description("Create a target-bound template for unresolved agent-collected evidence").action(
   async (repository, options) => {
     const repo = resolve4(repository);
-    const path = resolve4(options.output ?? join2(repo, ".agentic", "agent-evidence.yaml"));
+    const path = resolve4(options.output ?? join3(repo, ".agentic", "agent-evidence.yaml"));
     const requestPath = resolve4(
-      options.requestOutput ?? join2(repo, ".agentic", "evidence-request.md")
+      options.requestOutput ?? join3(repo, ".agentic", "evidence-request.md")
     );
     if (path === requestPath) {
       throw new Error("Agent evidence bundle and request paths must be different");
@@ -973,7 +1375,7 @@ program.command("init-evidence").argument("[repository]", "repository to prepare
     if (!options.force) {
       for (const candidate of [path, requestPath]) {
         try {
-          await readFile3(candidate, "utf8");
+          await readFile4(candidate, "utf8");
           throw new Error(`${candidate} already exists; use --force to replace it`);
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
@@ -994,9 +1396,22 @@ program.command("init-evidence").argument("[repository]", "repository to prepare
         "init-evidence requires a Git commit so the bundle can be target-bound. Commit the assessed state and try again."
       );
     }
-    const eligibleControls = controls.filter(({ allow_agent_evidence: allowed }) => allowed);
+    if (context.metadata.tracked_tree_dirty) {
+      throw new Error(
+        "init-evidence requires tracked files to match HEAD so every claim binds to the exact assessed commit."
+      );
+    }
+    const baseline = await assess(repo, benchmark, controls, "read-only-analysis", {
+      scope: "tracked"
+    });
+    const unresolved = new Set(
+      baseline.controls.filter(({ status }) => status !== "met" && status !== "not_applicable").map(({ id }) => id)
+    );
+    const eligibleControls = controls.filter(
+      ({ allow_agent_evidence: allowed, id }) => allowed && unresolved.has(id)
+    );
     const bundle = {
-      schema_version: "0.2.0",
+      schema_version: benchmark.version,
       benchmark_version: benchmark.version,
       target: repositoryEvidenceTarget(context.metadata),
       collector: { name: "TODO: agent or adapter name", version: "TODO" },
@@ -1013,22 +1428,23 @@ ${stringify(bundle)}`,
     await writeFile(
       requestPath,
       [
-        "# ADRB v0.2 external evidence request",
+        "# ADRB v0.3 evidence request",
         "",
         `- Repository: ${bundle.target.repository}`,
         `- Git commit: ${bundle.target.git_head ?? "unavailable"}`,
         `- Benchmark: ${benchmark.version}`,
         "",
-        "Obtain authorization before accessing connected systems. Use read-only, least-privileged tools. Add only attempted claims to the bundle; errors remain `unknown`. Never paste secrets or raw sensitive content.",
+        "Repository claims may cite only tracked paths from the bound commit and remain agent-collected, not repository-detected. Obtain authorization before accessing connected systems. Use read-only, least-privileged tools. Add only attempted claims to the bundle; partial or inconclusive evidence remains `unknown`. Never paste source excerpts, secrets, prompts, personal data, or raw sensitive content.",
         "",
         ...eligibleControls.flatMap((control) => {
           const manualCheck = control.evidence.find(
             (check) => check.type === "manual"
           );
+          const scopes = control.agent_evidence_scopes.length > 0 ? control.agent_evidence_scopes : [manualCheck?.scope ?? "organization"];
           return [
             `## ${control.id} \u2014 ${control.title}`,
             "",
-            `- Scope: ${manualCheck?.scope ?? "organization"}`,
+            `- Scope: ${scopes.join(", ")}`,
             `- Request: ${manualCheck?.prompt ?? control.outcome}`,
             `- Risk: ${control.risk}`,
             ""
@@ -1042,7 +1458,7 @@ Created ${requestPath}
 `);
   }
 );
-program.command("assess").argument("[repository]", "repository to assess", ".").option("--profile <profile>", "target autonomy profile", "pr-creation").option("--format <format>", "json or markdown", "markdown").option("--output <path>", "write the report to a file").option("--attestations <path>", "manual attestation file").option("--agent-evidence <path>", "agent-collected external evidence bundle").option("--scope <scope>", "tracked or workspace", "tracked").option("--enforce", "exit non-zero when the target profile fails", false).option("--github-output", "append summary values to $GITHUB_OUTPUT", false).description("Assess a repository using local, read-only evidence collection").action(
+program.command("assess").argument("[repository]", "repository to assess", ".").option("--profile <profile>", "target autonomy profile", "pr-creation").option("--format <format>", "json or markdown", "markdown").option("--output <path>", "write the report to a file").option("--attestations <path>", "manual attestation file").option("--agent-evidence <path>", "agent-collected repository or external evidence bundle").option("--scope <scope>", "tracked or workspace", "tracked").option("--enforce", "exit non-zero when the target profile fails", false).option("--github-output", "append summary values to $GITHUB_OUTPUT", false).description("Assess a repository using local, read-only evidence collection").action(
   async (repository, options) => {
     if (!["json", "markdown"].includes(options.format)) {
       throw new Error("--format must be json or markdown");
@@ -1052,19 +1468,27 @@ program.command("assess").argument("[repository]", "repository to assess", ".").
     }
     const repo = resolve4(repository);
     const { benchmark, controls } = await loadBenchmark();
+    const warnings = [];
     const attestationPath = resolve4(
-      options.attestations ?? join2(repo, ".agentic", "attestations.yaml")
+      options.attestations ?? join3(repo, ".agentic", "attestations.yaml")
     );
-    const attestations = await loadAttestations(attestationPath, benchmark.version);
+    const attestations = await loadAttestations(attestationPath, benchmark.version, {
+      ignoreVersionMismatch: options.attestations === void 0,
+      onWarning: (warning) => warnings.push(warning)
+    });
     const agentEvidencePath = resolve4(
-      options.agentEvidence ?? join2(repo, ".agentic", "agent-evidence.yaml")
+      options.agentEvidence ?? join3(repo, ".agentic", "agent-evidence.yaml")
     );
-    const agentEvidence = await loadAgentEvidence(agentEvidencePath);
+    const agentEvidence = await loadAgentEvidence(agentEvidencePath, benchmark.version, {
+      ignoreVersionMismatch: options.agentEvidence === void 0,
+      onWarning: (warning) => warnings.push(warning)
+    });
     const reportPath = options.output ? resolve4(options.output) : null;
     const report = await assess(repo, benchmark, controls, options.profile, {
       scope: options.scope,
       attestations,
       agentEvidence,
+      warnings,
       excludedPaths: [attestationPath, agentEvidencePath, ...reportPath ? [reportPath] : []]
     });
     const output = options.format === "json" ? `${JSON.stringify(report, null, 2)}
@@ -1084,6 +1508,9 @@ program.command("assess").argument("[repository]", "repository to assess", ".").
         githubOutput,
         `score=${report.score.total}
 percentage=${report.score.percentage}
+repository_score=${report.score.repository?.achieved ?? ""}
+repository_ceiling=${report.score.repository?.ceiling ?? ""}
+repository_percentage=${report.score.repository?.percentage ?? ""}
 highest_profile=${report.readiness.highest_profile ?? "none"}
 target_passed=${String(report.readiness.target_passed)}
 report_path=${reportPath ?? ""}

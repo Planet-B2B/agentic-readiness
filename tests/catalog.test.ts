@@ -1,20 +1,21 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import fg from 'fast-glob';
 
 import { evaluateControl } from '../src/evidence.js';
-import { loadAttestations, loadBenchmark } from '../src/load.js';
+import { loadAgentEvidence, loadAttestations, loadBenchmark } from '../src/load.js';
 import { createRepositoryContext } from '../src/repository.js';
-import { dimensionIds } from '../src/schema.js';
+import { dimensionIds, EvidenceCheckSchema } from '../src/schema.js';
 
 const benchmarkFixture = (version: string) =>
   resolve(import.meta.dirname, '..', 'benchmark', version);
 
 describe('benchmark catalog', () => {
-  it('has every maturity level and only scoped v0.2 evidence', async () => {
+  it('has every maturity level and only scoped v0.3 evidence', async () => {
     const { benchmark, controls } = await loadBenchmark();
-    expect(benchmark.version).toBe('0.2.0');
+    expect(benchmark.version).toBe('0.3.0');
     expect(controls.length).toBeGreaterThan(40);
     for (const dimension of dimensionIds) {
       const levels = controls
@@ -24,6 +25,50 @@ describe('benchmark catalog', () => {
     }
     expect(controls.flatMap(({ evidence }) => evidence).every(({ scope }) => Boolean(scope))).toBe(
       true,
+    );
+    expect(
+      controls.some(
+        ({ allow_agent_evidence: allowed, agent_evidence_scopes: scopes }) =>
+          allowed && scopes.includes('repository'),
+      ),
+    ).toBe(true);
+    expect(() =>
+      EvidenceCheckSchema.parse({
+        type: 'manual',
+        scope: 'repository',
+        prompt: 'A repository claim must use deterministic or agent-collected evidence.',
+      }),
+    ).toThrow();
+  });
+
+  it('keeps vendor path aliases in detector adapters', async () => {
+    const root = benchmarkFixture('v0.3');
+    const controlPaths = await fg('controls/*.yaml', { cwd: root, absolute: true });
+    const controlSource = (
+      await Promise.all(controlPaths.map(async (path) => readFile(path, 'utf8')))
+    ).join('\n');
+    expect(controlSource).not.toMatch(
+      /CLAUDE|\.claude|\.codex|\.cursor|opencode|copilot|\.kiro|gitleaks|trufflehog/,
+    );
+
+    const { controls } = await loadBenchmark(root);
+    const contextEntry = controls.find(({ id }) => id === 'ADRB-CTX-001');
+    const pathCheck = contextEntry?.evidence.find(({ type }) => type === 'path_any');
+    expect(pathCheck && 'patterns' in pathCheck ? pathCheck.patterns : []).toContain(
+      '.cursor/skills/**',
+    );
+    const securityAutomation = controls.find(({ id }) => id === 'ADRB-SEC-003');
+    const contentCheck = securityAutomation?.evidence.find(({ type }) => type === 'content_terms');
+    expect(contentCheck?.type === 'content_terms' ? contentCheck.terms : []).toContain('gitleaks');
+    const ciVerification = controls.find(({ id }) => id === 'ADRB-TST-003');
+    const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'content_terms');
+    expect(ciCheck?.type === 'content_terms' ? ciCheck.terms : []).toContain('pytest');
+    expect(controlSource).not.toMatch(/pytest|mypy|flake8|ruff|pyright/);
+
+    const specification = controls.find(({ id }) => id === 'ADRB-SPC-001');
+    const specificationPath = specification?.evidence.find(({ type }) => type === 'path_any');
+    expect(specificationPath?.type === 'path_any' ? specificationPath.patterns : []).toContain(
+      'docs/spec*.md',
     );
   });
 
@@ -88,5 +133,130 @@ describe('benchmark catalog', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('skips version-mismatched auto-loaded artifacts with migration warnings', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'adrb-v03-migration-'));
+    const attestationPath = join(directory, 'attestations.yaml');
+    const evidencePath = join(directory, 'agent-evidence.yaml');
+    const warnings: string[] = [];
+    const options = {
+      ignoreVersionMismatch: true,
+      onWarning: (warning: string) => warnings.push(warning),
+    };
+    try {
+      await writeFile(attestationPath, 'benchmark_version: 0.2.0\nattestations: {}\n', 'utf8');
+      await writeFile(
+        evidencePath,
+        [
+          'schema_version: 0.2.0',
+          'benchmark_version: 0.2.0',
+          'target:',
+          '  repository: https://example.invalid/acme/repository.git',
+          '  git_head: null',
+          'collector:',
+          '  name: fixture',
+          '  version: 1.0.0',
+          'claims: {}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      await expect(loadAttestations(attestationPath, '0.3.0', options)).resolves.toBeNull();
+      await expect(loadAgentEvidence(evidencePath, '0.3.0', options)).resolves.toBeNull();
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toContain('Ignored auto-loaded attestation file');
+      expect(warnings[1]).toContain('agentic-scorecard init-evidence --force');
+
+      await expect(loadAttestations(attestationPath, '0.3.0')).rejects.toThrow(
+        'targets ADRB v0.2.0, not v0.3.0',
+      );
+      await expect(loadAgentEvidence(evidencePath, '0.3.0')).rejects.toThrow(
+        'targets ADRB v0.2.0, not v0.3.0',
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('requires v0.3 agent evidence to bind a non-null commit', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'adrb-v03-agent-evidence-'));
+    const path = join(directory, 'agent-evidence.yaml');
+    try {
+      await writeFile(
+        path,
+        [
+          'schema_version: 0.3.0',
+          'benchmark_version: 0.3.0',
+          'target:',
+          '  repository: https://example.invalid/acme/repository.git',
+          '  git_head: null',
+          'collector:',
+          '  name: fixture',
+          '  version: 1.0.0',
+          'claims: {}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await expect(loadAgentEvidence(path, '0.3.0')).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the published repository-reference grammar aligned with runtime validation', async () => {
+    const schema = JSON.parse(
+      await readFile(resolve(benchmarkFixture('v0.3'), 'agent-evidence-schema.json'), 'utf8'),
+    ) as {
+      properties?: {
+        claims?: {
+          additionalProperties?: {
+            allOf?: Array<{
+              then?: {
+                properties?: {
+                  references?: { items?: { pattern?: string } };
+                };
+              };
+            }>;
+          };
+        };
+      };
+    };
+    const pattern =
+      schema.properties?.claims?.additionalProperties?.allOf?.[0]?.then?.properties?.references
+        ?.items?.pattern;
+    expect(pattern).toBeDefined();
+    const reference = new RegExp(pattern ?? '');
+
+    for (const valid of [
+      'repo:README.md',
+      'repo:docs/security/policy.md#L1',
+      'repo:docs/security/policy.md#L1-L2',
+    ]) {
+      expect(reference.test(valid), valid).toBe(true);
+    }
+    for (const invalid of [
+      'repo:/README.md',
+      'repo:../README.md',
+      'repo:./README.md',
+      'repo:docs/../README.md',
+      'repo:docs/./README.md',
+      'repo:docs\\security.md',
+      'repo:README.md#fragment',
+      'repo:README.md#L0',
+    ]) {
+      expect(reference.test(invalid), invalid).toBe(false);
+    }
+  });
+
+  it('uses an unmistakable unbound commit placeholder in the static evidence template', async () => {
+    const template = await readFile(
+      resolve(import.meta.dirname, '..', 'templates', 'agent-evidence.yaml'),
+      'utf8',
+    );
+    expect(template).toContain("git_head: 'TODO: generated by init-evidence'");
+    expect(template).not.toContain('0000000000000000000000000000000000000000');
   });
 });
