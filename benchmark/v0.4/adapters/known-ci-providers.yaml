@@ -1,0 +1,12 @@
+id: known-ci-providers
+benchmark_version: 0.4.0
+extensions:
+  - control_id: ADRB-SEC-003
+    evidence_index: 0
+    ci_providers:
+      - id: github-actions
+        files: [.github/workflows/**]
+      - id: gitlab-ci
+        files: [.gitlab-ci.yml, .gitlab-ci/**]
+      - id: azure-pipelines
+        files: [azure-pipelines.yml, azure-pipelines.yaml, .azure-pipelines/**]

@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 import { loadAttestations, loadBenchmark } from '../src/load.js';
 import { toMarkdown } from '../src/report.js';
@@ -165,7 +166,7 @@ describe('v0.4 evidence calibration', () => {
     const repository = await gitFixture({
       'CONTRIBUTING.md': [
         '# Review governance',
-        'A repository owner assigns the required reviewer and approval.',
+        'The required reviewer provides approval.',
         'Only maintainers have merge authority.',
       ].join('\n'),
       'docs/governance/ownership.md': [
@@ -265,7 +266,7 @@ describe('v0.4 evidence calibration', () => {
 
       expect(governance?.status).toBe('not_met');
       expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
-      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/1');
+      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -291,6 +292,23 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not accept agent approval and merge authority as retained human governance', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': 'Agents may approve and agents may merge changes automatically.\n',
+      'OWNERS.md': '- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
+      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('does not treat vague ownership prose as an ownership assignment', async () => {
     const repository = await gitFixture({
       'GOVERNANCE.md': [
@@ -305,7 +323,7 @@ describe('v0.4 evidence calibration', () => {
 
       expect(governance?.status).toBe('not_met');
       expect(governance?.evidence[0]?.status).toBe('not_met');
-      expect(governance?.evidence[1]?.status).toBe('met');
+      expect(governance?.evidence[1]?.status).toBe('not_met');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -329,7 +347,7 @@ describe('v0.4 evidence calibration', () => {
         'jobs:',
         '  scan:',
         '    steps:',
-        '      - run: gitleaks detect',
+        '      - uses: gitleaks/gitleaks-action@v2',
       ].join('\n'),
     });
     const nonEnforced = await gitFixture({
@@ -370,6 +388,7 @@ describe('v0.4 evidence calibration', () => {
       expect(keywordMarkdown).toContain(
         'Alternative evidence checks established: 0/2; one required.',
       );
+      expect(keywordMarkdown).toContain('## Alternative evidence paths not established');
       expect(keywordMarkdown).toContain(
         'Unresolved alternatives: `#1 repository/ci_command`, `#2 platform/manual`.',
       );
@@ -451,6 +470,12 @@ describe('v0.4 evidence calibration', () => {
         'steps:',
         '  - script: gitleaks detect',
       ].join('\n'),
+      '.azure-pipelines/continue.yml': [
+        'pr: [main]',
+        'steps:',
+        '  - script: gitleaks detect',
+        '    continueOnError: true',
+      ].join('\n'),
     });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
@@ -464,4 +489,196 @@ describe('v0.4 evidence calibration', () => {
       await rm(azure, { recursive: true, force: true });
     }
   });
+
+  it('requires approval and merge authority independently', async () => {
+    const approvalOnly = await gitFixture({
+      'CONTRIBUTING.md': 'The required reviewer provides approval.\n',
+      'OWNERS.md': '- @platform-team\n',
+    });
+    const mergeOnly = await gitFixture({
+      'CONTRIBUTING.md': 'Only maintainers may merge changes.\n',
+      'OWNERS.md': '- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      for (const repository of [approvalOnly, mergeOnly]) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        const governance = controlStatus(report, 'ADRB-GOV-002');
+        expect(governance?.status).toBe('not_met');
+        expect(governance?.evidence[0]?.status).toBe('met');
+        expect(governance?.evidence[1]?.status).toBe('not_met');
+        expect(governance?.evidence[1]?.summary).toContain('semantic coverage 1/2');
+      }
+    } finally {
+      await rm(approvalOnly, { recursive: true, force: true });
+      await rm(mergeOnly, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat a generic human merge gate as containment escalation', async () => {
+    const repository = await gitFixture({
+      'AGENTS.md': [
+        'Edit only allowed paths within the stated token budget.',
+        'If work leaves scope, stop safely. Human approval is required before merge.',
+        'The rollback owner is responsible for recovery.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const resilience = controlStatus(report, 'ADRB-RES-002');
+      expect(resilience?.status).toBe('not_met');
+      expect(resilience?.evidence[0]?.summary).toContain('missing: escalation');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects non-integration conditions, disabled triggers, and non-enforcing scanner text', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/invalid.yml': [
+        'on: [push, pull_request]',
+        'jobs:',
+        '  push-only:',
+        "    if: github.event_name == 'push'",
+        '    steps:',
+        '      - run: gitleaks detect',
+        '  bypasses:',
+        '    steps:',
+        '      - run: false && gitleaks detect',
+        '      - run: gitleaks detect || true',
+        "      - run: sh -c 'echo gitleaks'",
+        '      - run: npm run gitleaks-info',
+        '      - run: npx gitleaks-info',
+        '      - uses: actions/checkout@gitleaks',
+        '      - uses: gitleaks-logger/checkout@v1',
+      ].join('\n'),
+      '.gitlab-ci.yml': [
+        'secret-scan:',
+        '  rules:',
+        `    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'`,
+        '  script: gitleaks detect',
+      ].join('\n'),
+      '.gitlab-ci/blocked.yml': [
+        'workflow:',
+        '  rules:',
+        '    - when: never',
+        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+        'secret-scan:',
+        '  script: gitleaks detect',
+      ].join('\n'),
+      'azure-pipelines.yml': [
+        'pr:',
+        '  branches:',
+        '    exclude: ["*"]',
+        'steps:',
+        '  - script: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const security = controlStatus(report, 'ADRB-SEC-003');
+      expect(security?.status).toBe('unknown');
+      expect(security?.evidence[0]?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes case-insensitive ownership structures and GitLab refs mappings', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': 'The required reviewer provides approval and maintainers may merge.\n',
+      'docs/governance/ownership.md': [
+        '| COMPONENT | OWNER |',
+        '| --- | --- |',
+        '| packages/platform/** | @platform-team |',
+        '',
+        'Repository: @release-team',
+      ].join('\n'),
+      '.gitlab-ci.yml': [
+        'secret-scan:',
+        '  only:',
+        '    refs: [merge_requests]',
+        '  script: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+      expect(governance?.status).toBe('met');
+      expect(governance?.evidence[0]?.summary).toContain(
+        '2 structurally identifiable assignment(s)',
+      );
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts source-backed SEC-007 enforcement at repository scope without an offline pass', async () => {
+    const repository = await gitFixture({
+      'harness/untrusted-input.test.ts': [
+        'describe("untrusted input", () => {',
+        '  it("denies unauthorized tool instructions", enforceHarnessBoundary);',
+        '});',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const gitHead = execFileSync('git', ['-C', repository, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
+      const evidence: AgentEvidenceFile = {
+        schema_version: '0.4.0',
+        benchmark_version: '0.4.0',
+        target: {
+          repository: 'https://example.invalid/acme/repository.git',
+          git_head: gitHead,
+        },
+        collector: { name: 'fixture-repository-reviewer', version: '1.0.0' },
+        claims: {
+          'ADRB-SEC-007': {
+            status: 'met',
+            scope: 'repository',
+            summary: 'Tracked adversarial tests mechanically deny unauthorized tool instructions.',
+            references: ['repo:harness/untrusted-input.test.ts#L1-L3'],
+            collected_at: '2026-07-18T10:00:00.000Z',
+            expires_at: '2026-08-17T10:00:00.000Z',
+            error: null,
+          },
+        },
+      };
+      const baseline = await assess(repository, benchmark, controls, 'pr-creation');
+      const assisted = await assess(repository, benchmark, controls, 'pr-creation', {
+        agentEvidence: evidence,
+        now: new Date('2026-07-18T12:00:00.000Z'),
+      });
+      expect(controlStatus(baseline, 'ADRB-SEC-007')?.status).toBe('unknown');
+      expect(controlStatus(assisted, 'ADRB-SEC-007')?.status).toBe('met');
+      expect(controlStatus(assisted, 'ADRB-SEC-007')?.confidence).toBe('agent-collected');
+      expect(assisted.score.repository).toEqual(baseline.score.repository);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('omits non-attestable manual alternatives from generated attestation templates', async () => {
+    const repository = await mkdtemp(join(tmpdir(), 'adrb-v04-init-'));
+    try {
+      execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'init', repository], {
+        cwd: resolve(import.meta.dirname, '..'),
+        stdio: 'pipe',
+      });
+      const document = parse(
+        await readFile(join(repository, '.agentic', 'attestations.yaml'), 'utf8'),
+      ) as { attestations: Record<string, unknown> };
+      expect(document.attestations).not.toHaveProperty('ADRB-SEC-003');
+      expect(document.attestations).toHaveProperty('ADRB-SEC-007');
+      expect(document.attestations).toHaveProperty('ADRB-SEC-005');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

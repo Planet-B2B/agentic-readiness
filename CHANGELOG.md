@@ -6,9 +6,12 @@
   components and partial references without partial scoring.
 - Report required-check progress and exact blocking checks separately from control confidence.
 - Recognize conventional ownership files and structurally explicit ownership mappings for
-  `ADRB-GOV-002` without allowing placeholders, vague ownership prose, or authority-free mappings.
+  `ADRB-GOV-002` without allowing placeholders, vague ownership prose, or authority-free mappings;
+  require approval and merge authority independently.
 - Require an enabled integration-triggered CI scanner invocation for secret scanning, and split
   untrusted-input enforcement into the separate Level 3 `ADRB-SEC-007` control.
+- Keep CI-provider discovery in versioned adapters and reject event-excluding, disabled,
+  failure-swallowing, display-only, or identity-spoofing scanner invocations.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

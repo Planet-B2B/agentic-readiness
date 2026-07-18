@@ -85,10 +85,14 @@ var ContentGroupsSchema = z.object({
   max_span_lines: z.number().int().positive().max(200).optional(),
   max_files_per_pattern: z.number().int().positive().max(250).optional()
 });
+var CiProviderSchema = z.object({
+  id: z.enum(["github-actions", "gitlab-ci", "azure-pipelines"]),
+  files: z.array(z.string().min(1)).min(1)
+});
 var CiCommandSchema = z.object({
   type: z.literal("ci_command"),
   scope: z.literal("repository").default("repository"),
-  files: z.array(z.string().min(1)).min(1),
+  providers: z.array(CiProviderSchema).default([]),
   terms: z.array(z.string().min(1)).min(1),
   min_terms: z.number().int().positive().default(1),
   max_files_per_pattern: z.number().int().positive().max(250).optional()
@@ -148,18 +152,20 @@ var DetectorAdapterExtensionSchema = z.object({
   patterns: z.array(z.string().min(1)).min(1).optional(),
   files: z.array(z.string().min(1)).min(1).optional(),
   terms: z.array(z.string().min(1)).min(1).optional(),
-  required_any_terms: z.array(z.string().min(1)).min(1).optional()
+  required_any_terms: z.array(z.string().min(1)).min(1).optional(),
+  ci_providers: z.array(CiProviderSchema).min(1).optional()
 }).strict().superRefine((extension, context) => {
   const extensionKinds = [
     extension.patterns,
     extension.files,
     extension.terms,
-    extension.required_any_terms
+    extension.required_any_terms,
+    extension.ci_providers
   ].filter(Boolean).length;
   if (extensionKinds !== 1) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "A detector extension must declare exactly one of patterns, files, terms, or required_any_terms"
+      message: "A detector extension must declare exactly one of patterns, files, terms, required_any_terms, or ci_providers"
     });
   }
 });
@@ -366,6 +372,22 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
         .../* @__PURE__ */ new Set([...check.required_any_terms ?? [], ...extension.required_any_terms])
       ];
     }
+    if (extension.ci_providers) {
+      if (check.type !== "ci_command") {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI providers to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      const providers = new Map(check.providers.map((provider) => [provider.id, provider]));
+      for (const extensionProvider of extension.ci_providers) {
+        const provider = providers.get(extensionProvider.id);
+        providers.set(extensionProvider.id, {
+          id: extensionProvider.id,
+          files: [.../* @__PURE__ */ new Set([...provider?.files ?? [], ...extensionProvider.files])]
+        });
+      }
+      check.providers = [...providers.values()];
+    }
   }
 }
 async function loadAttestations(path, benchmarkVersion, options = {}) {
@@ -480,6 +502,9 @@ function validateCatalog(benchmark, controls) {
       }
       if (check.type === "ci_command" && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more CI command terms than it defines`);
+      }
+      if (check.type === "ci_command" && check.providers.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a provider adapter`);
       }
       if (check.type === "content_groups") {
         const groupIds = check.groups.map(({ id }) => id);
@@ -600,11 +625,15 @@ function toMarkdown(report) {
   const unresolved = report.controls.filter(
     ({ status }) => status === "not_met" || status === "unknown"
   );
-  const repositoryGaps = unresolved.filter((control) => controlScope(control) === "repository");
-  const externalControls = unresolved.filter(
+  const alternativeControls = unresolved.filter(({ evidence_mode: mode }) => mode === "any");
+  const requiredControls = unresolved.filter(({ evidence_mode: mode }) => mode !== "any");
+  const repositoryGaps = requiredControls.filter(
+    (control) => controlScope(control) === "repository"
+  );
+  const externalControls = requiredControls.filter(
     (control) => ["platform", "organization"].includes(controlScope(control))
   );
-  const outcomeControls = unresolved.filter((control) => controlScope(control) === "outcome");
+  const outcomeControls = requiredControls.filter((control) => controlScope(control) === "outcome");
   const repositoryOnlyBaseline = !report.controls.some(
     ({ agent_evidence: agentEvidence, attestation }) => agentEvidence !== null || attestation !== null
   );
@@ -666,6 +695,12 @@ function toMarkdown(report) {
     }
   }
   appendControlDetails(lines, "Repository evidence gaps", repositoryGaps, showCheckSummary);
+  appendControlDetails(
+    lines,
+    "Alternative evidence paths not established",
+    alternativeControls,
+    showCheckSummary
+  );
   appendControlDetails(
     lines,
     "External controls not established",
@@ -902,9 +937,9 @@ function ownershipTableColumns(headerLine, separatorLine) {
   if (header.length < 2 || separator.length !== header.length) return null;
   if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
   const scope = header.findIndex(
-    (cell) => /\b(path|component|module|area|scope|repository)\b/.test(cell)
+    (cell) => /\b(path|component|module|area|scope|repository)\b/i.test(cell)
   );
-  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/.test(cell));
+  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/i.test(cell));
   return scope < 0 || owner < 0 ? null : { count: header.length, owner, scope };
 }
 function countOwnershipTableRows(lines, start, columns) {
@@ -927,7 +962,7 @@ function explicitOwnershipMappings(lines) {
     const mapping = parseOwnershipMapping(line);
     if (!mapping) return false;
     const { owner, target } = mapping;
-    const targetLooksScoped = /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/.test(target);
+    const targetLooksScoped = /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/i.test(target);
     return targetLooksScoped && isOwnerReference(owner);
   }).length;
 }
@@ -1099,7 +1134,8 @@ async function evaluateContentGroups(context, check) {
 }
 function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
   if (!maxSpanLines) {
-    const matchedGroups = groups.filter(({ terms }) => terms.some((term) => containsTerm(text, term))).map(({ id }) => id);
+    const lines2 = text.split(/\r?\n/);
+    const matchedGroups = groups.filter(({ terms }) => terms.some((term) => lines2.some((line) => containsTerm(line, term)))).map(({ id }) => id);
     return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
   }
   const groupCounts = groups.map(() => 0);
@@ -1121,9 +1157,18 @@ function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
   return { matchedGroups: strongestGroups, qualifies: strongestGroups.length >= minGroups };
 }
 async function evaluateCiCommand(context, check) {
-  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const patterns = check.providers.flatMap(({ files: files2 }) => files2);
+  const files = await readSearchableFiles(context, patterns, check.max_files_per_pattern);
+  const providerPaths = await Promise.all(
+    check.providers.map(async (provider) => ({
+      id: provider.id,
+      paths: new Set(await matches(context, provider.files))
+    }))
+  );
   const inspected = files.map(({ path, text }) => {
-    const invocations = ciIntegrationInvocations(path, text);
+    const invocations = providerPaths.flatMap(
+      ({ id, paths }) => paths.has(path) ? ciIntegrationInvocations(id, text) : []
+    );
     const matchedTerms = check.terms.filter(
       (term) => invocations.some((invocation) => invocationMatchesTerm(invocation, term))
     );
@@ -1142,40 +1187,39 @@ async function evaluateCiCommand(context, check) {
     qualifying.map(({ path }) => path)
   );
 }
-function ciIntegrationInvocations(path, text) {
+function ciIntegrationInvocations(provider, text) {
   try {
     const document = asRecord(parse2(text, { maxAliasCount: 50 }));
     if (!document) return [];
-    const normalizedPath = path.toLowerCase();
-    if (normalizedPath.startsWith(".github/workflows/")) {
-      return githubIntegrationInvocations(document);
-    }
-    if (normalizedPath.includes("gitlab-ci")) {
-      return gitlabIntegrationInvocations(document);
-    }
+    if (provider === "github-actions") return githubIntegrationInvocations(document);
+    if (provider === "gitlab-ci") return gitlabIntegrationInvocations(document);
     return azureIntegrationInvocations(document);
   } catch {
     return [];
   }
 }
 function githubIntegrationInvocations(document) {
-  if (!hasNamedTrigger(document.on, ["pull_request", "merge_group"])) return [];
+  const events = namedTriggers(document.on, ["pull_request", "merge_group"]);
+  if (events.size === 0) return [];
   const jobs = asRecord(document.jobs);
   if (!jobs) return [];
-  return Object.values(jobs).flatMap(githubJobInvocations);
+  return Object.values(jobs).flatMap((job) => githubJobInvocations(job, events));
 }
-function githubJobInvocations(value) {
+function githubJobInvocations(value, parentEvents) {
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
+  const events = githubConditionEvents(job.if, parentEvents);
+  if (events.size === 0) return [];
   const reusableWorkflow = invocationFromField(job, "uses", "action");
   return [
     ...reusableWorkflow ? [reusableWorkflow] : [],
-    ...asArray(job.steps).flatMap(githubStepInvocations)
+    ...asArray(job.steps).flatMap((step) => githubStepInvocations(step, events))
   ];
 }
-function githubStepInvocations(value) {
+function githubStepInvocations(value, parentEvents) {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
+  if (githubConditionEvents(step.if, parentEvents).size === 0) return [];
   const action = invocationFromField(step, "uses", "action");
   const command = invocationFromField(step, "run", "command");
   return [action, command].filter((invocation) => invocation !== null);
@@ -1240,23 +1284,57 @@ function hasNamedTrigger(value, names) {
     return value.some((entry) => typeof entry === "string" && names.includes(entry.toLowerCase()));
   }
   const record = asRecord(value);
-  return record ? names.some((name) => Object.hasOwn(record, name)) : false;
+  if (!record) return false;
+  if (names.some((name) => Object.hasOwn(record, name))) return true;
+  return Object.hasOwn(record, "refs") && hasNamedTrigger(record.refs, names);
+}
+function namedTriggers(value, names) {
+  return new Set(names.filter((name) => hasNamedTrigger(value, [name])));
+}
+function githubConditionEvents(value, parentEvents) {
+  if (typeof value !== "string") return new Set(parentEvents);
+  const condition = value.toLowerCase();
+  if (!condition.includes("github.event_name")) return new Set(parentEvents);
+  const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? ""
+  );
+  const excludes = [...condition.matchAll(/github\.event_name\s*!=\s*['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? ""
+  );
+  if (equals.length === 0 && excludes.length === 0) return /* @__PURE__ */ new Set();
+  const candidates = equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
+  return new Set(candidates.filter((event) => !excludes.includes(event)));
 }
 function hasGitlabMergeRequestRule(value) {
-  return asArray(value).some((ruleValue) => {
+  for (const ruleValue of asArray(value)) {
     const rule = asRecord(ruleValue);
-    if (!rule || isDisabledCiNode(rule)) return false;
-    return typeof rule.if === "string" && rule.if.toLowerCase().includes("merge_request_event");
-  });
+    if (!rule) return false;
+    if (typeof rule.if !== "string") return !isDisabledCiNode(rule);
+    const comparison = /\bci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]/i.exec(rule.if);
+    if (!comparison) return false;
+    const operator = comparison[1];
+    const event = comparison[2]?.toLowerCase();
+    const matchesMergeRequest = operator === "==" ? event === "merge_request_event" : event !== "merge_request_event";
+    if (matchesMergeRequest) return !isDisabledCiNode(rule);
+  }
+  return false;
 }
 function hasAzurePullRequestTrigger(value) {
   if (value === false || value === null || value === void 0) return false;
   if (typeof value === "string") return !["none", "false"].includes(value.toLowerCase());
   if (Array.isArray(value)) return value.length > 0;
-  return asRecord(value) !== null;
+  const trigger = asRecord(value);
+  if (!trigger) return false;
+  const branches = asRecord(trigger.branches);
+  if (!branches) return true;
+  const include = stringValues(branches.include).map((branch) => branch.toLowerCase());
+  const exclude = stringValues(branches.exclude).map((branch) => branch.toLowerCase());
+  if (exclude.includes("*")) return false;
+  if (include.length > 0) return include.some((branch) => !["none", "false"].includes(branch));
+  return true;
 }
 function isDisabledCiNode(node) {
-  if (node.enabled === false || node["continue-on-error"] === true || node.continueonerror === true) {
+  if (node.enabled === false || node["continue-on-error"] === true || node.continueonerror === true || node.continueOnError === true) {
     return true;
   }
   if (typeof node.when === "string" && ["never", "manual"].includes(node.when.toLowerCase())) {
@@ -1270,21 +1348,44 @@ function isDisabledCiNode(node) {
   });
 }
 function invocationMatchesTerm(invocation, term) {
-  if (invocation.kind === "action") return containsTerm(invocation.value, term);
+  if (invocation.kind === "action") {
+    const identity = invocation.value.split("@", 1)[0] ?? "";
+    return actionIdentityMatchesTerm(identity, term);
+  }
   return shellStatements(invocation.value).some((statement) => {
-    const command = statement.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, "").trim();
-    if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
-      return false;
+    if (statement.includes("||") || /(^|[^|])\|(?!\|)/.test(statement)) return false;
+    const commands = statement.split("&&").map((command) => command.trim());
+    for (const rawCommand of commands) {
+      const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, "").trim();
+      if (/^(?:false|exit\s+[1-9]\d*)$/i.test(command)) return false;
+      if (commandMatchesTerm(command, term)) return true;
     }
-    const executable = command.split(/\s+/, 1)[0] ?? "";
-    if (containsTerm(executable, term)) return true;
-    return /^(?:bash|bun|docker|node|npm|npx|pipx|pnpm|pwsh|python|sh|sudo|uvx|yarn)\b/i.test(
-      executable
-    ) ? containsTerm(command, term) : false;
+    return false;
   });
 }
+function commandMatchesTerm(command, term) {
+  if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
+    return false;
+  }
+  const executable = command.split(/\s+/, 1)[0] ?? "";
+  if (executableMatchesTerm(executable, term)) return true;
+  if (!/^(?:npx|pipx|sudo|uvx)\b/i.test(executable)) return false;
+  const delegatedExecutable = command.split(/\s+/)[1] ?? "";
+  return executableMatchesTerm(delegatedExecutable, term);
+}
+function actionIdentityMatchesTerm(identity, term) {
+  const alias = normalizedExecutableAlias(term);
+  return identity.toLowerCase().split("/").some((segment) => segment === alias || segment === `${alias}-action`);
+}
+function executableMatchesTerm(executable, term) {
+  const name = executable.split("/").at(-1)?.replace(/\.exe$/i, "").toLowerCase() ?? "";
+  return name === normalizedExecutableAlias(term);
+}
+function normalizedExecutableAlias(term) {
+  return term.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
 function shellStatements(value) {
-  return value.split(/\r?\n|&&|\|\||;/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
+  return value.split(/\r?\n|;/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
 }
 function stringValues(value) {
   if (typeof value === "string") return [value];
@@ -1814,7 +1915,9 @@ program.command("init").argument("[repository]", "repository to initialize", "."
   const expiresAt = new Date(reviewedAt);
   expiresAt.setDate(expiresAt.getDate() + 90);
   const attestations = Object.fromEntries(
-    controls.filter((control) => control.evidence.some(({ type }) => type === "manual")).map((control) => {
+    controls.filter(
+      (control) => control.allow_attestation && control.evidence.some(({ type }) => type === "manual")
+    ).map((control) => {
       const manualCheck = control.evidence.find(
         (check) => check.type === "manual"
       );

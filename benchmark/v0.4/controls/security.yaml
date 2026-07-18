@@ -99,15 +99,6 @@ controls:
     evidence:
       - type: ci_command
         scope: repository
-        files:
-          [
-            .github/workflows/**,
-            .gitlab-ci.yml,
-            .gitlab-ci/**,
-            azure-pipelines.yml,
-            azure-pipelines.yaml,
-            .azure-pipelines/**,
-          ]
         terms: [secret scan, scan secrets, secrets scan]
         min_terms: 1
       - type: manual

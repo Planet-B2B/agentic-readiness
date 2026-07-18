@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Model every independent authority and enforcement condition
+
+**Context.** PR review found that a combined approval-or-merge group could pass without declared
+merge authority, while CI collectors could mistake provider paths, event-excluding conditions,
+failure-swallowing shell commands, or action-version text for enforced secret scanning.
+
+**Rule.** Give independently required governance outcomes separate semantic groups; keep provider
+discovery in versioned adapters; and recognize CI enforcement only when trigger, condition, action
+identity, executable path, and failure propagation all support the claimed integration gate.
+
 ## 2026-07-18 — Command-shaped text is not CI enforcement
 
 **Context.** PR review found that a manual-only workflow, disabled step, or `echo gitleaks` command

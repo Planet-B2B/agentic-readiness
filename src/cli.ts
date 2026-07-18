@@ -62,7 +62,10 @@ program
     expiresAt.setDate(expiresAt.getDate() + 90);
     const attestations = Object.fromEntries(
       controls
-        .filter((control) => control.evidence.some(({ type }) => type === 'manual'))
+        .filter(
+          (control) =>
+            control.allow_attestation && control.evidence.some(({ type }) => type === 'manual'),
+        )
         .map((control) => {
           const manualCheck = control.evidence.find(
             (check): check is Extract<EvidenceCheck, { type: 'manual' }> => check.type === 'manual',

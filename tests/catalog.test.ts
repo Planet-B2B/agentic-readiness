@@ -44,6 +44,7 @@ describe('benchmark catalog', () => {
   it('keeps vendor path aliases in detector adapters', async () => {
     const root = benchmarkFixture('v0.4');
     const controlPaths = await fg('controls/*.yaml', { cwd: root, absolute: true });
+    const securityControlSource = await readFile(join(root, 'controls', 'security.yaml'), 'utf8');
     const controlSource = (
       await Promise.all(controlPaths.map(async (path) => readFile(path, 'utf8')))
     ).join('\n');
@@ -60,6 +61,14 @@ describe('benchmark catalog', () => {
     const securityAutomation = controls.find(({ id }) => id === 'ADRB-SEC-003');
     const commandCheck = securityAutomation?.evidence.find(({ type }) => type === 'ci_command');
     expect(commandCheck?.type === 'ci_command' ? commandCheck.terms : []).toContain('gitleaks');
+    expect(commandCheck?.type === 'ci_command' ? commandCheck.providers : []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'github-actions' }),
+        expect.objectContaining({ id: 'gitlab-ci' }),
+        expect.objectContaining({ id: 'azure-pipelines' }),
+      ]),
+    );
+    expect(securityControlSource).not.toMatch(/\.github\/workflows|gitlab-ci|azure-pipelines/);
     const ciVerification = controls.find(({ id }) => id === 'ADRB-TST-003');
     const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'content_terms');
     expect(ciCheck?.type === 'content_terms' ? ciCheck.terms : []).toContain('pytest');

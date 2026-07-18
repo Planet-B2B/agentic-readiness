@@ -120,9 +120,9 @@ controls:
                 ask coordinator,
                 surface to coordinator,
                 hand back,
-                human approval,
                 ask a human,
-                require human,
+                escalate to a human,
+                hand back to a human,
               ]
           - id: recovery-ownership
             terms:

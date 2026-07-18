@@ -57,8 +57,10 @@ target-profile headline discloses the number of required controls from each prov
 Repository controls use non-empty files, control-specific term thresholds, semantic component
 groups, structurally identifiable non-placeholder ownership mappings, enabled integration-triggered
 CI invocations, bounded line windows, and per-pattern candidate limits. Partial evidence remains
-visible but does not pass a control. An ownership artifact and explicit approval or merge authority
-are separate required checks; a generic owner/reviewer mention cannot establish authority.
+visible but does not pass a control. An ownership artifact, explicit accountable-human approval
+authority, and explicit accountable-human merge authority are independently required for
+`ADRB-GOV-002`; a generic owner/reviewer mention or declared agent authority cannot establish either
+human authority.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome
 controls cannot be inferred from repository keywords.
@@ -92,6 +94,13 @@ exist in the tracked assessment scope at the exact bound commit. Untracked gener
 not affect tracked-scope evidence. An agent may use such a claim only to
 establish the control outcome from a nonstandard artifact the deterministic catalog did not
 recognize.
+
+`ADRB-SEC-007` deliberately accepts source-backed agent claims at repository, platform, or
+organization scope because enforced untrusted-input safeguards may be implemented as tracked
+adversarial harness tests, platform sandbox or tool policy, or organization-wide controls. The
+claim's scope must identify where enforcement actually resides. Repository-scoped claims remain
+commit-bound and line-referenced; no scope may pass from prose alone, and deterministic repository
+keyword scanning is not an evidence path for this non-compensating security floor.
 
 ## Changes and comparability
 

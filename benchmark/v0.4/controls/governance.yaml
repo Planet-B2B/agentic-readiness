@@ -36,8 +36,8 @@ controls:
     remediation: Publish contribution guidance covering change proposals, verification, reviewers, and approvals.
   - id: ADRB-GOV-002
     level: 2
-    title: Ownership and merge authority are declared
-    outcome: The tracked repository assigns review ownership and states who may approve or merge changes.
+    title: Ownership, approval, and merge authority are declared
+    outcome: The tracked repository assigns review ownership and states which accountable human roles may approve and merge changes.
     risk: Sensitive or cross-cutting changes reach reviewers without accountable ownership.
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
@@ -79,29 +79,47 @@ controls:
             docs/agentic/**,
           ]
         groups:
-          - id: approval-or-merge-authority
+          - id: approval-authority
             terms:
               [
-                may approve,
-                can approve,
-                authorized to approve,
-                approval is required,
-                required approval,
-                approval required,
+                owner may approve,
+                owners may approve,
+                reviewer may approve,
+                reviewers may approve,
+                maintainer may approve,
+                maintainers may approve,
+                human may approve,
+                humans may approve,
                 human approval is required,
                 human approval required,
                 requires human approval,
-                may merge,
-                can merge,
-                authorized to merge,
+                reviewer provides approval,
+                reviewer provides human approval,
+                reviewer approval,
+                maintainer approval is required,
+                maintainer approval required,
+              ]
+          - id: merge-authority
+            terms:
+              [
+                owner may merge,
+                owners may merge,
+                reviewer may merge,
+                reviewers may merge,
+                maintainer may merge,
+                maintainers may merge,
+                human may merge,
+                humans may merge,
+                documented merge authority may merge,
+                maintainer has merge authority,
                 maintainers have merge authority,
                 maintainers retain merge authority,
                 human merge authority,
               ]
-        min_groups: 1
+        min_groups: 2
         max_span_lines: 100
         max_files_per_pattern: 50
-    remediation: Commit ownership rules and document reviewer, approval, merge, and exception authority.
+    remediation: Commit ownership rules and document who reviews, who approves, who merges, and who controls exceptions.
   - id: ADRB-GOV-003
     level: 3
     title: Protected merge governance is enforced

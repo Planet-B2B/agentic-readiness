@@ -119,6 +119,22 @@ function applyDetectorAdapter(
         ...new Set([...(check.required_any_terms ?? []), ...extension.required_any_terms]),
       ];
     }
+    if (extension.ci_providers) {
+      if (check.type !== 'ci_command') {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI providers to ${control.id} evidence ${extension.evidence_index}`,
+        );
+      }
+      const providers = new Map(check.providers.map((provider) => [provider.id, provider]));
+      for (const extensionProvider of extension.ci_providers) {
+        const provider = providers.get(extensionProvider.id);
+        providers.set(extensionProvider.id, {
+          id: extensionProvider.id,
+          files: [...new Set([...(provider?.files ?? []), ...extensionProvider.files])],
+        });
+      }
+      check.providers = [...providers.values()];
+    }
   }
 }
 
@@ -275,6 +291,9 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
       }
       if (check.type === 'ci_command' && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more CI command terms than it defines`);
+      }
+      if (check.type === 'ci_command' && check.providers.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a provider adapter`);
       }
       if (check.type === 'content_groups') {
         const groupIds = check.groups.map(({ id }) => id);

@@ -88,10 +88,15 @@ const ContentGroupsSchema = z.object({
   max_files_per_pattern: z.number().int().positive().max(250).optional(),
 });
 
+const CiProviderSchema = z.object({
+  id: z.enum(['github-actions', 'gitlab-ci', 'azure-pipelines']),
+  files: z.array(z.string().min(1)).min(1),
+});
+
 const CiCommandSchema = z.object({
   type: z.literal('ci_command'),
   scope: z.literal('repository').default('repository'),
-  files: z.array(z.string().min(1)).min(1),
+  providers: z.array(CiProviderSchema).default([]),
   terms: z.array(z.string().min(1)).min(1),
   min_terms: z.number().int().positive().default(1),
   max_files_per_pattern: z.number().int().positive().max(250).optional(),
@@ -164,6 +169,7 @@ const DetectorAdapterExtensionSchema = z
     files: z.array(z.string().min(1)).min(1).optional(),
     terms: z.array(z.string().min(1)).min(1).optional(),
     required_any_terms: z.array(z.string().min(1)).min(1).optional(),
+    ci_providers: z.array(CiProviderSchema).min(1).optional(),
   })
   .strict()
   .superRefine((extension, context) => {
@@ -172,12 +178,13 @@ const DetectorAdapterExtensionSchema = z
       extension.files,
       extension.terms,
       extension.required_any_terms,
+      extension.ci_providers,
     ].filter(Boolean).length;
     if (extensionKinds !== 1) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'A detector extension must declare exactly one of patterns, files, terms, or required_any_terms',
+          'A detector extension must declare exactly one of patterns, files, terms, required_any_terms, or ci_providers',
       });
     }
   });

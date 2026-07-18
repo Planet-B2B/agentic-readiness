@@ -161,9 +161,9 @@ function ownershipTableColumns(
   if (header.length < 2 || separator.length !== header.length) return null;
   if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
   const scope = header.findIndex((cell) =>
-    /\b(path|component|module|area|scope|repository)\b/.test(cell),
+    /\b(path|component|module|area|scope|repository)\b/i.test(cell),
   );
-  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/.test(cell));
+  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/i.test(cell));
   return scope < 0 || owner < 0 ? null : { count: header.length, owner, scope };
 }
 
@@ -198,7 +198,7 @@ function explicitOwnershipMappings(lines: string[]): number {
     if (!mapping) return false;
     const { owner, target } = mapping;
     const targetLooksScoped =
-      /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/.test(target);
+      /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/i.test(target);
     return targetLooksScoped && isOwnerReference(owner);
   }).length;
 }
@@ -447,8 +447,9 @@ function strongestGroupMatch(
   maxSpanLines?: number,
 ): { matchedGroups: string[]; qualifies: boolean } {
   if (!maxSpanLines) {
+    const lines = text.split(/\r?\n/);
     const matchedGroups = groups
-      .filter(({ terms }) => terms.some((term) => containsTerm(text, term)))
+      .filter(({ terms }) => terms.some((term) => lines.some((line) => containsTerm(line, term))))
       .map(({ id }) => id);
     return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
   }
@@ -481,9 +482,18 @@ async function evaluateCiCommand(
   context: RepositoryContext,
   check: Extract<EvidenceCheck, { type: 'ci_command' }>,
 ): Promise<EvidenceResult> {
-  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const patterns = check.providers.flatMap(({ files }) => files);
+  const files = await readSearchableFiles(context, patterns, check.max_files_per_pattern);
+  const providerPaths = await Promise.all(
+    check.providers.map(async (provider) => ({
+      id: provider.id,
+      paths: new Set(await matches(context, provider.files)),
+    })),
+  );
   const inspected = files.map(({ path, text }) => {
-    const invocations = ciIntegrationInvocations(path, text);
+    const invocations = providerPaths.flatMap(({ id, paths }) =>
+      paths.has(path) ? ciIntegrationInvocations(id, text) : [],
+    );
     const matchedTerms = check.terms.filter((term) =>
       invocations.some((invocation) => invocationMatchesTerm(invocation, term)),
     );
@@ -509,17 +519,14 @@ interface CiInvocation {
   value: string;
 }
 
-function ciIntegrationInvocations(path: string, text: string): CiInvocation[] {
+type CiProviderId = Extract<EvidenceCheck, { type: 'ci_command' }>['providers'][number]['id'];
+
+function ciIntegrationInvocations(provider: CiProviderId, text: string): CiInvocation[] {
   try {
     const document = asRecord(parse(text, { maxAliasCount: 50 }));
     if (!document) return [];
-    const normalizedPath = path.toLowerCase();
-    if (normalizedPath.startsWith('.github/workflows/')) {
-      return githubIntegrationInvocations(document);
-    }
-    if (normalizedPath.includes('gitlab-ci')) {
-      return gitlabIntegrationInvocations(document);
-    }
+    if (provider === 'github-actions') return githubIntegrationInvocations(document);
+    if (provider === 'gitlab-ci') return gitlabIntegrationInvocations(document);
     return azureIntegrationInvocations(document);
   } catch {
     return [];
@@ -527,25 +534,29 @@ function ciIntegrationInvocations(path: string, text: string): CiInvocation[] {
 }
 
 function githubIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
-  if (!hasNamedTrigger(document.on, ['pull_request', 'merge_group'])) return [];
+  const events = namedTriggers(document.on, ['pull_request', 'merge_group']);
+  if (events.size === 0) return [];
   const jobs = asRecord(document.jobs);
   if (!jobs) return [];
-  return Object.values(jobs).flatMap(githubJobInvocations);
+  return Object.values(jobs).flatMap((job) => githubJobInvocations(job, events));
 }
 
-function githubJobInvocations(value: unknown): CiInvocation[] {
+function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvocation[] {
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
+  const events = githubConditionEvents(job.if, parentEvents);
+  if (events.size === 0) return [];
   const reusableWorkflow = invocationFromField(job, 'uses', 'action');
   return [
     ...(reusableWorkflow ? [reusableWorkflow] : []),
-    ...asArray(job.steps).flatMap(githubStepInvocations),
+    ...asArray(job.steps).flatMap((step) => githubStepInvocations(step, events)),
   ];
 }
 
-function githubStepInvocations(value: unknown): CiInvocation[] {
+function githubStepInvocations(value: unknown, parentEvents: Set<string>): CiInvocation[] {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
+  if (githubConditionEvents(step.if, parentEvents).size === 0) return [];
   const action = invocationFromField(step, 'uses', 'action');
   const command = invocationFromField(step, 'run', 'command');
   return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
@@ -620,29 +631,68 @@ function hasNamedTrigger(value: unknown, names: string[]): boolean {
     return value.some((entry) => typeof entry === 'string' && names.includes(entry.toLowerCase()));
   }
   const record = asRecord(value);
-  return record ? names.some((name) => Object.hasOwn(record, name)) : false;
+  if (!record) return false;
+  if (names.some((name) => Object.hasOwn(record, name))) return true;
+  return Object.hasOwn(record, 'refs') && hasNamedTrigger(record.refs, names);
+}
+
+function namedTriggers(value: unknown, names: string[]): Set<string> {
+  return new Set(names.filter((name) => hasNamedTrigger(value, [name])));
+}
+
+function githubConditionEvents(value: unknown, parentEvents: Set<string>): Set<string> {
+  if (typeof value !== 'string') return new Set(parentEvents);
+  const condition = value.toLowerCase();
+  if (!condition.includes('github.event_name')) return new Set(parentEvents);
+  const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? '',
+  );
+  const excludes = [...condition.matchAll(/github\.event_name\s*!=\s*['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? '',
+  );
+  if (equals.length === 0 && excludes.length === 0) return new Set();
+  const candidates =
+    equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
+  return new Set(candidates.filter((event) => !excludes.includes(event)));
 }
 
 function hasGitlabMergeRequestRule(value: unknown): boolean {
-  return asArray(value).some((ruleValue) => {
+  for (const ruleValue of asArray(value)) {
     const rule = asRecord(ruleValue);
-    if (!rule || isDisabledCiNode(rule)) return false;
-    return typeof rule.if === 'string' && rule.if.toLowerCase().includes('merge_request_event');
-  });
+    if (!rule) return false;
+    if (typeof rule.if !== 'string') return !isDisabledCiNode(rule);
+    const comparison = /\bci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]/i.exec(rule.if);
+    if (!comparison) return false;
+    const operator = comparison[1];
+    const event = comparison[2]?.toLowerCase();
+    const matchesMergeRequest =
+      operator === '==' ? event === 'merge_request_event' : event !== 'merge_request_event';
+    if (matchesMergeRequest) return !isDisabledCiNode(rule);
+  }
+  return false;
 }
 
 function hasAzurePullRequestTrigger(value: unknown): boolean {
   if (value === false || value === null || value === undefined) return false;
   if (typeof value === 'string') return !['none', 'false'].includes(value.toLowerCase());
   if (Array.isArray(value)) return value.length > 0;
-  return asRecord(value) !== null;
+  const trigger = asRecord(value);
+  if (!trigger) return false;
+  const branches = asRecord(trigger.branches);
+  if (!branches) return true;
+  const include = stringValues(branches.include).map((branch) => branch.toLowerCase());
+  const exclude = stringValues(branches.exclude).map((branch) => branch.toLowerCase());
+  if (exclude.includes('*')) return false;
+  if (include.length > 0) return include.some((branch) => !['none', 'false'].includes(branch));
+  return true;
 }
 
 function isDisabledCiNode(node: Record<string, unknown>): boolean {
   if (
     node.enabled === false ||
     node['continue-on-error'] === true ||
-    node.continueonerror === true
+    node.continueonerror === true ||
+    node.continueOnError === true
   ) {
     return true;
   }
@@ -658,28 +708,61 @@ function isDisabledCiNode(node: Record<string, unknown>): boolean {
 }
 
 function invocationMatchesTerm(invocation: CiInvocation, term: string): boolean {
-  if (invocation.kind === 'action') return containsTerm(invocation.value, term);
+  if (invocation.kind === 'action') {
+    const identity = invocation.value.split('@', 1)[0] ?? '';
+    return actionIdentityMatchesTerm(identity, term);
+  }
   return shellStatements(invocation.value).some((statement) => {
-    const command = statement.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, '').trim();
-    if (
-      !command ||
-      /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)
-    ) {
-      return false;
+    if (statement.includes('||') || /(^|[^|])\|(?!\|)/.test(statement)) return false;
+    const commands = statement.split('&&').map((command) => command.trim());
+    for (const rawCommand of commands) {
+      const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, '').trim();
+      if (/^(?:false|exit\s+[1-9]\d*)$/i.test(command)) return false;
+      if (commandMatchesTerm(command, term)) return true;
     }
-    const executable = command.split(/\s+/, 1)[0] ?? '';
-    if (containsTerm(executable, term)) return true;
-    return /^(?:bash|bun|docker|node|npm|npx|pipx|pnpm|pwsh|python|sh|sudo|uvx|yarn)\b/i.test(
-      executable,
-    )
-      ? containsTerm(command, term)
-      : false;
+    return false;
   });
+}
+
+function commandMatchesTerm(command: string, term: string): boolean {
+  if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
+    return false;
+  }
+  const executable = command.split(/\s+/, 1)[0] ?? '';
+  if (executableMatchesTerm(executable, term)) return true;
+  if (!/^(?:npx|pipx|sudo|uvx)\b/i.test(executable)) return false;
+  const delegatedExecutable = command.split(/\s+/)[1] ?? '';
+  return executableMatchesTerm(delegatedExecutable, term);
+}
+
+function actionIdentityMatchesTerm(identity: string, term: string): boolean {
+  const alias = normalizedExecutableAlias(term);
+  return identity
+    .toLowerCase()
+    .split('/')
+    .some((segment) => segment === alias || segment === `${alias}-action`);
+}
+
+function executableMatchesTerm(executable: string, term: string): boolean {
+  const name =
+    executable
+      .split('/')
+      .at(-1)
+      ?.replace(/\.exe$/i, '')
+      .toLowerCase() ?? '';
+  return name === normalizedExecutableAlias(term);
+}
+
+function normalizedExecutableAlias(term: string): string {
+  return term
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
 }
 
 function shellStatements(value: string): string[] {
   return value
-    .split(/\r?\n|&&|\|\||;/)
+    .split(/\r?\n|;/)
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0 && !statement.startsWith('#'));
 }

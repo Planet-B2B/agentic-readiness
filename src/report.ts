@@ -129,11 +129,15 @@ export function toMarkdown(report: AssessmentReport): string {
   const unresolved = report.controls.filter(
     ({ status }) => status === 'not_met' || status === 'unknown',
   );
-  const repositoryGaps = unresolved.filter((control) => controlScope(control) === 'repository');
-  const externalControls = unresolved.filter((control) =>
+  const alternativeControls = unresolved.filter(({ evidence_mode: mode }) => mode === 'any');
+  const requiredControls = unresolved.filter(({ evidence_mode: mode }) => mode !== 'any');
+  const repositoryGaps = requiredControls.filter(
+    (control) => controlScope(control) === 'repository',
+  );
+  const externalControls = requiredControls.filter((control) =>
     ['platform', 'organization'].includes(controlScope(control)),
   );
-  const outcomeControls = unresolved.filter((control) => controlScope(control) === 'outcome');
+  const outcomeControls = requiredControls.filter((control) => controlScope(control) === 'outcome');
   const repositoryOnlyBaseline = !report.controls.some(
     ({ agent_evidence: agentEvidence, attestation }) =>
       agentEvidence !== null || attestation !== null,
@@ -212,6 +216,12 @@ export function toMarkdown(report: AssessmentReport): string {
   }
 
   appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps, showCheckSummary);
+  appendControlDetails(
+    lines,
+    'Alternative evidence paths not established',
+    alternativeControls,
+    showCheckSummary,
+  );
   appendControlDetails(
     lines,
     'External controls not established',
