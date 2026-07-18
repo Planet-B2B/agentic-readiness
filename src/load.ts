@@ -101,7 +101,7 @@ function applyDetectorAdapter(
       check.files = [...new Set([...check.files, ...extension.files])];
     }
     if (extension.terms) {
-      if (check.type !== 'content_terms') {
+      if (check.type !== 'content_terms' && check.type !== 'ci_command') {
         throw new Error(
           `Detector adapter ${adapter.id} cannot add terms to ${control.id} evidence ${extension.evidence_index}`,
         );
@@ -267,6 +267,9 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
     for (const check of control.evidence) {
       if (check.type === 'content_terms' && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more content terms than it defines`);
+      }
+      if (check.type === 'ci_command' && check.min_terms > check.terms.length) {
+        throw new Error(`${control.id} requires more CI command terms than it defines`);
       }
       if (check.type === 'content_groups') {
         const groupIds = check.groups.map(({ id }) => id);

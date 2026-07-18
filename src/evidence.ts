@@ -407,6 +407,57 @@ function strongestGroupMatch(
   return { matchedGroups: strongestGroups, qualifies: strongestGroups.length >= minGroups };
 }
 
+async function evaluateCiCommand(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'ci_command' }>,
+): Promise<EvidenceResult> {
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const inspected = files.map(({ path, text }) => {
+    const commands = ciCommandText(text);
+    const matchedTerms = check.terms.filter((term) => containsTerm(commands, term));
+    return { path, matchedTerms };
+  });
+  const qualifying = inspected.filter(({ matchedTerms }) => matchedTerms.length >= check.min_terms);
+  const strongest = inspected.reduce(
+    (maximum, candidate) =>
+      candidate.matchedTerms.length > maximum.matchedTerms.length ? candidate : maximum,
+    { path: '', matchedTerms: [] as string[] },
+  );
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? 'met' : 'not_met',
+    `${qualifying.length} CI configuration file(s) invoke a qualifying command; strongest executable match ${strongest.matchedTerms.length}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    qualifying.map(({ path }) => path),
+  );
+}
+
+function ciCommandText(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const commands: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    if (line.trimStart().startsWith('#')) continue;
+    const command = line.match(/^(\s*)(?:-\s*)?(run|uses|script|command):\s*(.*)$/i);
+    if (!command) continue;
+    const indentation = command[1]?.length ?? 0;
+    const value = command[3]?.trim() ?? '';
+    if (value.length > 0 && value !== '|' && value !== '>') commands.push(value);
+    if (value.length > 0 && value !== '|' && value !== '>') continue;
+
+    for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
+      const blockLine = lines[blockIndex] ?? '';
+      if (blockLine.trim().length === 0) continue;
+      const blockIndentation = blockLine.match(/^\s*/)?.[0].length ?? 0;
+      if (blockIndentation <= indentation) break;
+      const executable = blockLine.trim().replace(/^-\s*/, '');
+      if (!executable.startsWith('#')) commands.push(executable);
+      index = blockIndex;
+    }
+  }
+  return commands.join('\n');
+}
+
 function strongestContentMatch(
   text: string,
   terms: string[],
@@ -517,6 +568,8 @@ async function evaluateCheck(
       return evaluateContentTerms(context, check);
     case 'content_groups':
       return evaluateContentGroups(context, check);
+    case 'ci_command':
+      return evaluateCiCommand(context, check);
     case 'max_bytes':
       return evaluateMaxBytes(context, check);
     case 'manual':

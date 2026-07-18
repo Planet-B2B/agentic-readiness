@@ -12,6 +12,12 @@ attestations:
     owner: Security owner
     reviewed_at: 2026-07-01
     expires_at: 2027-07-01
+  ADRB-SEC-007:
+    status: met
+    evidence: https://example.invalid/evidence/untrusted-input-controls
+    owner: Security owner
+    reviewed_at: 2026-07-01
+    expires_at: 2027-07-01
   ADRB-TST-005:
     status: met
     evidence: https://example.invalid/evidence/required-checks

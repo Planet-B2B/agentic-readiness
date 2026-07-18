@@ -90,19 +90,39 @@ controls:
     remediation: Publish a vulnerability-reporting and security-escalation path with response ownership.
   - id: ADRB-SEC-003
     level: 3
-    title: Automated agent security safeguards are configured
-    outcome: Repository automation checks secrets and defines handling for untrusted agent input.
-    risk: Credential exposure or prompt-borne instructions can pass through an otherwise healthy pipeline.
+    title: Automated secret-leakage safeguards are enforced
+    outcome: Repository or platform automation scans relevant changes for secrets before integration.
+    risk: Credentials can enter version history because secret safeguards are absent or merely documented.
     allow_agent_evidence: true
-    agent_evidence_scopes: [repository]
+    agent_evidence_scopes: [repository, platform]
     evidence:
-      - type: content_terms
+      - type: ci_command
         scope: repository
-        files: [.github/workflows/**, .gitlab-ci.yml, scripts/**, SECURITY.md, docs/security/**]
-        terms: [secret scan, prompt injection, untrusted content, sandbox]
-        min_terms: 2
-        max_span_lines: 120
-    remediation: Configure secret scanning and explicit untrusted-content or prompt-injection safeguards with tests.
+        files:
+          [
+            .github/workflows/**,
+            .gitlab-ci.yml,
+            .gitlab-ci/**,
+            azure-pipelines.yml,
+            azure-pipelines.yaml,
+            .azure-pipelines/**,
+          ]
+        terms: [secret scan, scan secrets, secrets scan]
+        min_terms: 1
+    remediation: Run a secret-leakage safeguard in applicable CI or enable equivalent protected platform scanning with reviewable evidence.
+  - id: ADRB-SEC-007
+    level: 3
+    title: Untrusted agent-input safeguards are enforced
+    outcome: The harness bounds untrusted content and prompt-borne instructions with enforced isolation, validation, or tested handling.
+    risk: Repository, issue, tool, or retrieved content can redirect an agent beyond the authorized task and authority.
+    allow_attestation: true
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository, platform, organization]
+    evidence:
+      - type: manual
+        scope: organization
+        prompt: Show the untrusted-input boundaries and recent mechanical tests or enforcement evidence for prompt injection, sandbox escape, or unauthorized tool instructions.
+    remediation: Define untrusted-input boundaries and enforce them with sandboxing, validation, allowlists, or adversarial tests appropriate to the harness.
   - id: ADRB-SEC-005
     level: 3
     title: High-impact agent actions are technically gated

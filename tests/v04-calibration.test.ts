@@ -188,4 +188,40 @@ describe('v0.4 evidence calibration', () => {
       await rm(repository, { recursive: true, force: true });
     }
   });
+
+  it('requires executed secret scanning separately from untrusted-input safeguards', async () => {
+    const keywordOnly = await gitFixture({
+      '.github/workflows/security.yml': [
+        'name: Security',
+        '# gitleaks secret scan is planned',
+        'jobs:',
+        '  test:',
+        '    steps:',
+        '      - run: npm test',
+      ].join('\n'),
+    });
+    const executed = await gitFixture({
+      '.github/workflows/security.yml': [
+        'name: Security',
+        'jobs:',
+        '  scan:',
+        '    steps:',
+        '      - run: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const keywordReport = await assess(keywordOnly, benchmark, controls, 'pr-creation');
+      const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
+
+      expect(controlStatus(keywordReport, 'ADRB-SEC-003')?.status).toBe('not_met');
+      expect(controlStatus(executedReport, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(executedReport, 'ADRB-SEC-003')?.evidence[0]?.type).toBe('ci_command');
+      expect(controlStatus(executedReport, 'ADRB-SEC-007')?.status).toBe('unknown');
+      expect(controlStatus(executedReport, 'ADRB-SEC-007')?.evidence[0]?.type).toBe('manual');
+    } finally {
+      await rm(keywordOnly, { recursive: true, force: true });
+      await rm(executed, { recursive: true, force: true });
+    }
+  });
 });
