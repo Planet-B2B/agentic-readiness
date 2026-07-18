@@ -10,7 +10,8 @@ readiness floor, add an attestation path, or execute code.
 
 Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors and tool
-aliases to `ci_command`; aliases never turn comments or documentation prose into executed evidence.
+aliases to `ci_command`; aliases never turn comments, display commands, disabled steps, manual-only
+workflows, or documentation prose into enforced evidence.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

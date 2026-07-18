@@ -74,9 +74,9 @@ function appendControlDetails(
   }
   for (const control of controls) {
     const establishedChecks = control.evidence.filter(({ status }) => status === 'met').length;
-    const blockingChecks = control.evidence
-      .filter(({ status }) => status !== 'met')
-      .map(({ scope, type }) => `${scope}/${type}`);
+    const blockingChecks = control.evidence.flatMap(({ scope, status, type }, index) =>
+      status === 'met' ? [] : [`#${index + 1} ${scope}/${type}`],
+    );
     const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(', ');
     const checkSummary =
       control.evidence_mode === 'any'

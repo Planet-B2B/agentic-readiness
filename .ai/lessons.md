@@ -3,6 +3,25 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Command-shaped text is not CI enforcement
+
+**Context.** PR review found that a manual-only workflow, disabled step, or `echo gitleaks` command
+could satisfy the initial v0.4 secret-scanning collector even though no scanner guarded integration.
+
+**Rule.** Enforcement collectors must bind executable or action identity to an enabled relevant
+trigger and reject display commands, disabled conditions, manual-only paths, and allow-failure
+configuration.
+
+## 2026-07-18 — Structural ownership needs an accountable value and separate authority
+
+**Context.** PR review found that OWNERS.md lists were missed while placeholder table cells and
+generic role words could pass, and that ownership/reviewer prose could satisfy GOV-002 without any
+approval or merge authority.
+
+**Rule.** Parse conventional owner contacts and explicit mappings structurally, reject placeholder
+or descriptive values, and require authority as its own semantic outcome rather than inferring it
+from ownership.
+
 ## 2026-07-18 — Model alternative evidence sources explicitly
 
 **Context.** Platform-native secret scanning was invisible to the offline collector, but treating

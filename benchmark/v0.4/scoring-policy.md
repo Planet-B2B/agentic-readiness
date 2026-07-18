@@ -55,8 +55,10 @@ target-profile headline discloses the number of required controls from each prov
 - `unknown`: evidence is unavailable, expired, mismatched, unauthorized, or inconclusive.
 
 Repository controls use non-empty files, control-specific term thresholds, semantic component
-groups, structurally identifiable ownership mappings, executable CI commands, bounded line windows,
-and per-pattern candidate limits. Partial evidence remains visible but does not pass a control.
+groups, structurally identifiable non-placeholder ownership mappings, enabled integration-triggered
+CI invocations, bounded line windows, and per-pattern candidate limits. Partial evidence remains
+visible but does not pass a control. An ownership artifact and explicit approval or merge authority
+are separate required checks; a generic owner/reviewer mention cannot establish authority.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome
 controls cannot be inferred from repository keywords.

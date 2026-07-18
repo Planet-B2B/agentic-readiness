@@ -58,7 +58,7 @@ controls:
             docs/ownership/**,
             .ai/ownership/**,
           ]
-      - type: content_terms
+      - type: content_groups
         scope: repository
         files:
           [
@@ -78,9 +78,27 @@ controls:
             docs/governance/**,
             docs/agentic/**,
           ]
-        terms: [owner, reviewer, approval, merge authority, required review, merge]
-        min_terms: 2
-        required_any_terms: [owner, reviewer, approval, merge authority, required review]
+        groups:
+          - id: approval-or-merge-authority
+            terms:
+              [
+                may approve,
+                can approve,
+                authorized to approve,
+                approval is required,
+                required approval,
+                approval required,
+                human approval is required,
+                human approval required,
+                requires human approval,
+                may merge,
+                can merge,
+                authorized to merge,
+                maintainers have merge authority,
+                maintainers retain merge authority,
+                human merge authority,
+              ]
+        min_groups: 1
         max_span_lines: 100
         max_files_per_pattern: 50
     remediation: Commit ownership rules and document reviewer, approval, merge, and exception authority.

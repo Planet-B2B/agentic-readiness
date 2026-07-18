@@ -134,11 +134,28 @@ describe('v0.4 evidence calibration', () => {
       expect(governance?.confidence).toBe('none');
       expect(governance?.evidence.map(({ status }) => status)).toEqual(['not_met', 'met']);
       expect(markdown).toContain('Required evidence checks established: 1/2.');
-      expect(markdown).toContain('Blocking checks: `repository/ownership_map`.');
+      expect(markdown).toContain('Blocking checks: `#1 repository/ownership_map`.');
       expect(markdown).toContain(
         'Control confidence: none — all required evidence checks must pass.',
       );
       expect(markdown).not.toContain('Evidence confidence: none.');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('numbers repeated evidence types so blockers remain unambiguous', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture repository\n' });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const environment = controlStatus(report, 'ADRB-ENV-002');
+      const markdown = toMarkdown(report);
+
+      expect(environment?.evidence.map(({ type }) => type)).toEqual(['path_any', 'path_any']);
+      expect(markdown).toContain(
+        'Blocking checks: `#1 repository/path_any`, `#2 repository/path_any`.',
+      );
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -192,6 +209,88 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('accepts a conventional OWNERS.md contact list', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': [
+        '# Review governance',
+        'The required reviewer provides human approval and maintainers retain merge authority.',
+      ].join('\n'),
+      'OWNERS.md': '# Repository owners\n\n- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('met');
+      expect(governance?.evidence[0]?.references).toContain('OWNERS.md');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects placeholder table owners and descriptive maintainer prose', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': 'Human approval is required and maintainers retain merge authority.\n',
+      'docs/governance/ownership.md': [
+        '# Component ownership',
+        '| Component | Owner |',
+        '| --- | --- |',
+        '| packages/platform/** | TBD |',
+      ].join('\n'),
+      'MAINTAINERS.md': '# Maintainers\n\n- Security team handbook\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence[0]?.status).toBe('not_met');
+      expect(governance?.evidence[0]?.references).toEqual([]);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('requires authority guidance in addition to an ownership map', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': 'Repository owners select reviewers for each change.\n',
+      'OWNERS.md': '- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
+      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/1');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('does not infer positive authority from a statement denying agent authority', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': [
+        'Repository owners select reviewers for each change.',
+        'Green CI is not merge authority, and agents cannot approve changes.',
+      ].join('\n'),
+      'OWNERS.md': '- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('does not treat vague ownership prose as an ownership assignment', async () => {
     const repository = await gitFixture({
       'GOVERNANCE.md': [
@@ -226,6 +325,34 @@ describe('v0.4 evidence calibration', () => {
     const executed = await gitFixture({
       '.github/workflows/security.yml': [
         'name: Security',
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    steps:',
+        '      - run: gitleaks detect',
+      ].join('\n'),
+    });
+    const nonEnforced = await gitFixture({
+      '.github/workflows/echo.yml': [
+        'name: Echo only',
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    steps:',
+        '      - run: echo gitleaks',
+      ].join('\n'),
+      '.github/workflows/disabled.yml': [
+        'name: Disabled scan',
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    steps:',
+        '      - if: false',
+        '        run: gitleaks detect',
+      ].join('\n'),
+      '.github/workflows/manual.yml': [
+        'name: Manual scan',
+        'on: [workflow_dispatch]',
         'jobs:',
         '  scan:',
         '    steps:',
@@ -236,6 +363,7 @@ describe('v0.4 evidence calibration', () => {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const keywordReport = await assess(keywordOnly, benchmark, controls, 'pr-creation');
       const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
+      const nonEnforcedReport = await assess(nonEnforced, benchmark, controls, 'pr-creation');
       const keywordMarkdown = toMarkdown(keywordReport);
 
       expect(controlStatus(keywordReport, 'ADRB-SEC-003')?.status).toBe('unknown');
@@ -243,18 +371,23 @@ describe('v0.4 evidence calibration', () => {
         'Alternative evidence checks established: 0/2; one required.',
       );
       expect(keywordMarkdown).toContain(
-        'Unresolved alternatives: `repository/ci_command`, `platform/manual`.',
+        'Unresolved alternatives: `#1 repository/ci_command`, `#2 platform/manual`.',
       );
       expect(keywordMarkdown).toContain(
         'Control confidence: none — one evidence alternative must pass.',
       );
       expect(controlStatus(executedReport, 'ADRB-SEC-003')?.status).toBe('met');
       expect(controlStatus(executedReport, 'ADRB-SEC-003')?.evidence[0]?.type).toBe('ci_command');
+      expect(controlStatus(nonEnforcedReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(nonEnforcedReport, 'ADRB-SEC-003')?.evidence[0]?.summary).toContain(
+        '0 CI configuration file(s) contain an enabled integration-triggered scanner invocation',
+      );
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.status).toBe('unknown');
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.evidence[0]?.type).toBe('manual');
     } finally {
       await rm(keywordOnly, { recursive: true, force: true });
       await rm(executed, { recursive: true, force: true });
+      await rm(nonEnforced, { recursive: true, force: true });
     }
   });
 
@@ -295,6 +428,40 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(report, 'ADRB-SEC-007')?.status).toBe('unknown');
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes enabled merge-request scanners in GitLab and Azure pipelines', async () => {
+    const gitlab = await gitFixture({
+      '.gitlab-ci.yml': [
+        'stages: [test]',
+        'secret-scan:',
+        '  stage: test',
+        '  rules:',
+        '    - if: $CI_PIPELINE_SOURCE == "merge_request_event"',
+        '  script:',
+        '    - gitleaks detect',
+      ].join('\n'),
+    });
+    const azure = await gitFixture({
+      'azure-pipelines.yml': [
+        'pr:',
+        '  branches:',
+        '    include: ["*"]',
+        'steps:',
+        '  - script: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const gitlabReport = await assess(gitlab, benchmark, controls, 'pr-creation');
+      const azureReport = await assess(azure, benchmark, controls, 'pr-creation');
+
+      expect(controlStatus(gitlabReport, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(azureReport, 'ADRB-SEC-003')?.status).toBe('met');
+    } finally {
+      await rm(gitlab, { recursive: true, force: true });
+      await rm(azure, { recursive: true, force: true });
     }
   });
 });

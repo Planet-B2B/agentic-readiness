@@ -560,7 +560,9 @@ function appendControlDetails(lines, heading, controls, showCheckSummary) {
   }
   for (const control of controls) {
     const establishedChecks = control.evidence.filter(({ status }) => status === "met").length;
-    const blockingChecks = control.evidence.filter(({ status }) => status !== "met").map(({ scope, type }) => `${scope}/${type}`);
+    const blockingChecks = control.evidence.flatMap(
+      ({ scope, status, type }, index) => status === "met" ? [] : [`#${index + 1} ${scope}/${type}`]
+    );
     const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(", ");
     const checkSummary = control.evidence_mode === "any" ? `Alternative evidence checks established: ${establishedChecks}/${control.evidence.length}; one required.` : `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`;
     const blockingLabel = control.evidence_mode === "any" ? "Unresolved alternatives" : "Blocking checks";
@@ -795,6 +797,7 @@ import { join as join2 } from "path";
 import { lstat, readFile as readFile2, realpath as realpath2, stat } from "fs/promises";
 import { basename, resolve as resolve3, sep as sep2 } from "path";
 import fg2 from "fast-glob";
+import { parse as parse2 } from "yaml";
 var maxContentFileBytes = 512e3;
 var maxContentFiles = 250;
 var maxContentTotalBytes = 5e6;
@@ -871,14 +874,14 @@ async function evaluateOwnershipMap(context, check) {
 function ownershipEntries(path, text) {
   const name = basename(path).toLowerCase();
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && !line.startsWith("#"));
-  if (name === "codeowners" || name === "owners") {
+  if (name === "codeowners") {
     return lines.filter((line) => {
       const fields = line.split(/\s+/);
-      return fields.length >= 2 && fields.slice(1).some(isOwnerReference);
+      return fields.length >= 2 && fields.slice(1).some(isOwnerContact);
     }).length;
   }
-  if (name === "maintainers" || name === "maintainers.md") {
-    return lines.filter((line) => isOwnerReference(line)).length;
+  if (["owners", "owners.md", "maintainers", "maintainers.md"].includes(name)) {
+    return lines.filter(isConventionalOwnerListEntry).length;
   }
   return markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
 }
@@ -899,7 +902,9 @@ function markdownOwnershipRows(lines) {
     for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
       const row = markdownCells(lines[rowIndex] ?? "");
       if (row.length !== header.length) break;
-      if ((row[scopeIndex] ?? "").length > 0 && (row[ownerIndex] ?? "").length > 0) entries += 1;
+      const scope = row[scopeIndex] ?? "";
+      const owner = row[ownerIndex] ?? "";
+      if (scope.length > 0 && isOwnerReference(owner)) entries += 1;
     }
   }
   return entries;
@@ -919,7 +924,27 @@ function explicitOwnershipMappings(lines) {
   }).length;
 }
 function isOwnerReference(value) {
-  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(value) || /\b(owner|reviewer|maintainer|team)\b/i.test(value);
+  const normalized = value.replace(/^[-*]\s*/, "").replace(/[*_`]/g, "").trim();
+  if (isPlaceholderOwner(normalized)) return false;
+  if (isOwnerContact(normalized)) return true;
+  const namedRole = normalized.match(/^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i);
+  if (namedRole) return !isPlaceholderOwner(namedRole[1] ?? "");
+  const roleAssignment = normalized.match(
+    /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i
+  );
+  return roleAssignment ? !isPlaceholderOwner(roleAssignment[1] ?? "") : false;
+}
+function isConventionalOwnerListEntry(value) {
+  const normalized = value.replace(/^[-*]\s*/, "").trim();
+  return !isPlaceholderOwner(normalized) && isOwnerContact(normalized);
+}
+function isOwnerContact(value) {
+  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(value);
+}
+function isPlaceholderOwner(value) {
+  return /^(?:tbd|to be (?:assigned|determined)|unassigned|n\/?a|none|unknown|pending|vacant|-+)$/i.test(
+    value
+  );
 }
 async function readSearchableFiles(context, patterns, maxFilesPerPattern) {
   const root = context.metadata.root;
@@ -1073,8 +1098,10 @@ function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
 async function evaluateCiCommand(context, check) {
   const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
   const inspected = files.map(({ path, text }) => {
-    const commands = ciCommandText(text);
-    const matchedTerms = check.terms.filter((term) => containsTerm(commands, term));
+    const invocations = ciIntegrationInvocations(path, text);
+    const matchedTerms = check.terms.filter(
+      (term) => invocations.some((invocation) => invocationMatchesTerm(invocation, term))
+    );
     return { path, matchedTerms };
   });
   const qualifying = inspected.filter(({ matchedTerms }) => matchedTerms.length >= check.min_terms);
@@ -1086,33 +1113,155 @@ async function evaluateCiCommand(context, check) {
     check.type,
     check.scope,
     qualifying.length > 0 ? "met" : "not_met",
-    `${qualifying.length} CI configuration file(s) invoke a qualifying command; strongest executable match ${strongest.matchedTerms.length}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    `${qualifying.length} CI configuration file(s) contain an enabled integration-triggered scanner invocation; strongest executable match ${strongest.matchedTerms.length}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
     qualifying.map(({ path }) => path)
   );
 }
-function ciCommandText(text) {
-  const lines = text.split(/\r?\n/);
-  const commands = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    if (line.trimStart().startsWith("#")) continue;
-    const command = line.match(/^(\s*)(?:-\s*)?(run|uses|script|command):\s*(.*)$/i);
-    if (!command) continue;
-    const indentation = command[1]?.length ?? 0;
-    const value = command[3]?.trim() ?? "";
-    if (value.length > 0 && value !== "|" && value !== ">") commands.push(value);
-    if (value.length > 0 && value !== "|" && value !== ">") continue;
-    for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
-      const blockLine = lines[blockIndex] ?? "";
-      if (blockLine.trim().length === 0) continue;
-      const blockIndentation = blockLine.match(/^\s*/)?.[0].length ?? 0;
-      if (blockIndentation <= indentation) break;
-      const executable = blockLine.trim().replace(/^-\s*/, "");
-      if (!executable.startsWith("#")) commands.push(executable);
-      index = blockIndex;
+function ciIntegrationInvocations(path, text) {
+  try {
+    const document = asRecord(parse2(text, { maxAliasCount: 50 }));
+    if (!document) return [];
+    const normalizedPath = path.toLowerCase();
+    if (normalizedPath.startsWith(".github/workflows/")) {
+      return githubIntegrationInvocations(document);
+    }
+    if (normalizedPath.includes("gitlab-ci")) {
+      return gitlabIntegrationInvocations(document);
+    }
+    return azureIntegrationInvocations(document);
+  } catch {
+    return [];
+  }
+}
+function githubIntegrationInvocations(document) {
+  if (!hasNamedTrigger(document.on, ["pull_request", "merge_group"])) return [];
+  const jobs = asRecord(document.jobs);
+  if (!jobs) return [];
+  const invocations = [];
+  for (const jobValue of Object.values(jobs)) {
+    const job = asRecord(jobValue);
+    if (!job || isDisabledCiNode(job)) continue;
+    if (typeof job.uses === "string") invocations.push({ kind: "action", value: job.uses });
+    for (const stepValue of asArray(job.steps)) {
+      const step = asRecord(stepValue);
+      if (!step || isDisabledCiNode(step)) continue;
+      if (typeof step.uses === "string") invocations.push({ kind: "action", value: step.uses });
+      if (typeof step.run === "string") invocations.push({ kind: "command", value: step.run });
     }
   }
-  return commands.join("\n");
+  return invocations;
+}
+function gitlabIntegrationInvocations(document) {
+  const workflow = asRecord(document.workflow);
+  const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
+  const reserved = /* @__PURE__ */ new Set([
+    "after_script",
+    "before_script",
+    "cache",
+    "default",
+    "image",
+    "include",
+    "services",
+    "stages",
+    "variables",
+    "workflow"
+  ]);
+  const invocations = [];
+  for (const [name, jobValue] of Object.entries(document)) {
+    if (name.startsWith(".") || reserved.has(name)) continue;
+    const job = asRecord(jobValue);
+    if (!job || isDisabledCiNode(job) || job.allow_failure === true) continue;
+    if (hasNamedTrigger(job.except, ["merge_requests"])) continue;
+    const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
+    const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasNamedTrigger(job.only, ["merge_requests"]);
+    if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) continue;
+    for (const command of stringValues(job.script)) {
+      invocations.push({ kind: "command", value: command });
+    }
+  }
+  return invocations;
+}
+function azureIntegrationInvocations(document) {
+  if (!hasAzurePullRequestTrigger(document.pr)) return [];
+  return collectAzureInvocations(document);
+}
+function collectAzureInvocations(node) {
+  if (isDisabledCiNode(node)) return [];
+  const invocations = [];
+  for (const field of ["script", "bash", "pwsh", "powershell", "command"]) {
+    if (typeof node[field] === "string") {
+      invocations.push({ kind: "command", value: node[field] });
+    }
+  }
+  for (const collection of ["stages", "jobs", "steps"]) {
+    for (const childValue of asArray(node[collection])) {
+      const child = asRecord(childValue);
+      if (child) invocations.push(...collectAzureInvocations(child));
+    }
+  }
+  return invocations;
+}
+function hasNamedTrigger(value, names) {
+  if (typeof value === "string") return names.includes(value.toLowerCase());
+  if (Array.isArray(value)) {
+    return value.some((entry) => typeof entry === "string" && names.includes(entry.toLowerCase()));
+  }
+  const record = asRecord(value);
+  return record ? names.some((name) => Object.hasOwn(record, name)) : false;
+}
+function hasGitlabMergeRequestRule(value) {
+  return asArray(value).some((ruleValue) => {
+    const rule = asRecord(ruleValue);
+    if (!rule || isDisabledCiNode(rule)) return false;
+    return typeof rule.if === "string" && rule.if.toLowerCase().includes("merge_request_event");
+  });
+}
+function hasAzurePullRequestTrigger(value) {
+  if (value === false || value === null || value === void 0) return false;
+  if (typeof value === "string") return !["none", "false"].includes(value.toLowerCase());
+  if (Array.isArray(value)) return value.length > 0;
+  return asRecord(value) !== null;
+}
+function isDisabledCiNode(node) {
+  if (node.enabled === false || node["continue-on-error"] === true || node.continueonerror === true) {
+    return true;
+  }
+  if (typeof node.when === "string" && ["never", "manual"].includes(node.when.toLowerCase())) {
+    return true;
+  }
+  return [node.if, node.condition].some((condition) => {
+    if (condition === false) return true;
+    if (typeof condition !== "string") return false;
+    const normalized = condition.toLowerCase().replace(/[\s${}]/g, "");
+    return normalized === "false" || normalized === "0" || normalized === "never";
+  });
+}
+function invocationMatchesTerm(invocation, term) {
+  if (invocation.kind === "action") return containsTerm(invocation.value, term);
+  return shellStatements(invocation.value).some((statement) => {
+    const command = statement.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, "").trim();
+    if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
+      return false;
+    }
+    const executable = command.split(/\s+/, 1)[0] ?? "";
+    if (containsTerm(executable, term)) return true;
+    return /^(?:bash|bun|docker|node|npm|npx|pipx|pnpm|pwsh|python|sh|sudo|uvx|yarn)\b/i.test(
+      executable
+    ) ? containsTerm(command, term) : false;
+  });
+}
+function shellStatements(value) {
+  return value.split(/\r?\n|&&|\|\||;/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
+}
+function stringValues(value) {
+  if (typeof value === "string") return [value];
+  return asArray(value).filter((entry) => typeof entry === "string");
+}
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 function strongestContentMatch(text, terms, requiredTerms, minTerms, maxSpanLines) {
   if (!maxSpanLines) {

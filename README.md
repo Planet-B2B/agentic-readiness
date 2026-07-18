@@ -270,12 +270,12 @@ system, and keep exceptions narrow, owned, expiring, and visible.
 ## Status and roadmap
 
 v0.4 adds semantic component evidence for containment guidance, partial-check reporting, structural
-ownership maps, executable CI command detection, and separate Level 3 controls for secret scanning
-and untrusted agent input. It retains portable harness adapters, source-backed semantic claims, and
-the explanatory repository score and ceiling. Candidate next steps include conformant signed
-adapters, broader structural CI command binding, SARIF/HTML reports, organization-level aggregation,
-statistically designed benchmark tasks, and an independent-review protocol. These require public
-design review before becoming normative.
+ownership maps, enabled integration-triggered CI invocation detection, and separate Level 3 controls
+for secret scanning and untrusted agent input. It retains portable harness adapters, source-backed
+semantic claims, and the explanatory repository score and ceiling. Candidate next steps include
+conformant signed adapters, broader structural CI provider coverage, SARIF/HTML reports,
+organization-level aggregation, statistically designed benchmark tasks, and an independent-review
+protocol. These require public design review before becoming normative.
 
 Apache-2.0 licensed. The benchmark is a community engineering tool, not legal, compliance, or
 security advice.
