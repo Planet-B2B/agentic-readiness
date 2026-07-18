@@ -801,6 +801,8 @@ import { parse as parse2 } from "yaml";
 var maxContentFileBytes = 512e3;
 var maxContentFiles = 250;
 var maxContentTotalBytes = 5e6;
+var namedOwnerRolePattern = /^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i;
+var ownerRoleAssignmentPattern = /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i;
 async function matches(context, patterns) {
   const found = await fg2(patterns, {
     cwd: context.metadata.root,
@@ -888,24 +890,31 @@ function ownershipEntries(path, text) {
 function markdownOwnershipRows(lines) {
   let entries = 0;
   for (let index = 0; index < lines.length - 2; index += 1) {
-    const header = markdownCells(lines[index] ?? "");
-    const separator = markdownCells(lines[index + 1] ?? "");
-    if (header.length < 2 || separator.length !== header.length) continue;
-    if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
-    const scopeIndex = header.findIndex(
-      (cell) => /\b(path|component|module|area|scope|repository)\b/.test(cell)
-    );
-    const ownerIndex = header.findIndex(
-      (cell) => /\b(owner|reviewer|maintainer|team)\b/.test(cell)
-    );
-    if (scopeIndex < 0 || ownerIndex < 0) continue;
-    for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
-      const row = markdownCells(lines[rowIndex] ?? "");
-      if (row.length !== header.length) break;
-      const scope = row[scopeIndex] ?? "";
-      const owner = row[ownerIndex] ?? "";
-      if (scope.length > 0 && isOwnerReference(owner)) entries += 1;
-    }
+    const columns = ownershipTableColumns(lines[index] ?? "", lines[index + 1] ?? "");
+    if (!columns) continue;
+    entries += countOwnershipTableRows(lines, index + 2, columns);
+  }
+  return entries;
+}
+function ownershipTableColumns(headerLine, separatorLine) {
+  const header = markdownCells(headerLine);
+  const separator = markdownCells(separatorLine);
+  if (header.length < 2 || separator.length !== header.length) return null;
+  if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+  const scope = header.findIndex(
+    (cell) => /\b(path|component|module|area|scope|repository)\b/.test(cell)
+  );
+  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/.test(cell));
+  return scope < 0 || owner < 0 ? null : { count: header.length, owner, scope };
+}
+function countOwnershipTableRows(lines, start, columns) {
+  let entries = 0;
+  for (let index = start; index < lines.length; index += 1) {
+    const row = markdownCells(lines[index] ?? "");
+    if (row.length !== columns.count) break;
+    const scope = row[columns.scope] ?? "";
+    const owner = row[columns.owner] ?? "";
+    if (scope.length > 0 && isOwnerReference(owner)) entries += 1;
   }
   return entries;
 }
@@ -915,23 +924,32 @@ function markdownCells(line) {
 }
 function explicitOwnershipMappings(lines) {
   return lines.filter((line) => {
-    const mapping = line.match(/^[-*]?\s*([^:=>]{1,100})\s*(?::|=>|->)\s*(.{1,120})$/);
+    const mapping = parseOwnershipMapping(line);
     if (!mapping) return false;
-    const target = mapping[1]?.trim() ?? "";
-    const owner = mapping[2]?.trim() ?? "";
+    const { owner, target } = mapping;
     const targetLooksScoped = /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/.test(target);
     return targetLooksScoped && isOwnerReference(owner);
   }).length;
+}
+function parseOwnershipMapping(line) {
+  const normalized = line.replace(/^[-*]\s*/, "").trim();
+  const separators = ["=>", "->", ":"];
+  const separator = separators.map((value) => ({ index: normalized.indexOf(value), value })).filter(({ index }) => index > 0).sort((left, right) => left.index - right.index)[0];
+  if (!separator) return null;
+  const target = normalized.slice(0, separator.index).trim();
+  const owner = normalized.slice(separator.index + separator.value.length).trim();
+  if (target.length === 0 || target.length > 100 || owner.length === 0 || owner.length > 120) {
+    return null;
+  }
+  return { owner, target };
 }
 function isOwnerReference(value) {
   const normalized = value.replace(/^[-*]\s*/, "").replace(/[*_`]/g, "").trim();
   if (isPlaceholderOwner(normalized)) return false;
   if (isOwnerContact(normalized)) return true;
-  const namedRole = normalized.match(/^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i);
+  const namedRole = namedOwnerRolePattern.exec(normalized);
   if (namedRole) return !isPlaceholderOwner(namedRole[1] ?? "");
-  const roleAssignment = normalized.match(
-    /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i
-  );
+  const roleAssignment = ownerRoleAssignmentPattern.exec(normalized);
   return roleAssignment ? !isPlaceholderOwner(roleAssignment[1] ?? "") : false;
 }
 function isConventionalOwnerListEntry(value) {
@@ -939,7 +957,14 @@ function isConventionalOwnerListEntry(value) {
   return !isPlaceholderOwner(normalized) && isOwnerContact(normalized);
 }
 function isOwnerContact(value) {
-  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(value);
+  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || hasEmailContact(value);
+}
+function hasEmailContact(value) {
+  return value.split(/\s+/).some((token) => {
+    const at = token.indexOf("@");
+    const dot = token.indexOf(".", at + 2);
+    return at > 0 && dot > at + 1 && dot < token.length - 1;
+  });
 }
 function isPlaceholderOwner(value) {
   return /^(?:tbd|to be (?:assigned|determined)|unassigned|n\/?a|none|unknown|pending|vacant|-+)$/i.test(
@@ -1137,19 +1162,27 @@ function githubIntegrationInvocations(document) {
   if (!hasNamedTrigger(document.on, ["pull_request", "merge_group"])) return [];
   const jobs = asRecord(document.jobs);
   if (!jobs) return [];
-  const invocations = [];
-  for (const jobValue of Object.values(jobs)) {
-    const job = asRecord(jobValue);
-    if (!job || isDisabledCiNode(job)) continue;
-    if (typeof job.uses === "string") invocations.push({ kind: "action", value: job.uses });
-    for (const stepValue of asArray(job.steps)) {
-      const step = asRecord(stepValue);
-      if (!step || isDisabledCiNode(step)) continue;
-      if (typeof step.uses === "string") invocations.push({ kind: "action", value: step.uses });
-      if (typeof step.run === "string") invocations.push({ kind: "command", value: step.run });
-    }
-  }
-  return invocations;
+  return Object.values(jobs).flatMap(githubJobInvocations);
+}
+function githubJobInvocations(value) {
+  const job = asRecord(value);
+  if (!job || isDisabledCiNode(job)) return [];
+  const reusableWorkflow = invocationFromField(job, "uses", "action");
+  return [
+    ...reusableWorkflow ? [reusableWorkflow] : [],
+    ...asArray(job.steps).flatMap(githubStepInvocations)
+  ];
+}
+function githubStepInvocations(value) {
+  const step = asRecord(value);
+  if (!step || isDisabledCiNode(step)) return [];
+  const action = invocationFromField(step, "uses", "action");
+  const command = invocationFromField(step, "run", "command");
+  return [action, command].filter((invocation) => invocation !== null);
+}
+function invocationFromField(node, field, kind) {
+  const value = node[field];
+  return typeof value === "string" ? { kind, value } : null;
 }
 function gitlabIntegrationInvocations(document) {
   const workflow = asRecord(document.workflow);
@@ -1364,43 +1397,51 @@ function activeAgentEvidence(control, claim, now) {
   if (new Date(claim.expires_at) < now) return null;
   return claim;
 }
+function evidenceChecksPass(control, evidence) {
+  return control.evidence_mode === "any" ? evidence.some(({ status }) => status === "met") : evidence.every(({ status }) => status === "met");
+}
+function repositoryEvidencePasses(control, evidence, checksPassed) {
+  const hasRepositoryMatch = evidence.some(
+    ({ scope, status }) => scope === "repository" && status === "met"
+  );
+  const hasManualCheck = control.evidence.some(({ type }) => type === "manual");
+  return checksPassed && hasRepositoryMatch && (!hasManualCheck || control.evidence_mode === "any");
+}
+function externalEvidenceConflicts(attestation, agentEvidence) {
+  const attestationStatus = attestation?.status === "unknown" ? null : attestation?.status ?? null;
+  return agentEvidence !== null && agentEvidence.status !== "unknown" && attestationStatus !== null && agentEvidence.status !== attestationStatus;
+}
+function supplementalResolution(attestation, agentEvidence) {
+  if (externalEvidenceConflicts(attestation, agentEvidence)) {
+    return { confidence: "none", status: "unknown" };
+  }
+  if (agentEvidence && agentEvidence.status !== "unknown") {
+    return { confidence: "agent-collected", status: agentEvidence.status };
+  }
+  if (attestation) return { confidence: "attested", status: attestation.status };
+  if (agentEvidence?.status === "unknown") {
+    return { confidence: "agent-collected", status: "unknown" };
+  }
+  return null;
+}
+function resolveControl(control, evidence, attestation, agentEvidence) {
+  const checksPassed = evidenceChecksPass(control, evidence);
+  if (repositoryEvidencePasses(control, evidence, checksPassed)) {
+    return { confidence: "repository-detected", status: "met" };
+  }
+  const supplemental = supplementalResolution(attestation, agentEvidence);
+  if (supplemental) return supplemental;
+  const hasUnknownCheck = evidence.some(({ status }) => status === "unknown");
+  if (hasUnknownCheck) return { confidence: "none", status: "unknown" };
+  return { confidence: "none", status: checksPassed ? "met" : "not_met" };
+}
 async function evaluateControl(context, control, attestations, agentClaim, now = /* @__PURE__ */ new Date()) {
   const evidence = await Promise.all(
     control.evidence.map(async (check) => evaluateCheck(context, check))
   );
   const attestation = activeAttestation(control, attestations, now);
   const agentEvidence = activeAgentEvidence(control, agentClaim, now);
-  const checksPassed = control.evidence_mode === "any" ? evidence.some(({ status: status2 }) => status2 === "met") : evidence.every(({ status: status2 }) => status2 === "met");
-  const hasManualCheck = control.evidence.some(({ type }) => type === "manual");
-  const repositoryPass = checksPassed && evidence.some(
-    ({ scope, status: evidenceStatus }) => scope === "repository" && evidenceStatus === "met"
-  ) && (!hasManualCheck || control.evidence_mode === "any");
-  let status = checksPassed ? "met" : "not_met";
-  let confidence = repositoryPass ? "repository-detected" : "none";
-  const attestationStatus = attestation?.status === "unknown" ? null : attestation?.status ?? null;
-  const hasExternalConflict = agentEvidence !== null && agentEvidence.status !== "unknown" && attestationStatus !== null && agentEvidence.status !== attestationStatus;
-  if (repositoryPass) {
-  } else if (hasExternalConflict) {
-    status = "unknown";
-    confidence = "none";
-  } else if (agentEvidence && agentEvidence.status !== "unknown") {
-    status = agentEvidence.status;
-    confidence = "agent-collected";
-  } else if (attestation?.status === "not_applicable") {
-    status = "not_applicable";
-    confidence = "attested";
-  } else if (attestation?.status === "met") {
-    status = "met";
-    confidence = "attested";
-  } else if (attestation?.status === "not_met" || attestation?.status === "unknown") {
-    status = attestation.status;
-    confidence = "attested";
-  } else if (agentEvidence?.status === "unknown") {
-    status = "unknown";
-    confidence = "agent-collected";
-  } else if (evidence.some(({ status: checkStatus }) => checkStatus === "unknown")) {
-    status = "unknown";
-  }
+  const { confidence, status } = resolveControl(control, evidence, attestation, agentEvidence);
   return {
     id: control.id,
     dimension: control.dimension,

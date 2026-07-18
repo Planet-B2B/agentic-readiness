@@ -18,6 +18,8 @@ import type {
 const maxContentFileBytes = 512_000;
 const maxContentFiles = 250;
 const maxContentTotalBytes = 5_000_000;
+const namedOwnerRolePattern = /^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i;
+const ownerRoleAssignmentPattern = /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i;
 
 async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
   const found = await fg(patterns, {
@@ -137,24 +139,46 @@ function ownershipEntries(path: string, text: string): number {
 function markdownOwnershipRows(lines: string[]): number {
   let entries = 0;
   for (let index = 0; index < lines.length - 2; index += 1) {
-    const header = markdownCells(lines[index] ?? '');
-    const separator = markdownCells(lines[index + 1] ?? '');
-    if (header.length < 2 || separator.length !== header.length) continue;
-    if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
-    const scopeIndex = header.findIndex((cell) =>
-      /\b(path|component|module|area|scope|repository)\b/.test(cell),
-    );
-    const ownerIndex = header.findIndex((cell) =>
-      /\b(owner|reviewer|maintainer|team)\b/.test(cell),
-    );
-    if (scopeIndex < 0 || ownerIndex < 0) continue;
-    for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
-      const row = markdownCells(lines[rowIndex] ?? '');
-      if (row.length !== header.length) break;
-      const scope = row[scopeIndex] ?? '';
-      const owner = row[ownerIndex] ?? '';
-      if (scope.length > 0 && isOwnerReference(owner)) entries += 1;
-    }
+    const columns = ownershipTableColumns(lines[index] ?? '', lines[index + 1] ?? '');
+    if (!columns) continue;
+    entries += countOwnershipTableRows(lines, index + 2, columns);
+  }
+  return entries;
+}
+
+interface OwnershipTableColumns {
+  count: number;
+  owner: number;
+  scope: number;
+}
+
+function ownershipTableColumns(
+  headerLine: string,
+  separatorLine: string,
+): OwnershipTableColumns | null {
+  const header = markdownCells(headerLine);
+  const separator = markdownCells(separatorLine);
+  if (header.length < 2 || separator.length !== header.length) return null;
+  if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+  const scope = header.findIndex((cell) =>
+    /\b(path|component|module|area|scope|repository)\b/.test(cell),
+  );
+  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/.test(cell));
+  return scope < 0 || owner < 0 ? null : { count: header.length, owner, scope };
+}
+
+function countOwnershipTableRows(
+  lines: string[],
+  start: number,
+  columns: OwnershipTableColumns,
+): number {
+  let entries = 0;
+  for (let index = start; index < lines.length; index += 1) {
+    const row = markdownCells(lines[index] ?? '');
+    if (row.length !== columns.count) break;
+    const scope = row[columns.scope] ?? '';
+    const owner = row[columns.owner] ?? '';
+    if (scope.length > 0 && isOwnerReference(owner)) entries += 1;
   }
   return entries;
 }
@@ -170,14 +194,29 @@ function markdownCells(line: string): string[] {
 
 function explicitOwnershipMappings(lines: string[]): number {
   return lines.filter((line) => {
-    const mapping = line.match(/^[-*]?\s*([^:=>]{1,100})\s*(?::|=>|->)\s*(.{1,120})$/);
+    const mapping = parseOwnershipMapping(line);
     if (!mapping) return false;
-    const target = mapping[1]?.trim() ?? '';
-    const owner = mapping[2]?.trim() ?? '';
+    const { owner, target } = mapping;
     const targetLooksScoped =
       /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/.test(target);
     return targetLooksScoped && isOwnerReference(owner);
   }).length;
+}
+
+function parseOwnershipMapping(line: string): { owner: string; target: string } | null {
+  const normalized = line.replace(/^[-*]\s*/, '').trim();
+  const separators = ['=>', '->', ':'];
+  const separator = separators
+    .map((value) => ({ index: normalized.indexOf(value), value }))
+    .filter(({ index }) => index > 0)
+    .sort((left, right) => left.index - right.index)[0];
+  if (!separator) return null;
+  const target = normalized.slice(0, separator.index).trim();
+  const owner = normalized.slice(separator.index + separator.value.length).trim();
+  if (target.length === 0 || target.length > 100 || owner.length === 0 || owner.length > 120) {
+    return null;
+  }
+  return { owner, target };
 }
 
 function isOwnerReference(value: string): boolean {
@@ -187,11 +226,9 @@ function isOwnerReference(value: string): boolean {
     .trim();
   if (isPlaceholderOwner(normalized)) return false;
   if (isOwnerContact(normalized)) return true;
-  const namedRole = normalized.match(/^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i);
+  const namedRole = namedOwnerRolePattern.exec(normalized);
   if (namedRole) return !isPlaceholderOwner(namedRole[1] ?? '');
-  const roleAssignment = normalized.match(
-    /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i,
-  );
+  const roleAssignment = ownerRoleAssignmentPattern.exec(normalized);
   return roleAssignment ? !isPlaceholderOwner(roleAssignment[1] ?? '') : false;
 }
 
@@ -201,7 +238,15 @@ function isConventionalOwnerListEntry(value: string): boolean {
 }
 
 function isOwnerContact(value: string): boolean {
-  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(value);
+  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || hasEmailContact(value);
+}
+
+function hasEmailContact(value: string): boolean {
+  return value.split(/\s+/).some((token) => {
+    const at = token.indexOf('@');
+    const dot = token.indexOf('.', at + 2);
+    return at > 0 && dot > at + 1 && dot < token.length - 1;
+  });
 }
 
 function isPlaceholderOwner(value: string): boolean {
@@ -485,19 +530,34 @@ function githubIntegrationInvocations(document: Record<string, unknown>): CiInvo
   if (!hasNamedTrigger(document.on, ['pull_request', 'merge_group'])) return [];
   const jobs = asRecord(document.jobs);
   if (!jobs) return [];
-  const invocations: CiInvocation[] = [];
-  for (const jobValue of Object.values(jobs)) {
-    const job = asRecord(jobValue);
-    if (!job || isDisabledCiNode(job)) continue;
-    if (typeof job.uses === 'string') invocations.push({ kind: 'action', value: job.uses });
-    for (const stepValue of asArray(job.steps)) {
-      const step = asRecord(stepValue);
-      if (!step || isDisabledCiNode(step)) continue;
-      if (typeof step.uses === 'string') invocations.push({ kind: 'action', value: step.uses });
-      if (typeof step.run === 'string') invocations.push({ kind: 'command', value: step.run });
-    }
-  }
-  return invocations;
+  return Object.values(jobs).flatMap(githubJobInvocations);
+}
+
+function githubJobInvocations(value: unknown): CiInvocation[] {
+  const job = asRecord(value);
+  if (!job || isDisabledCiNode(job)) return [];
+  const reusableWorkflow = invocationFromField(job, 'uses', 'action');
+  return [
+    ...(reusableWorkflow ? [reusableWorkflow] : []),
+    ...asArray(job.steps).flatMap(githubStepInvocations),
+  ];
+}
+
+function githubStepInvocations(value: unknown): CiInvocation[] {
+  const step = asRecord(value);
+  if (!step || isDisabledCiNode(step)) return [];
+  const action = invocationFromField(step, 'uses', 'action');
+  const command = invocationFromField(step, 'run', 'command');
+  return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
+}
+
+function invocationFromField(
+  node: Record<string, unknown>,
+  field: string,
+  kind: CiInvocation['kind'],
+): CiInvocation | null {
+  const value = node[field];
+  return typeof value === 'string' ? { kind, value } : null;
 }
 
 function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
@@ -781,6 +841,77 @@ function activeAgentEvidence(
   return claim;
 }
 
+interface ControlResolution {
+  confidence: ControlResult['confidence'];
+  status: ControlResult['status'];
+}
+
+function evidenceChecksPass(control: Control, evidence: EvidenceResult[]): boolean {
+  return control.evidence_mode === 'any'
+    ? evidence.some(({ status }) => status === 'met')
+    : evidence.every(({ status }) => status === 'met');
+}
+
+function repositoryEvidencePasses(
+  control: Control,
+  evidence: EvidenceResult[],
+  checksPassed: boolean,
+): boolean {
+  const hasRepositoryMatch = evidence.some(
+    ({ scope, status }) => scope === 'repository' && status === 'met',
+  );
+  const hasManualCheck = control.evidence.some(({ type }) => type === 'manual');
+  return checksPassed && hasRepositoryMatch && (!hasManualCheck || control.evidence_mode === 'any');
+}
+
+function externalEvidenceConflicts(
+  attestation: Attestation | null,
+  agentEvidence: AgentEvidenceClaim | null,
+): boolean {
+  const attestationStatus =
+    attestation?.status === 'unknown' ? null : (attestation?.status ?? null);
+  return (
+    agentEvidence !== null &&
+    agentEvidence.status !== 'unknown' &&
+    attestationStatus !== null &&
+    agentEvidence.status !== attestationStatus
+  );
+}
+
+function supplementalResolution(
+  attestation: Attestation | null,
+  agentEvidence: AgentEvidenceClaim | null,
+): ControlResolution | null {
+  if (externalEvidenceConflicts(attestation, agentEvidence)) {
+    return { confidence: 'none', status: 'unknown' };
+  }
+  if (agentEvidence && agentEvidence.status !== 'unknown') {
+    return { confidence: 'agent-collected', status: agentEvidence.status };
+  }
+  if (attestation) return { confidence: 'attested', status: attestation.status };
+  if (agentEvidence?.status === 'unknown') {
+    return { confidence: 'agent-collected', status: 'unknown' };
+  }
+  return null;
+}
+
+function resolveControl(
+  control: Control,
+  evidence: EvidenceResult[],
+  attestation: Attestation | null,
+  agentEvidence: AgentEvidenceClaim | null,
+): ControlResolution {
+  const checksPassed = evidenceChecksPass(control, evidence);
+  if (repositoryEvidencePasses(control, evidence, checksPassed)) {
+    return { confidence: 'repository-detected', status: 'met' };
+  }
+  const supplemental = supplementalResolution(attestation, agentEvidence);
+  if (supplemental) return supplemental;
+  const hasUnknownCheck = evidence.some(({ status }) => status === 'unknown');
+  if (hasUnknownCheck) return { confidence: 'none', status: 'unknown' };
+  return { confidence: 'none', status: checksPassed ? 'met' : 'not_met' };
+}
+
 export async function evaluateControl(
   context: RepositoryContext,
   control: Control,
@@ -793,51 +924,7 @@ export async function evaluateControl(
   );
   const attestation = activeAttestation(control, attestations, now);
   const agentEvidence = activeAgentEvidence(control, agentClaim, now);
-  const checksPassed =
-    control.evidence_mode === 'any'
-      ? evidence.some(({ status }) => status === 'met')
-      : evidence.every(({ status }) => status === 'met');
-  const hasManualCheck = control.evidence.some(({ type }) => type === 'manual');
-  const repositoryPass =
-    checksPassed &&
-    evidence.some(
-      ({ scope, status: evidenceStatus }) => scope === 'repository' && evidenceStatus === 'met',
-    ) &&
-    (!hasManualCheck || control.evidence_mode === 'any');
-
-  let status: ControlResult['status'] = checksPassed ? 'met' : 'not_met';
-  let confidence: ControlResult['confidence'] = repositoryPass ? 'repository-detected' : 'none';
-  const attestationStatus =
-    attestation?.status === 'unknown' ? null : (attestation?.status ?? null);
-  const hasExternalConflict =
-    agentEvidence !== null &&
-    agentEvidence.status !== 'unknown' &&
-    attestationStatus !== null &&
-    agentEvidence.status !== attestationStatus;
-
-  if (repositoryPass) {
-    // Repository evidence is the strongest class emitted by the offline scanner.
-  } else if (hasExternalConflict) {
-    status = 'unknown';
-    confidence = 'none';
-  } else if (agentEvidence && agentEvidence.status !== 'unknown') {
-    status = agentEvidence.status;
-    confidence = 'agent-collected';
-  } else if (attestation?.status === 'not_applicable') {
-    status = 'not_applicable';
-    confidence = 'attested';
-  } else if (attestation?.status === 'met') {
-    status = 'met';
-    confidence = 'attested';
-  } else if (attestation?.status === 'not_met' || attestation?.status === 'unknown') {
-    status = attestation.status;
-    confidence = 'attested';
-  } else if (agentEvidence?.status === 'unknown') {
-    status = 'unknown';
-    confidence = 'agent-collected';
-  } else if (evidence.some(({ status: checkStatus }) => checkStatus === 'unknown')) {
-    status = 'unknown';
-  }
+  const { confidence, status } = resolveControl(control, evidence, attestation, agentEvidence);
 
   return {
     id: control.id,
