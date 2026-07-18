@@ -60,6 +60,16 @@ describe('benchmark catalog', () => {
     const securityAutomation = controls.find(({ id }) => id === 'ADRB-SEC-003');
     const contentCheck = securityAutomation?.evidence.find(({ type }) => type === 'content_terms');
     expect(contentCheck?.type === 'content_terms' ? contentCheck.terms : []).toContain('gitleaks');
+    const ciVerification = controls.find(({ id }) => id === 'ADRB-TST-003');
+    const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'content_terms');
+    expect(ciCheck?.type === 'content_terms' ? ciCheck.terms : []).toContain('pytest');
+    expect(controlSource).not.toMatch(/pytest|mypy|flake8|ruff|pyright/);
+
+    const specification = controls.find(({ id }) => id === 'ADRB-SPC-001');
+    const specificationPath = specification?.evidence.find(({ type }) => type === 'path_any');
+    expect(specificationPath?.type === 'path_any' ? specificationPath.patterns : []).toContain(
+      'docs/spec*.md',
+    );
   });
 
   it('preserves v0.1 attestation defaults and non-expiring files', async () => {

@@ -3,6 +3,14 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Calibrate ecosystem aliases without weakening portable controls
+
+**Context.** A Python/uv pilot had exact setup, substantial specs, a canonical quality script, and
+CI verification, but generic terms missed `pytest`, `mypy`, `flake8`, and `docs/spec-*.md`.
+
+**Rule.** Add conventional portable layouts to controls, keep language/tool vocabulary in adapters,
+and preserve known structural gaps rather than converting any ecosystem config file into a pass.
+
 ## 2026-07-18 — Enforce evidence boundaries at every public entry point
 
 **Context.** PR review found that the JSON schema rejected ambiguous repository citations while the

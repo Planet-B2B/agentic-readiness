@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import fg from 'fast-glob';
 import { describe, expect, it } from 'vitest';
 
 import { loadAttestations, loadBenchmark } from '../src/load.js';
@@ -39,6 +40,14 @@ async function gitFixture(files: Record<string, string>): Promise<string> {
     'fixture',
   ]);
   return repository;
+}
+
+async function gitDirectoryFixture(directory: string): Promise<string> {
+  const paths = await fg('**/*', { cwd: directory, dot: true, onlyFiles: true });
+  const entries = await Promise.all(
+    paths.map(async (path) => [path, await readFile(join(directory, path), 'utf8')] as const),
+  );
+  return gitFixture(Object.fromEntries(entries));
 }
 
 function controlStatus(report: Awaited<ReturnType<typeof assess>>, id: string) {
@@ -123,6 +132,31 @@ describe('v0.3 accuracy regressions', () => {
       expect(controlStatus(report, 'ADRB-TOL-001')?.status).toBe('met');
       expect(controlStatus(report, 'ADRB-SPC-001')?.status).toBe('met');
       expect(report.readiness.target_passed).toBe(true);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes a Python/uv harness without inferring a structural runtime pin', async () => {
+    const repository = await gitDirectoryFixture(
+      resolve(import.meta.dirname, 'fixtures', 'python-harness'),
+    );
+    try {
+      const { benchmark, controls } = await loadBenchmark();
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+
+      expect(report.score.total).toBe(7);
+      expect(report.score.repository).toEqual({ achieved: 7, ceiling: 23, percentage: 30 });
+      expect(report.readiness.highest_profile).toBeNull();
+      expect(report.readiness.target_passed).toBe(false);
+      expect(controlStatus(report, 'ADRB-ENV-001')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-ENV-002')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-ENV-003')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-SPC-001')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-SPC-002')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-TST-001')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-TST-002')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

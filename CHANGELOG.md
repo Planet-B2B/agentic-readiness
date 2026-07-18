@@ -16,6 +16,8 @@
   report warnings; explicit evidence paths continue to fail closed.
 - Validate repository citation line ranges and disclose when a passing target profile depends on
   agent-collected or human-attested evidence.
+- Recognize conventional `docs/spec*.md` work artifacts and Python/uv verification vocabulary
+  through portable paths and a language-tooling detector adapter.
 
 ## 0.2.0 - 2026-07-17
 

@@ -8,7 +8,15 @@ controls:
     evidence:
       - type: path_any
         scope: repository
-        patterns: [.github/ISSUE_TEMPLATE/**, docs/requirements/**, specs/**, .ai/specs/**]
+        patterns:
+          [
+            .github/ISSUE_TEMPLATE/**,
+            docs/requirements/**,
+            docs/spec*.md,
+            docs/specs/**,
+            specs/**,
+            .ai/specs/**,
+          ]
     remediation: Adopt a tracked work-request or specification template with objective, owner, and outcome.
   - id: ADRB-SPC-002
     level: 2
@@ -20,7 +28,15 @@ controls:
     evidence:
       - type: content_terms
         scope: repository
-        files: [.github/ISSUE_TEMPLATE/**, specs/**, .ai/specs/**, docs/requirements/**]
+        files:
+          [
+            .github/ISSUE_TEMPLATE/**,
+            docs/requirements/**,
+            docs/spec*.md,
+            docs/specs/**,
+            specs/**,
+            .ai/specs/**,
+          ]
         terms: [acceptance criteria, requirements, constraints, non-goals, verification]
         min_terms: 2
         max_span_lines: 160
