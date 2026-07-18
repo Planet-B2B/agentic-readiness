@@ -65,6 +65,23 @@ const ContentTermsSchema = z.object({
   max_files_per_pattern: z.number().int().positive().max(250).optional(),
 });
 
+const ContentGroupsSchema = z.object({
+  type: z.literal('content_groups'),
+  scope: z.literal('repository').default('repository'),
+  files: z.array(z.string().min(1)).min(1),
+  groups: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[a-z0-9-]+$/),
+        terms: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1),
+  min_groups: z.number().int().positive(),
+  max_span_lines: z.number().int().positive().max(200).optional(),
+  max_files_per_pattern: z.number().int().positive().max(250).optional(),
+});
+
 const MaxBytesSchema = z.object({
   type: z.literal('max_bytes'),
   scope: z.literal('repository').default('repository'),
@@ -84,6 +101,7 @@ export const EvidenceCheckSchema = z.discriminatedUnion('type', [
   ContentAnySchema,
   ContentAllSchema,
   ContentTermsSchema,
+  ContentGroupsSchema,
   MaxBytesSchema,
   ManualSchema,
 ]);

@@ -268,6 +268,15 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
       if (check.type === 'content_terms' && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more content terms than it defines`);
       }
+      if (check.type === 'content_groups') {
+        const groupIds = check.groups.map(({ id }) => id);
+        if (new Set(groupIds).size !== groupIds.length) {
+          throw new Error(`${control.id} defines duplicate semantic evidence groups`);
+        }
+        if (check.min_groups > check.groups.length) {
+          throw new Error(`${control.id} requires more semantic groups than it defines`);
+        }
+      }
     }
   }
 

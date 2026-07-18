@@ -44,7 +44,7 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: content_terms
+      - type: content_groups
         scope: repository
         files:
           [
@@ -64,20 +64,74 @@ controls:
             runbooks/**,
             templates/**,
           ]
-        terms:
-          [
-            stop condition,
-            rollback,
-            isolation,
-            budget,
-            kill switch,
-            escalation,
-            recovery owner,
-            retry limit,
-            max retries,
-          ]
-        min_terms: 3
-        required_any_terms: [stop condition, kill switch, recovery owner, retry limit, max retries]
+        groups:
+          - id: mutation-scope
+            terms:
+              [
+                mutation limit,
+                allowed mutation,
+                allowed mutations,
+                allowed path,
+                allowed paths,
+                allowed prefix,
+                allowed prefixes,
+                write scope,
+                out of scope,
+                outside scope,
+                edit only,
+                do not edit,
+              ]
+          - id: resource-or-retry-bounds
+            terms:
+              [
+                budget,
+                token limit,
+                time limit,
+                tool call limit,
+                wall clock limit,
+                retry limit,
+                retry budget,
+                max retries,
+                bounded retries,
+                maximum attempts,
+              ]
+          - id: stop-trigger
+            terms:
+              [
+                stop condition,
+                stop and ask,
+                stop and surface,
+                stop safely,
+                must stop,
+                halt work,
+                abort,
+                do not continue,
+                kill switch,
+              ]
+          - id: escalation
+            terms:
+              [
+                escalation,
+                escalate,
+                ask the coordinator,
+                ask coordinator,
+                surface to coordinator,
+                hand back,
+                human approval,
+                ask a human,
+                require human,
+              ]
+          - id: recovery-ownership
+            terms:
+              [
+                recovery owner,
+                rollback owner,
+                incident owner,
+                responsible for recovery,
+                recovery responsibility,
+                on-call owner,
+              ]
+        min_groups: 5
         max_span_lines: 120
         max_files_per_pattern: 50
     remediation: Add bounded scope, budget, retry, stop, escalation, and recovery requirements to task preflight.

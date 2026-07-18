@@ -237,6 +237,83 @@ async function evaluateContentTerms(
   );
 }
 
+async function evaluateContentGroups(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'content_groups' }>,
+): Promise<EvidenceResult> {
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const matchesByFile = files.map(({ path, text }) => ({
+    path,
+    ...strongestGroupMatch(text, check.groups, check.min_groups, check.max_span_lines),
+  }));
+  const qualifying = matchesByFile.filter(({ qualifies }) => qualifies);
+  const strongest = matchesByFile.reduce<{
+    path: string | null;
+    matchedGroups: string[];
+    qualifies: boolean;
+  }>(
+    (maximum, candidate) =>
+      candidate.matchedGroups.length > maximum.matchedGroups.length ? candidate : maximum,
+    { path: null, matchedGroups: [], qualifies: false },
+  );
+  const matched = new Set(strongest.matchedGroups);
+  const missing = check.groups.map(({ id }) => id).filter((id) => !matched.has(id));
+  const proximitySummary = check.max_span_lines
+    ? ` within ${check.max_span_lines}-line window(s)`
+    : '';
+  const partialReferences =
+    qualifying.length > 0
+      ? qualifying.map(({ path }) => path)
+      : matchesByFile
+          .filter(({ matchedGroups }) => matchedGroups.length === strongest.matchedGroups.length)
+          .filter(({ matchedGroups }) => matchedGroups.length > 0)
+          .map(({ path }) => path);
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? 'met' : 'not_met',
+    `${qualifying.length} qualifying file(s); strongest semantic coverage ${strongest.matchedGroups.length}/${check.groups.length} group(s)${proximitySummary} across ${files.length} candidate file(s); matched: ${strongest.matchedGroups.join(', ') || 'none'}; missing: ${missing.join(', ') || 'none'}; threshold ${check.min_groups}`,
+    partialReferences,
+  );
+}
+
+function strongestGroupMatch(
+  text: string,
+  groups: Array<{ id: string; terms: string[] }>,
+  minGroups: number,
+  maxSpanLines?: number,
+): { matchedGroups: string[]; qualifies: boolean } {
+  if (!maxSpanLines) {
+    const matchedGroups = groups
+      .filter(({ terms }) => terms.some((term) => containsTerm(text, term)))
+      .map(({ id }) => id);
+    return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
+  }
+
+  const groupCounts = groups.map(() => 0);
+  const lines = text.split(/\r?\n/);
+  let strongestGroups: string[] = [];
+
+  const update = (line: string, direction: 1 | -1) => {
+    groups.forEach(({ terms }, index) => {
+      if (terms.some((term) => containsTerm(line, term))) {
+        groupCounts[index] = (groupCounts[index] ?? 0) + direction;
+      }
+    });
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? '', 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? '', -1);
+    const activeGroups = groups
+      .filter((_, groupIndex) => (groupCounts[groupIndex] ?? 0) > 0)
+      .map(({ id }) => id);
+    if (activeGroups.length > strongestGroups.length) strongestGroups = activeGroups;
+  }
+
+  return { matchedGroups: strongestGroups, qualifies: strongestGroups.length >= minGroups };
+}
+
 function strongestContentMatch(
   text: string,
   terms: string[],
@@ -343,6 +420,8 @@ async function evaluateCheck(
       return evaluateLegacyContent(context, check);
     case 'content_terms':
       return evaluateContentTerms(context, check);
+    case 'content_groups':
+      return evaluateContentGroups(context, check);
     case 'max_bytes':
       return evaluateMaxBytes(context, check);
     case 'manual':
