@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name('agentic-scorecard')
   .description('Evidence-backed readiness assessment for agentic software development harnesses')
-  .version('0.3.0');
+  .version('0.3.1');
 
 program
   .command('validate')

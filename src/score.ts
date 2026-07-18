@@ -171,6 +171,30 @@ export async function assess(
       ),
     ),
   );
+  const warnings = [...(options.warnings ?? [])];
+  if (benchmark.version === '0.3.0') {
+    if (scope === 'tracked' && context.metadata.tracked_tree_dirty) {
+      warnings.push(
+        'Tracked assessment includes uncommitted tracked-file contents, so the result is not reproducible from git_head alone. Use a clean worktree before comparing scores or collecting agent evidence.',
+      );
+    }
+    const hasActiveSupplementalEvidence = controls.some(
+      ({ agent_evidence: agentEvidence, attestation }) =>
+        agentEvidence !== null || attestation !== null,
+    );
+    const unresolvedExternalOrOutcome = controls.some(
+      ({ evidence, status }) =>
+        (status === 'unknown' || status === 'not_met') &&
+        evidence.some(({ scope: evidenceScope }) =>
+          ['platform', 'organization', 'outcome'].includes(evidenceScope),
+        ),
+    );
+    if (!hasActiveSupplementalEvidence && unresolvedExternalOrOutcome) {
+      warnings.push(
+        'Repository-only baseline: no active agent-collected or human-attested evidence was supplied. Platform, organization, and outcome evidence remains unresolved until authorized evidence is collected with init-evidence or supplied by accountable owners.',
+      );
+    }
+  }
   const dimensions: DimensionResult[] = benchmark.dimensions.map(({ id, title }) => {
     const dimensionControls = controls.filter((control) => control.dimension === id);
     return {
@@ -202,7 +226,7 @@ export async function assess(
       working_tree_dirty: context.metadata.working_tree_dirty,
     },
     assessed_at: now.toISOString(),
-    ...(benchmark.version === '0.3.0' ? { warnings: options.warnings ?? [] } : {}),
+    ...(benchmark.version === '0.3.0' ? { warnings } : {}),
     score: {
       total,
       maximum: 40,

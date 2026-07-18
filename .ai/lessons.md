@@ -3,6 +3,26 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Separate target selection from checkout isolation
+
+**Context.** PR review found that the recommended workflow sent any dirty or behind checkout to the
+upstream commit, which could silently replace a user's selected local HEAD, and kept reports inside
+an ephemeral worktree that might be removed before comparison.
+
+**Rule.** Select and state the assessed commit before isolating it, never let dirty state substitute
+upstream for that commit, and write every report and evidence artifact to a durable location outside
+temporary worktrees; distinguish package and benchmark versions wherever both appear.
+
+## 2026-07-18 — Label offline repository scans as baselines, not complete assessments
+
+**Context.** A mature project appeared substantially less ready when the recommended agent prompt
+ran only the offline repository collector and supplied no platform, organization, or outcome
+evidence; the report was accurate but the workflow label invited an overbroad interpretation.
+
+**Rule.** Make the evidence-assisted workflow the recommended assessment, label zero-supplemental-
+evidence results as repository-only baselines, and require a clean current target before comparing
+scores or binding collected evidence.
+
 ## 2026-07-18 — Keep published evidence schemas aligned with runtime validation
 
 **Context.** PR review found that the published repository-reference regex accepted backslashes and
