@@ -3,6 +3,14 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Bound subprocess tests for cold-run overhead
+
+**Context.** A CLI regression test passed on warm runs but could exceed Vitest's five-second default
+when `tsx` compiled cold under coverage alongside parallel workers.
+
+**Rule.** Give subprocess integration tests explicit runner and process timeouts sized for cold CI,
+so startup variance does not create flakes and a genuinely hung child still terminates.
+
 ## 2026-07-18 — Calibrate ecosystem aliases without weakening portable controls
 
 **Context.** A Python/uv pilot had exact setup, substantial specs, a canonical quality script, and

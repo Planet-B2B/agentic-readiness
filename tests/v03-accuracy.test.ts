@@ -75,29 +75,33 @@ describe('v0.3 accuracy regressions', () => {
     expect(toMarkdown(report)).toContain('PASS (depends on');
   });
 
-  it('continues a default assessment with a prominent warning for v0.2 artifacts', () => {
-    const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
-    const cli = resolve(import.meta.dirname, '..', 'src', 'cli.ts');
-    const output = execFileSync(
-      process.execPath,
-      [
-        '--import',
-        'tsx',
-        cli,
-        'assess',
-        repository,
-        '--profile',
-        'pr-creation',
-        '--format',
-        'json',
-      ],
-      { encoding: 'utf8' },
-    );
-    const report = JSON.parse(output) as { warnings?: string[] };
-    expect(report.warnings).toHaveLength(1);
-    expect(report.warnings?.[0]).toContain('Ignored auto-loaded attestation file');
-    expect(report.warnings?.[0]).toContain('agentic-scorecard init --force');
-  });
+  it(
+    'continues a default assessment with a prominent warning for v0.2 artifacts',
+    { timeout: 30_000 },
+    () => {
+      const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
+      const cli = resolve(import.meta.dirname, '..', 'src', 'cli.ts');
+      const output = execFileSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          cli,
+          'assess',
+          repository,
+          '--profile',
+          'pr-creation',
+          '--format',
+          'json',
+        ],
+        { encoding: 'utf8', timeout: 25_000 },
+      );
+      const report = JSON.parse(output) as { warnings?: string[] };
+      expect(report.warnings).toHaveLength(1);
+      expect(report.warnings?.[0]).toContain('Ignored auto-loaded attestation file');
+      expect(report.warnings?.[0]).toContain('agentic-scorecard init --force');
+    },
+  );
 
   it('recognizes a Dialer-style Cursor harness and capitalized Agents.md', async () => {
     const repository = await gitFixture({
