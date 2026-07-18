@@ -40,6 +40,13 @@ const PathAllSchema = z.object({
   min_bytes: z.number().int().positive().default(1),
 });
 
+const OwnershipMapSchema = z.object({
+  type: z.literal('ownership_map'),
+  scope: z.literal('repository').default('repository'),
+  patterns: z.array(z.string().min(1)).min(1),
+  min_bytes: z.number().int().positive().default(1),
+});
+
 const ContentAnySchema = z.object({
   type: z.literal('content_any'),
   scope: z.literal('repository').default('repository'),
@@ -98,6 +105,7 @@ const ManualSchema = z.object({
 export const EvidenceCheckSchema = z.discriminatedUnion('type', [
   PathAnySchema,
   PathAllSchema,
+  OwnershipMapSchema,
   ContentAnySchema,
   ContentAllSchema,
   ContentTermsSchema,

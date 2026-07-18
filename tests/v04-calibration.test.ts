@@ -113,9 +113,77 @@ describe('v0.4 evidence calibration', () => {
       expect(governance?.confidence).toBe('none');
       expect(governance?.evidence.map(({ status }) => status)).toEqual(['not_met', 'met']);
       expect(markdown).toContain('Required evidence checks established: 1/2.');
-      expect(markdown).toContain('Blocking checks: `repository/path_any`.');
+      expect(markdown).toContain('Blocking checks: `repository/ownership_map`.');
       expect(markdown).toContain('Control confidence: none.');
       expect(markdown).not.toContain('Evidence confidence: none.');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts explicit ownership maps without requiring CODEOWNERS', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': [
+        '# Review governance',
+        'A repository owner assigns the required reviewer and approval.',
+        'Only maintainers have merge authority.',
+      ].join('\n'),
+      'docs/governance/ownership.md': [
+        '# Component ownership',
+        '| Component | Reviewer team |',
+        '| --- | --- |',
+        '| packages/platform/** | @platform-team |',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('met');
+      expect(governance?.confidence).toBe('repository-detected');
+      expect(governance?.evidence[0]?.type).toBe('ownership_map');
+      expect(governance?.evidence[0]?.references).toContain('docs/governance/ownership.md');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a conventional repo-wide maintainer declaration', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': [
+        '# Review governance',
+        'The required reviewer provides approval and maintainers retain merge authority.',
+      ].join('\n'),
+      'MAINTAINERS.md': '# Repository maintainers\n\n- @release-maintainer\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('met');
+      expect(governance?.evidence[0]?.references).toContain('MAINTAINERS.md');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat vague ownership prose as an ownership assignment', async () => {
+    const repository = await gitFixture({
+      'GOVERNANCE.md': [
+        '# Governance',
+        'Owners and reviewers collaborate on approval before a maintainer may merge.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence[0]?.status).toBe('not_met');
+      expect(governance?.evidence[1]?.status).toBe('met');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

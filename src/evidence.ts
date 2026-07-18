@@ -1,5 +1,5 @@
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { basename, resolve, sep } from 'node:path';
 import fg from 'fast-glob';
 
 import { generatedEvidenceIgnores, type RepositoryContext } from './repository.js';
@@ -89,6 +89,99 @@ async function evaluatePathAll(
       ? 'Every required pattern matched a safe, non-empty file'
       : `Missing non-empty patterns: ${missing.join(', ')}`,
     found,
+  );
+}
+
+async function evaluateOwnershipMap(
+  context: RepositoryContext,
+  check: Extract<EvidenceCheck, { type: 'ownership_map' }>,
+): Promise<EvidenceResult> {
+  const files = await readSearchableFiles(context, check.patterns);
+  const inspected = files.map(({ path, text }) => ({
+    path,
+    entries: ownershipEntries(path, text),
+  }));
+  const qualifying = inspected.filter(({ entries }) => entries > 0);
+  const entryCount = qualifying.reduce((total, { entries }) => total + entries, 0);
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? 'met' : 'not_met',
+    `${qualifying.length} ownership mapping file(s) with ${entryCount} structurally identifiable assignment(s) across ${files.length} candidate file(s)`,
+    qualifying.map(({ path }) => path),
+  );
+}
+
+function ownershipEntries(path: string, text: string): number {
+  const name = basename(path).toLowerCase();
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'));
+
+  if (name === 'codeowners' || name === 'owners') {
+    return lines.filter((line) => {
+      const fields = line.split(/\s+/);
+      return fields.length >= 2 && fields.slice(1).some(isOwnerReference);
+    }).length;
+  }
+
+  if (name === 'maintainers' || name === 'maintainers.md') {
+    return lines.filter((line) => isOwnerReference(line)).length;
+  }
+
+  return markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+}
+
+function markdownOwnershipRows(lines: string[]): number {
+  let entries = 0;
+  for (let index = 0; index < lines.length - 2; index += 1) {
+    const header = markdownCells(lines[index] ?? '');
+    const separator = markdownCells(lines[index + 1] ?? '');
+    if (header.length < 2 || separator.length !== header.length) continue;
+    if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+    const scopeIndex = header.findIndex((cell) =>
+      /\b(path|component|module|area|scope|repository)\b/.test(cell),
+    );
+    const ownerIndex = header.findIndex((cell) =>
+      /\b(owner|reviewer|maintainer|team)\b/.test(cell),
+    );
+    if (scopeIndex < 0 || ownerIndex < 0) continue;
+    for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
+      const row = markdownCells(lines[rowIndex] ?? '');
+      if (row.length !== header.length) break;
+      if ((row[scopeIndex] ?? '').length > 0 && (row[ownerIndex] ?? '').length > 0) entries += 1;
+    }
+  }
+  return entries;
+}
+
+function markdownCells(line: string): string[] {
+  if (!line.includes('|')) return [];
+  return line
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function explicitOwnershipMappings(lines: string[]): number {
+  return lines.filter((line) => {
+    const mapping = line.match(/^[-*]?\s*([^:=>]{1,100})\s*(?::|=>|->)\s*(.{1,120})$/);
+    if (!mapping) return false;
+    const target = mapping[1]?.trim() ?? '';
+    const owner = mapping[2]?.trim() ?? '';
+    const targetLooksScoped =
+      /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/.test(target);
+    return targetLooksScoped && isOwnerReference(owner);
+  }).length;
+}
+
+function isOwnerReference(value: string): boolean {
+  return (
+    /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) ||
+    /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(value) ||
+    /\b(owner|reviewer|maintainer|team)\b/i.test(value)
   );
 }
 
@@ -415,6 +508,8 @@ async function evaluateCheck(
       return evaluatePathAny(context, check);
     case 'path_all':
       return evaluatePathAll(context, check);
+    case 'ownership_map':
+      return evaluateOwnershipMap(context, check);
     case 'content_any':
     case 'content_all':
       return evaluateLegacyContent(context, check);

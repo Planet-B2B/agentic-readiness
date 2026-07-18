@@ -42,9 +42,22 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: path_any
+      - type: ownership_map
         scope: repository
-        patterns: [.github/CODEOWNERS, CODEOWNERS]
+        patterns:
+          [
+            .github/CODEOWNERS,
+            CODEOWNERS,
+            .github/OWNERS,
+            OWNERS,
+            OWNERS.md,
+            MAINTAINERS,
+            MAINTAINERS.md,
+            GOVERNANCE.md,
+            docs/governance/**,
+            docs/ownership/**,
+            .ai/ownership/**,
+          ]
       - type: content_terms
         scope: repository
         files:
