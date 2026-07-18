@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name('agentic-scorecard')
   .description('Evidence-backed readiness assessment for agentic software development harnesses')
-  .version('0.3.1');
+  .version('0.4.0');
 
 program
   .command('validate')
@@ -168,7 +168,7 @@ program
       await writeFile(
         requestPath,
         [
-          '# ADRB v0.3 evidence request',
+          `# ADRB v${benchmark.version} evidence request`,
           '',
           `- Repository: ${bundle.target.repository}`,
           `- Git commit: ${bundle.target.git_head ?? 'unavailable'}`,

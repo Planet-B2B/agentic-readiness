@@ -95,6 +95,7 @@ controls:
     risk: Credentials can enter version history because secret safeguards are absent or merely documented.
     allow_agent_evidence: true
     agent_evidence_scopes: [repository, platform]
+    evidence_mode: any
     evidence:
       - type: ci_command
         scope: repository
@@ -109,6 +110,9 @@ controls:
           ]
         terms: [secret scan, scan secrets, secrets scan]
         min_terms: 1
+      - type: manual
+        scope: platform
+        prompt: Show that host-native secret scanning or push protection covers the assessed repository and relevant branches, including current status and controlled exceptions.
     remediation: Run a secret-leakage safeguard in applicable CI or enable equivalent protected platform scanning with reviewable evidence.
   - id: ADRB-SEC-007
     level: 3

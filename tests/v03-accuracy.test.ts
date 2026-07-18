@@ -11,6 +11,8 @@ import { repositoryEvidenceTarget } from '../src/repository.js';
 import { assess } from '../src/score.js';
 import type { AgentEvidenceFile } from '../src/schema.js';
 
+const v03Root = resolve(import.meta.dirname, '..', 'benchmark', 'v0.3');
+
 async function gitFixture(files: Record<string, string>): Promise<string> {
   const repository = await mkdtemp(join(tmpdir(), 'adrb-v03-'));
   execFileSync('git', ['-C', repository, 'init', '--quiet']);
@@ -57,7 +59,7 @@ function controlStatus(report: Awaited<ReturnType<typeof assess>>, id: string) {
 describe('v0.3 accuracy regressions', () => {
   it('retains the mature level-three conformance result', async () => {
     const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
-    const { benchmark, controls } = await loadBenchmark();
+    const { benchmark, controls } = await loadBenchmark(v03Root);
     const attestations = await loadAttestations(
       join(repository, '.agentic', 'attestations-v0.3.yaml'),
       benchmark.version,
@@ -115,7 +117,7 @@ describe('v0.3 accuracy regressions', () => {
   it('labels a zero-supplemental-evidence result as a repository-only baseline', async () => {
     const repository = await gitFixture({ 'README.md': '# Minimal repository' });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
       const markdown = toMarkdown(report);
 
@@ -154,7 +156,7 @@ describe('v0.3 accuracy regressions', () => {
     const repository = await gitFixture({ 'README.md': '# Minimal repository' });
     try {
       await writeFile(join(repository, 'README.md'), '# Changed after commit', 'utf8');
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
 
       expect(report.warnings).toHaveLength(2);
@@ -189,7 +191,7 @@ describe('v0.3 accuracy regressions', () => {
       ].join('\n'),
     });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
       expect(controlStatus(report, 'ADRB-CTX-001')?.status).toBe('met');
       expect(controlStatus(report, 'ADRB-CTX-002')?.status).toBe('met');
@@ -208,7 +210,7 @@ describe('v0.3 accuracy regressions', () => {
       resolve(import.meta.dirname, 'fixtures', 'python-harness'),
     );
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'pr-creation');
 
       expect(report.score.total).toBe(7);
@@ -247,7 +249,7 @@ describe('v0.3 accuracy regressions', () => {
       'scripts/stale-cache.test.ts': 'it("detects stale duplicate cache records", () => {})',
     });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
       expect(controlStatus(report, 'ADRB-TOL-001')?.status).toBe('met');
       expect(controlStatus(report, 'ADRB-GOV-002')?.status).toBe('met');
@@ -273,7 +275,7 @@ describe('v0.3 accuracy regressions', () => {
       ].join('\n'),
     });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const baseline = await assess(repository, benchmark, controls, 'planning');
       expect(baseline.score.repository?.ceiling).toBe(23);
       const repositoryTarget = repositoryEvidenceTarget({

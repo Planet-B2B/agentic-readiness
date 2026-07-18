@@ -3,6 +3,26 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Model alternative evidence sources explicitly
+
+**Context.** Platform-native secret scanning was invisible to the offline collector, but treating
+its absence as a repository failure would be as misleading as allowing secret-scan keywords to
+stand in for enforcement.
+
+**Rule.** When repository and external checks are legitimate alternatives for the same outcome,
+encode that relationship explicitly, leave unavailable alternatives UNKNOWN, and never let one
+security outcome satisfy a distinct safeguard.
+
+## 2026-07-18 — Match semantic components, not benchmark phrases
+
+**Context.** Pilot feedback showed mature containment guidance expressing scope stops, escalation,
+and human gates in natural language while a literal required-phrase list reported no useful
+evidence.
+
+**Rule.** Define the required outcome as named semantic components with bounded synonym groups;
+show partial component coverage for diagnosis, but award the control only when every required
+component is co-located.
+
 ## 2026-07-18 — Separate target selection from checkout isolation
 
 **Context.** PR review found that the recommended workflow sent any dirty or behind checkout to the

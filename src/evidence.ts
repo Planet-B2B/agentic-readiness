@@ -612,12 +612,20 @@ export async function evaluateControl(
   );
   const attestation = activeAttestation(control, attestations, now);
   const agentEvidence = activeAgentEvidence(control, agentClaim, now);
-  const checksPassed = evidence.every(({ status }) => status === 'met');
+  const checksPassed =
+    control.evidence_mode === 'any'
+      ? evidence.some(({ status }) => status === 'met')
+      : evidence.every(({ status }) => status === 'met');
   const hasManualCheck = control.evidence.some(({ type }) => type === 'manual');
+  const repositoryPass =
+    checksPassed &&
+    evidence.some(
+      ({ scope, status: evidenceStatus }) => scope === 'repository' && evidenceStatus === 'met',
+    ) &&
+    (!hasManualCheck || control.evidence_mode === 'any');
 
   let status: ControlResult['status'] = checksPassed ? 'met' : 'not_met';
-  let confidence: ControlResult['confidence'] =
-    checksPassed && !hasManualCheck ? 'repository-detected' : 'none';
+  let confidence: ControlResult['confidence'] = repositoryPass ? 'repository-detected' : 'none';
   const attestationStatus =
     attestation?.status === 'unknown' ? null : (attestation?.status ?? null);
   const hasExternalConflict =
@@ -626,7 +634,7 @@ export async function evaluateControl(
     attestationStatus !== null &&
     agentEvidence.status !== attestationStatus;
 
-  if (checksPassed && !hasManualCheck) {
+  if (repositoryPass) {
     // Repository evidence is the strongest class emitted by the offline scanner.
   } else if (hasExternalConflict) {
     status = 'unknown';
@@ -659,6 +667,7 @@ export async function evaluateControl(
     risk: control.risk,
     status,
     confidence,
+    ...(control.evidence_mode === 'any' ? { evidence_mode: 'any' as const } : {}),
     evidence,
     agent_evidence: agentEvidence,
     attestation,

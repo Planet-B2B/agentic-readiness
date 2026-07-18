@@ -16,6 +16,7 @@ const fixtureControl = (evidence: unknown[], overrides: Partial<Control> = {}): 
   outcome: 'Fixture',
   risk: 'Fixture',
   evidence: evidence.map((check) => EvidenceCheckSchema.parse(check)),
+  evidence_mode: 'all',
   remediation: 'Fixture',
   references: [],
   allow_attestation: false,

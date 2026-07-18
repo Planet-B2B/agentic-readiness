@@ -44,6 +44,11 @@ var PathAllSchema = z.object({
   patterns: z.array(z.string().min(1)).min(1),
   min_bytes: z.number().int().positive().default(1)
 });
+var OwnershipMapSchema = z.object({
+  type: z.literal("ownership_map"),
+  scope: z.literal("repository").default("repository"),
+  patterns: z.array(z.string().min(1)).min(1)
+});
 var ContentAnySchema = z.object({
   type: z.literal("content_any"),
   scope: z.literal("repository").default("repository"),
@@ -66,6 +71,28 @@ var ContentTermsSchema = z.object({
   max_span_lines: z.number().int().positive().max(200).optional(),
   max_files_per_pattern: z.number().int().positive().max(250).optional()
 });
+var ContentGroupsSchema = z.object({
+  type: z.literal("content_groups"),
+  scope: z.literal("repository").default("repository"),
+  files: z.array(z.string().min(1)).min(1),
+  groups: z.array(
+    z.object({
+      id: z.string().regex(/^[a-z0-9-]+$/),
+      terms: z.array(z.string().min(1)).min(1)
+    })
+  ).min(1),
+  min_groups: z.number().int().positive(),
+  max_span_lines: z.number().int().positive().max(200).optional(),
+  max_files_per_pattern: z.number().int().positive().max(250).optional()
+});
+var CiCommandSchema = z.object({
+  type: z.literal("ci_command"),
+  scope: z.literal("repository").default("repository"),
+  files: z.array(z.string().min(1)).min(1),
+  terms: z.array(z.string().min(1)).min(1),
+  min_terms: z.number().int().positive().default(1),
+  max_files_per_pattern: z.number().int().positive().max(250).optional()
+});
 var MaxBytesSchema = z.object({
   type: z.literal("max_bytes"),
   scope: z.literal("repository").default("repository"),
@@ -80,9 +107,12 @@ var ManualSchema = z.object({
 var EvidenceCheckSchema = z.discriminatedUnion("type", [
   PathAnySchema,
   PathAllSchema,
+  OwnershipMapSchema,
   ContentAnySchema,
   ContentAllSchema,
   ContentTermsSchema,
+  ContentGroupsSchema,
+  CiCommandSchema,
   MaxBytesSchema,
   ManualSchema
 ]);
@@ -93,6 +123,7 @@ var RawControlSchema = z.object({
   outcome: z.string().min(1),
   risk: z.string().min(1),
   evidence: z.array(EvidenceCheckSchema).min(1),
+  evidence_mode: z.enum(["all", "any"]).default("all"),
   remediation: z.string().min(1),
   references: z.array(z.string().min(1)).default([]),
   allow_attestation: z.boolean().default(false),
@@ -240,23 +271,27 @@ var AgentEvidenceClaimV03Schema = z.object({
     });
   }
 });
-var AgentEvidenceFileV03Schema = z.object({
-  schema_version: z.literal("0.3.0"),
-  benchmark_version: z.literal("0.3.0"),
-  target: z.object({
-    repository: z.string().min(1),
-    git_head: z.string().min(1)
-  }).strict(),
-  collector: z.object({
-    name: z.string().min(1),
-    version: z.string().min(1)
-  }).strict(),
-  claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema)
-}).strict();
+function modernAgentEvidenceFileSchema(version) {
+  return z.object({
+    schema_version: z.literal(version),
+    benchmark_version: z.literal(version),
+    target: z.object({
+      repository: z.string().min(1),
+      git_head: z.string().min(1)
+    }).strict(),
+    collector: z.object({
+      name: z.string().min(1),
+      version: z.string().min(1)
+    }).strict(),
+    claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema)
+  }).strict();
+}
+var AgentEvidenceFileV03Schema = modernAgentEvidenceFileSchema("0.3.0");
+var AgentEvidenceFileV04Schema = modernAgentEvidenceFileSchema("0.4.0");
 
 // src/load.ts
 var packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-var defaultBenchmarkRoot = join(packageRoot, "benchmark", "v0.3");
+var defaultBenchmarkRoot = join(packageRoot, "benchmark", "v0.4");
 async function readYaml(path) {
   return parse(await readFile(path, "utf8"));
 }
@@ -314,7 +349,7 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
       check.files = [.../* @__PURE__ */ new Set([...check.files, ...extension.files])];
     }
     if (extension.terms) {
-      if (check.type !== "content_terms") {
+      if (check.type !== "content_terms" && check.type !== "ci_command") {
         throw new Error(
           `Detector adapter ${adapter.id} cannot add terms to ${control.id} evidence ${extension.evidence_index}`
         );
@@ -380,6 +415,7 @@ async function loadAgentEvidence(path, benchmarkVersion, options = {}) {
     const file = (() => {
       if (benchmarkVersion === "0.2.0") return AgentEvidenceFileSchema.parse(rawFile);
       if (benchmarkVersion === "0.3.0") return AgentEvidenceFileV03Schema.parse(rawFile);
+      if (benchmarkVersion === "0.4.0") return AgentEvidenceFileV04Schema.parse(rawFile);
       throw new Error(`Agent evidence bundles are unsupported for benchmark ${benchmarkVersion}`);
     })();
     if (file.benchmark_version !== benchmarkVersion) {
@@ -416,7 +452,7 @@ function validateCatalog(benchmark, controls) {
   for (const control of controls) {
     if (ids.has(control.id)) throw new Error(`Duplicate control id: ${control.id}`);
     ids.add(control.id);
-    if (["0.2.0", "0.3.0"].includes(benchmark.version) && control.evidence.some(({ type }) => type === "content_any" || type === "content_all")) {
+    if (["0.2.0", "0.3.0", "0.4.0"].includes(benchmark.version) && control.evidence.some(({ type }) => type === "content_any" || type === "content_all")) {
       throw new Error(
         `${control.id} uses a legacy broad content collector in benchmark ${benchmark.version}`
       );
@@ -432,12 +468,27 @@ function validateCatalog(benchmark, controls) {
     if (benchmark.version === "0.2.0" && control.agent_evidence_scopes.some((scope) => scope === "repository")) {
       throw new Error(`${control.id} changes immutable v0.2 repository evidence semantics`);
     }
-    if (["0.2.0", "0.3.0"].includes(benchmark.version) && control.allow_attestation && !control.evidence.some(({ type }) => type === "manual")) {
+    if (["0.2.0", "0.3.0", "0.4.0"].includes(benchmark.version) && control.allow_attestation && !control.evidence.some(({ type }) => type === "manual")) {
       throw new Error(`${control.id} allows attestation for repository-detected evidence`);
+    }
+    if (control.evidence_mode === "any" && control.evidence.length < 2) {
+      throw new Error(`${control.id} uses alternative evidence without multiple evidence checks`);
     }
     for (const check of control.evidence) {
       if (check.type === "content_terms" && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more content terms than it defines`);
+      }
+      if (check.type === "ci_command" && check.min_terms > check.terms.length) {
+        throw new Error(`${control.id} requires more CI command terms than it defines`);
+      }
+      if (check.type === "content_groups") {
+        const groupIds = check.groups.map(({ id }) => id);
+        if (new Set(groupIds).size !== groupIds.length) {
+          throw new Error(`${control.id} defines duplicate semantic evidence groups`);
+        }
+        if (check.min_groups > check.groups.length) {
+          throw new Error(`${control.id} requires more semantic groups than it defines`);
+        }
       }
     }
   }
@@ -497,13 +548,23 @@ function evidenceLines(control) {
   }
   return lines;
 }
-function appendControlDetails(lines, heading, controls) {
+function confidenceRule(control) {
+  if (control.confidence !== "none") return "";
+  return control.evidence_mode === "any" ? " \u2014 one evidence alternative must pass" : " \u2014 all required evidence checks must pass";
+}
+function appendControlDetails(lines, heading, controls, showCheckSummary) {
   lines.push("", `## ${heading}`, "");
   if (controls.length === 0) {
     lines.push("None.");
     return;
   }
   for (const control of controls) {
+    const establishedChecks = control.evidence.filter(({ status }) => status === "met").length;
+    const blockingChecks = control.evidence.filter(({ status }) => status !== "met").map(({ scope, type }) => `${scope}/${type}`);
+    const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(", ");
+    const checkSummary = control.evidence_mode === "any" ? `Alternative evidence checks established: ${establishedChecks}/${control.evidence.length}; one required.` : `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`;
+    const blockingLabel = control.evidence_mode === "any" ? "Unresolved alternatives" : "Blocking checks";
+    const confidenceExplanation = confidenceRule(control);
     lines.push(
       `### ${statusIcon[control.status]} ${control.id} \u2014 ${control.title}`,
       "",
@@ -511,7 +572,11 @@ function appendControlDetails(lines, heading, controls) {
       "",
       `**Improve:** ${control.remediation}`,
       "",
-      `Evidence confidence: ${control.confidence}.`,
+      ...showCheckSummary ? [
+        checkSummary,
+        ...blockingChecks.length > 0 ? [`${blockingLabel}: ${blockingSummary}.`] : [],
+        `Control confidence: ${control.confidence}${confidenceExplanation}.`
+      ] : [`Evidence confidence: ${control.confidence}.`],
       "",
       ...evidenceLines(control),
       ""
@@ -519,6 +584,7 @@ function appendControlDetails(lines, heading, controls) {
   }
 }
 function toMarkdown(report) {
+  const showCheckSummary = report.benchmark.version === "0.4.0";
   const target = report.profiles.find(({ id }) => id === report.target.profile);
   const targetDependencies = target?.evidence_dependencies;
   const dependencyCount = (targetDependencies?.agent_collected ?? 0) + (targetDependencies?.attested ?? 0);
@@ -597,9 +663,19 @@ function toMarkdown(report) {
       );
     }
   }
-  appendControlDetails(lines, "Repository evidence gaps", repositoryGaps);
-  appendControlDetails(lines, "External controls not established", externalControls);
-  appendControlDetails(lines, "Outcome evidence not established", outcomeControls);
+  appendControlDetails(lines, "Repository evidence gaps", repositoryGaps, showCheckSummary);
+  appendControlDetails(
+    lines,
+    "External controls not established",
+    externalControls,
+    showCheckSummary
+  );
+  appendControlDetails(
+    lines,
+    "Outcome evidence not established",
+    outcomeControls,
+    showCheckSummary
+  );
   lines.push(
     "",
     "## Limitations",
@@ -717,7 +793,7 @@ import { join as join2 } from "path";
 
 // src/evidence.ts
 import { lstat, readFile as readFile2, realpath as realpath2, stat } from "fs/promises";
-import { resolve as resolve3, sep as sep2 } from "path";
+import { basename, resolve as resolve3, sep as sep2 } from "path";
 import fg2 from "fast-glob";
 var maxContentFileBytes = 512e3;
 var maxContentFiles = 250;
@@ -775,6 +851,75 @@ async function evaluatePathAll(context, check) {
     missing.length === 0 ? "Every required pattern matched a safe, non-empty file" : `Missing non-empty patterns: ${missing.join(", ")}`,
     found
   );
+}
+async function evaluateOwnershipMap(context, check) {
+  const files = await readSearchableFiles(context, check.patterns);
+  const inspected = files.map(({ path, text }) => ({
+    path,
+    entries: ownershipEntries(path, text)
+  }));
+  const qualifying = inspected.filter(({ entries }) => entries > 0);
+  const entryCount = qualifying.reduce((total, { entries }) => total + entries, 0);
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? "met" : "not_met",
+    `${qualifying.length} ownership mapping file(s) with ${entryCount} structurally identifiable assignment(s) across ${files.length} candidate file(s)`,
+    qualifying.map(({ path }) => path)
+  );
+}
+function ownershipEntries(path, text) {
+  const name = basename(path).toLowerCase();
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && !line.startsWith("#"));
+  if (name === "codeowners" || name === "owners") {
+    return lines.filter((line) => {
+      const fields = line.split(/\s+/);
+      return fields.length >= 2 && fields.slice(1).some(isOwnerReference);
+    }).length;
+  }
+  if (name === "maintainers" || name === "maintainers.md") {
+    return lines.filter((line) => isOwnerReference(line)).length;
+  }
+  return markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+}
+function markdownOwnershipRows(lines) {
+  let entries = 0;
+  for (let index = 0; index < lines.length - 2; index += 1) {
+    const header = markdownCells(lines[index] ?? "");
+    const separator = markdownCells(lines[index + 1] ?? "");
+    if (header.length < 2 || separator.length !== header.length) continue;
+    if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+    const scopeIndex = header.findIndex(
+      (cell) => /\b(path|component|module|area|scope|repository)\b/.test(cell)
+    );
+    const ownerIndex = header.findIndex(
+      (cell) => /\b(owner|reviewer|maintainer|team)\b/.test(cell)
+    );
+    if (scopeIndex < 0 || ownerIndex < 0) continue;
+    for (let rowIndex = index + 2; rowIndex < lines.length; rowIndex += 1) {
+      const row = markdownCells(lines[rowIndex] ?? "");
+      if (row.length !== header.length) break;
+      if ((row[scopeIndex] ?? "").length > 0 && (row[ownerIndex] ?? "").length > 0) entries += 1;
+    }
+  }
+  return entries;
+}
+function markdownCells(line) {
+  if (!line.includes("|")) return [];
+  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function explicitOwnershipMappings(lines) {
+  return lines.filter((line) => {
+    const mapping = line.match(/^[-*]?\s*([^:=>]{1,100})\s*(?::|=>|->)\s*(.{1,120})$/);
+    if (!mapping) return false;
+    const target = mapping[1]?.trim() ?? "";
+    const owner = mapping[2]?.trim() ?? "";
+    const targetLooksScoped = /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/.test(target);
+    return targetLooksScoped && isOwnerReference(owner);
+  }).length;
+}
+function isOwnerReference(value) {
+  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/.test(value) || /\b(owner|reviewer|maintainer|team)\b/i.test(value);
 }
 async function readSearchableFiles(context, patterns, maxFilesPerPattern) {
   const root = context.metadata.root;
@@ -879,6 +1024,96 @@ async function evaluateContentTerms(context, check) {
     qualifying.map(({ path }) => path)
   );
 }
+async function evaluateContentGroups(context, check) {
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const matchesByFile = files.map(({ path, text }) => ({
+    path,
+    ...strongestGroupMatch(text, check.groups, check.min_groups, check.max_span_lines)
+  }));
+  const qualifying = matchesByFile.filter(({ qualifies }) => qualifies);
+  const strongest = matchesByFile.reduce(
+    (maximum, candidate) => candidate.matchedGroups.length > maximum.matchedGroups.length ? candidate : maximum,
+    { path: null, matchedGroups: [], qualifies: false }
+  );
+  const matched = new Set(strongest.matchedGroups);
+  const missing = check.groups.map(({ id }) => id).filter((id) => !matched.has(id));
+  const proximitySummary = check.max_span_lines ? ` within ${check.max_span_lines}-line window(s)` : "";
+  const partialReferences = qualifying.length > 0 ? qualifying.map(({ path }) => path) : matchesByFile.filter(({ matchedGroups }) => matchedGroups.length === strongest.matchedGroups.length).filter(({ matchedGroups }) => matchedGroups.length > 0).map(({ path }) => path);
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? "met" : "not_met",
+    `${qualifying.length} qualifying file(s); strongest semantic coverage ${strongest.matchedGroups.length}/${check.groups.length} group(s)${proximitySummary} across ${files.length} candidate file(s); matched: ${strongest.matchedGroups.join(", ") || "none"}; missing: ${missing.join(", ") || "none"}; threshold ${check.min_groups}`,
+    partialReferences
+  );
+}
+function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
+  if (!maxSpanLines) {
+    const matchedGroups = groups.filter(({ terms }) => terms.some((term) => containsTerm(text, term))).map(({ id }) => id);
+    return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
+  }
+  const groupCounts = groups.map(() => 0);
+  const lines = text.split(/\r?\n/);
+  let strongestGroups = [];
+  const update = (line, direction) => {
+    groups.forEach(({ terms }, index) => {
+      if (terms.some((term) => containsTerm(line, term))) {
+        groupCounts[index] = (groupCounts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    const activeGroups = groups.filter((_, groupIndex) => (groupCounts[groupIndex] ?? 0) > 0).map(({ id }) => id);
+    if (activeGroups.length > strongestGroups.length) strongestGroups = activeGroups;
+  }
+  return { matchedGroups: strongestGroups, qualifies: strongestGroups.length >= minGroups };
+}
+async function evaluateCiCommand(context, check) {
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const inspected = files.map(({ path, text }) => {
+    const commands = ciCommandText(text);
+    const matchedTerms = check.terms.filter((term) => containsTerm(commands, term));
+    return { path, matchedTerms };
+  });
+  const qualifying = inspected.filter(({ matchedTerms }) => matchedTerms.length >= check.min_terms);
+  const strongest = inspected.reduce(
+    (maximum, candidate) => candidate.matchedTerms.length > maximum.matchedTerms.length ? candidate : maximum,
+    { path: "", matchedTerms: [] }
+  );
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? "met" : "not_met",
+    `${qualifying.length} CI configuration file(s) invoke a qualifying command; strongest executable match ${strongest.matchedTerms.length}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    qualifying.map(({ path }) => path)
+  );
+}
+function ciCommandText(text) {
+  const lines = text.split(/\r?\n/);
+  const commands = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.trimStart().startsWith("#")) continue;
+    const command = line.match(/^(\s*)(?:-\s*)?(run|uses|script|command):\s*(.*)$/i);
+    if (!command) continue;
+    const indentation = command[1]?.length ?? 0;
+    const value = command[3]?.trim() ?? "";
+    if (value.length > 0 && value !== "|" && value !== ">") commands.push(value);
+    if (value.length > 0 && value !== "|" && value !== ">") continue;
+    for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
+      const blockLine = lines[blockIndex] ?? "";
+      if (blockLine.trim().length === 0) continue;
+      const blockIndentation = blockLine.match(/^\s*/)?.[0].length ?? 0;
+      if (blockIndentation <= indentation) break;
+      const executable = blockLine.trim().replace(/^-\s*/, "");
+      if (!executable.startsWith("#")) commands.push(executable);
+      index = blockIndex;
+    }
+  }
+  return commands.join("\n");
+}
 function strongestContentMatch(text, terms, requiredTerms, minTerms, maxSpanLines) {
   if (!maxSpanLines) {
     const matched = terms.filter((term) => containsTerm(text, term)).length;
@@ -950,11 +1185,17 @@ async function evaluateCheck(context, check) {
       return evaluatePathAny(context, check);
     case "path_all":
       return evaluatePathAll(context, check);
+    case "ownership_map":
+      return evaluateOwnershipMap(context, check);
     case "content_any":
     case "content_all":
       return evaluateLegacyContent(context, check);
     case "content_terms":
       return evaluateContentTerms(context, check);
+    case "content_groups":
+      return evaluateContentGroups(context, check);
+    case "ci_command":
+      return evaluateCiCommand(context, check);
     case "max_bytes":
       return evaluateMaxBytes(context, check);
     case "manual":
@@ -980,13 +1221,16 @@ async function evaluateControl(context, control, attestations, agentClaim, now =
   );
   const attestation = activeAttestation(control, attestations, now);
   const agentEvidence = activeAgentEvidence(control, agentClaim, now);
-  const checksPassed = evidence.every(({ status: status2 }) => status2 === "met");
+  const checksPassed = control.evidence_mode === "any" ? evidence.some(({ status: status2 }) => status2 === "met") : evidence.every(({ status: status2 }) => status2 === "met");
   const hasManualCheck = control.evidence.some(({ type }) => type === "manual");
+  const repositoryPass = checksPassed && evidence.some(
+    ({ scope, status: evidenceStatus }) => scope === "repository" && evidenceStatus === "met"
+  ) && (!hasManualCheck || control.evidence_mode === "any");
   let status = checksPassed ? "met" : "not_met";
-  let confidence = checksPassed && !hasManualCheck ? "repository-detected" : "none";
+  let confidence = repositoryPass ? "repository-detected" : "none";
   const attestationStatus = attestation?.status === "unknown" ? null : attestation?.status ?? null;
   const hasExternalConflict = agentEvidence !== null && agentEvidence.status !== "unknown" && attestationStatus !== null && agentEvidence.status !== attestationStatus;
-  if (checksPassed && !hasManualCheck) {
+  if (repositoryPass) {
   } else if (hasExternalConflict) {
     status = "unknown";
     confidence = "none";
@@ -1017,6 +1261,7 @@ async function evaluateControl(context, control, attestations, agentClaim, now =
     risk: control.risk,
     status,
     confidence,
+    ...control.evidence_mode === "any" ? { evidence_mode: "any" } : {},
     evidence,
     agent_evidence: agentEvidence,
     attestation,
@@ -1028,6 +1273,15 @@ async function evaluateControl(context, control, attestations, agentClaim, now =
 function controlPasses(control) {
   return control.status === "met" || control.status === "not_applicable";
 }
+function usesModernEvidence(version) {
+  return version === "0.3.0" || version === "0.4.0";
+}
+function reportSchemaVersion(version) {
+  if (usesModernEvidence(version)) {
+    return version;
+  }
+  return "0.2.0";
+}
 function dimensionScore(controls, dimension) {
   let score = 0;
   for (const level of [1, 2, 3, 4]) {
@@ -1038,6 +1292,10 @@ function dimensionScore(controls, dimension) {
     score = level;
   }
   return score;
+}
+function isRepositoryDetectable(control) {
+  const repositoryChecks = control.evidence.filter(({ scope }) => scope === "repository");
+  return control.evidence_mode === "any" ? repositoryChecks.length > 0 : repositoryChecks.length === control.evidence.length;
 }
 function repositoryScore(catalog, results, dimensions) {
   let achieved = 0;
@@ -1052,9 +1310,7 @@ function repositoryScore(catalog, results, dimensions) {
       const controlsAtLevel = catalog.filter(
         (control) => control.dimension === dimension && control.level === level
       );
-      const repositoryDetectable = controlsAtLevel.every(
-        (control) => control.evidence.every((evidence) => evidence.scope === "repository")
-      );
+      const repositoryDetectable = controlsAtLevel.every(isRepositoryDetectable);
       if (ceilingOpen && repositoryDetectable) {
         dimensionCeiling = level;
       } else {
@@ -1104,7 +1360,7 @@ function assessProfiles(benchmark, dimensions, controls) {
       title: profile.title,
       passed: blockers.length === 0,
       blockers,
-      ...benchmark.version === "0.3.0" ? {
+      ...usesModernEvidence(benchmark.version) ? {
         evidence_dependencies: {
           agent_collected: requiredControls.filter(
             ({ confidence }) => confidence === "agent-collected"
@@ -1124,6 +1380,8 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   }
   const scope = options.scope ?? "tracked";
   const now = options.now ?? /* @__PURE__ */ new Date();
+  const modernEvidence = usesModernEvidence(benchmark.version);
+  const schemaVersion = reportSchemaVersion(benchmark.version);
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
   await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
   const controls = await Promise.all(
@@ -1138,7 +1396,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     )
   );
   const warnings = [...options.warnings ?? []];
-  if (benchmark.version === "0.3.0") {
+  if (modernEvidence) {
     if (scope === "tracked" && context.metadata.tracked_tree_dirty) {
       warnings.push(
         "Tracked assessment includes uncommitted tracked-file contents, so the result is not reproducible from git_head alone. Use a clean worktree before comparing scores or collecting agent evidence."
@@ -1170,11 +1428,11 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   });
   const profiles = assessProfiles(benchmark, dimensions, controls);
   const total = dimensions.reduce((sum, { score }) => sum + score, 0);
-  const repository = benchmark.version === "0.3.0" ? repositoryScore(catalog, controls, benchmark.dimensions) : void 0;
+  const repository = modernEvidence ? repositoryScore(catalog, controls, benchmark.dimensions) : void 0;
   const highestProfile = [...profiles].reverse().find(({ passed }) => passed)?.id ?? null;
   const targetPassed = profiles.find(({ id }) => id === profileId)?.passed ?? false;
   return {
-    schema_version: benchmark.version === "0.3.0" ? "0.3.0" : "0.2.0",
+    schema_version: schemaVersion,
     benchmark: { id: benchmark.id, version: benchmark.version },
     target: {
       repository: repo,
@@ -1185,7 +1443,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       working_tree_dirty: context.metadata.working_tree_dirty
     },
     assessed_at: now.toISOString(),
-    ...benchmark.version === "0.3.0" ? { warnings } : {},
+    ...modernEvidence ? { warnings } : {},
     score: {
       total,
       maximum: 40,
@@ -1204,7 +1462,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       ).length,
       unmet: controls.filter(({ status }) => status === "not_met").length,
       unknown: controls.filter(({ status }) => status === "unknown").length,
-      ...benchmark.version === "0.3.0" ? {
+      ...modernEvidence ? {
         resolved: controls.filter(({ status }) => status !== "unknown").length,
         total: controls.length
       } : {}
@@ -1216,7 +1474,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     limitations: [
       scope === "tracked" ? "Tracked mode considers only Git-tracked paths, using current working-tree contents; uncommitted edits to tracked files can affect the result." : "Workspace mode includes untracked local files and is provisional; do not compare it directly with tracked-mode reports.",
       "Repository-detected evidence proves a qualifying artifact match, not consistent practice or external enforcement.",
-      ...benchmark.version === "0.3.0" ? [
+      ...modernEvidence ? [
         "Repository-detected progress uses only deterministic offline evidence and its attainable ceiling; it is explanatory and does not replace the normative score or readiness floors.",
         "Agent-collected repository evidence is semantic, target-bound, and source-backed but is not independently verified or relabelled as repository-detected."
       ] : [],
@@ -1243,8 +1501,10 @@ async function validateAgentEvidence(benchmark, catalog, context, evidence, now)
       `Agent evidence commit ${evidence.target.git_head ?? "unavailable"} does not match ${expectedTarget.git_head ?? "an unavailable Git commit"}`
     );
   }
-  if (benchmark.version === "0.3.0" && context.metadata.tracked_tree_dirty) {
-    throw new Error("ADRB v0.3 agent evidence requires tracked files to match the bound commit");
+  if (usesModernEvidence(benchmark.version) && context.metadata.tracked_tree_dirty) {
+    throw new Error(
+      `ADRB v${benchmark.version} agent evidence requires tracked files to match the bound commit`
+    );
   }
   const controls = new Map(catalog.map((control) => [control.id, control]));
   if (Object.keys(evidence.claims).length > 0 && (evidence.collector.name.startsWith("TODO") || evidence.collector.version.startsWith("TODO"))) {
@@ -1323,7 +1583,7 @@ function countLines(contents) {
 
 // src/cli.ts
 var program = new Command();
-program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.3.1");
+program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.4.0");
 program.command("validate").description("Validate the bundled benchmark catalog").action(async () => {
   const { benchmark, controls } = await loadBenchmark();
   process.stdout.write(
@@ -1456,7 +1716,7 @@ ${stringify(bundle)}`,
     await writeFile(
       requestPath,
       [
-        "# ADRB v0.3 evidence request",
+        `# ADRB v${benchmark.version} evidence request`,
         "",
         `- Repository: ${bundle.target.repository}`,
         `- Git commit: ${bundle.target.git_head ?? "unavailable"}`,

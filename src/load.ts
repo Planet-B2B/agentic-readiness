@@ -7,6 +7,7 @@ import { parse } from 'yaml';
 import {
   AgentEvidenceFileSchema,
   AgentEvidenceFileV03Schema,
+  AgentEvidenceFileV04Schema,
   AttestationFileSchema,
   BenchmarkSchema,
   ControlFileSchema,
@@ -22,7 +23,7 @@ import {
 } from './schema.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.3');
+export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.4');
 
 export interface ArtifactLoadOptions {
   ignoreVersionMismatch?: boolean;
@@ -186,6 +187,7 @@ export async function loadAgentEvidence(
     const file = (() => {
       if (benchmarkVersion === '0.2.0') return AgentEvidenceFileSchema.parse(rawFile);
       if (benchmarkVersion === '0.3.0') return AgentEvidenceFileV03Schema.parse(rawFile);
+      if (benchmarkVersion === '0.4.0') return AgentEvidenceFileV04Schema.parse(rawFile);
       throw new Error(`Agent evidence bundles are unsupported for benchmark ${benchmarkVersion}`);
     })();
     if (file.benchmark_version !== benchmarkVersion) {
@@ -233,7 +235,7 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
     if (ids.has(control.id)) throw new Error(`Duplicate control id: ${control.id}`);
     ids.add(control.id);
     if (
-      ['0.2.0', '0.3.0'].includes(benchmark.version) &&
+      ['0.2.0', '0.3.0', '0.4.0'].includes(benchmark.version) &&
       control.evidence.some(({ type }) => type === 'content_any' || type === 'content_all')
     ) {
       throw new Error(
@@ -258,11 +260,14 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
       throw new Error(`${control.id} changes immutable v0.2 repository evidence semantics`);
     }
     if (
-      ['0.2.0', '0.3.0'].includes(benchmark.version) &&
+      ['0.2.0', '0.3.0', '0.4.0'].includes(benchmark.version) &&
       control.allow_attestation &&
       !control.evidence.some(({ type }) => type === 'manual')
     ) {
       throw new Error(`${control.id} allows attestation for repository-detected evidence`);
+    }
+    if (control.evidence_mode === 'any' && control.evidence.length < 2) {
+      throw new Error(`${control.id} uses alternative evidence without multiple evidence checks`);
     }
     for (const check of control.evidence) {
       if (check.type === 'content_terms' && check.min_terms > check.terms.length) {

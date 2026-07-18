@@ -8,6 +8,10 @@ or `required_any_terms`. An extension names the control and zero-based evidence 
 exactly one of those fields. It cannot remove or weaken a threshold, change a control level, alter a
 readiness floor, add an attestation path, or execute code.
 
+Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
+command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors and tool
+aliases to `ci_command`; aliases never turn comments or documentation prose into executed evidence.
+
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and
 per-pattern limits as portable candidates. Adding or changing a bundled adapter changes evidence

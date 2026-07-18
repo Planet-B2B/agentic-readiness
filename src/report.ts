@@ -54,6 +54,13 @@ function evidenceLines(control: ControlResult): string[] {
   return lines;
 }
 
+function confidenceRule(control: ControlResult): string {
+  if (control.confidence !== 'none') return '';
+  return control.evidence_mode === 'any'
+    ? ' — one evidence alternative must pass'
+    : ' — all required evidence checks must pass';
+}
+
 function appendControlDetails(
   lines: string[],
   heading: string,
@@ -71,6 +78,13 @@ function appendControlDetails(
       .filter(({ status }) => status !== 'met')
       .map(({ scope, type }) => `${scope}/${type}`);
     const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(', ');
+    const checkSummary =
+      control.evidence_mode === 'any'
+        ? `Alternative evidence checks established: ${establishedChecks}/${control.evidence.length}; one required.`
+        : `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`;
+    const blockingLabel =
+      control.evidence_mode === 'any' ? 'Unresolved alternatives' : 'Blocking checks';
+    const confidenceExplanation = confidenceRule(control);
     lines.push(
       `### ${statusIcon[control.status]} ${control.id} — ${control.title}`,
       '',
@@ -80,9 +94,9 @@ function appendControlDetails(
       '',
       ...(showCheckSummary
         ? [
-            `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`,
-            ...(blockingChecks.length > 0 ? [`Blocking checks: ${blockingSummary}.`] : []),
-            `Control confidence: ${control.confidence}.`,
+            checkSummary,
+            ...(blockingChecks.length > 0 ? [`${blockingLabel}: ${blockingSummary}.`] : []),
+            `Control confidence: ${control.confidence}${confidenceExplanation}.`,
           ]
         : [`Evidence confidence: ${control.confidence}.`]),
       '',

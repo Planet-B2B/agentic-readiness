@@ -54,17 +54,24 @@ target-profile headline discloses the number of required controls from each prov
 - `attested`: an accountable person supplied a dated, expiring claim and durable reference.
 - `unknown`: evidence is unavailable, expired, mismatched, unauthorized, or inconclusive.
 
-Repository controls use non-empty files, control-specific term thresholds, optional required terms,
-bounded line windows, and per-pattern candidate limits. Catalog pattern order is significant when a
-candidate limit is present: authoritative entry points precede large run, skill, or documentation
-corpora. External platform, organization, and outcome controls cannot be inferred from repository
-keywords.
+Repository controls use non-empty files, control-specific term thresholds, semantic component
+groups, structurally identifiable ownership mappings, executable CI commands, bounded line windows,
+and per-pattern candidate limits. Partial evidence remains visible but does not pass a control.
+Catalog pattern order is significant when a candidate limit is present: authoritative entry points
+precede large run, skill, or documentation corpora. External platform, organization, and outcome
+controls cannot be inferred from repository keywords.
 
 Human attestations and agent evidence may satisfy only controls explicitly eligible for those
 classes. A v0.4 control may permit an `agent-collected` repository claim when a legitimate tracked
 artifact uses an unrecognized convention. This is a semantic alternative, not a deterministic
 pass: it remains separately labelled and does not increase repository-detected progress. Human
 attestations cannot override repository-artifact controls.
+
+Controls require every evidence check by default. A v0.4 control may explicitly declare
+`evidence_mode: any` only when the checks are alternative ways to establish the same outcome. A
+repository-only run remains `unknown` when the repository alternative is absent and an external
+alternative has not been collected; it does not infer either a platform pass or a platform failure.
+The report shows every alternative and its provenance.
 
 Level 4 requires time-series or outcome evidence and an improvement decision influenced by it. The
 existence of a dashboard is insufficient.
@@ -86,9 +93,9 @@ recognize.
 
 ## Changes and comparability
 
-v0.1 and v0.2 remain immutable. Scores from v0.1, v0.2, and v0.4 are not directly comparable because
-evidence and control semantics changed. Reports are comparable only when benchmark version, target
-profile, repository scope, evidence policy, and assessment mode match.
+v0.1, v0.2, and v0.3 remain immutable. Scores from v0.1, v0.2, v0.3, and v0.4 are not directly
+comparable because evidence and control semantics changed. Reports are comparable only when
+benchmark version, target profile, repository scope, evidence policy, and assessment mode match.
 
 ## Claims
 

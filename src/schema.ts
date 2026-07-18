@@ -44,7 +44,6 @@ const OwnershipMapSchema = z.object({
   type: z.literal('ownership_map'),
   scope: z.literal('repository').default('repository'),
   patterns: z.array(z.string().min(1)).min(1),
-  min_bytes: z.number().int().positive().default(1),
 });
 
 const ContentAnySchema = z.object({
@@ -132,6 +131,7 @@ const RawControlSchema = z.object({
   outcome: z.string().min(1),
   risk: z.string().min(1),
   evidence: z.array(EvidenceCheckSchema).min(1),
+  evidence_mode: z.enum(['all', 'any']).default('all'),
   remediation: z.string().min(1),
   references: z.array(z.string().min(1)).default([]),
   allow_attestation: z.boolean().default(false),
@@ -336,30 +336,38 @@ export const AgentEvidenceClaimV03Schema = z
     }
   });
 
-export const AgentEvidenceFileV03Schema = z
-  .object({
-    schema_version: z.literal('0.3.0'),
-    benchmark_version: z.literal('0.3.0'),
-    target: z
-      .object({
-        repository: z.string().min(1),
-        git_head: z.string().min(1),
-      })
-      .strict(),
-    collector: z
-      .object({
-        name: z.string().min(1),
-        version: z.string().min(1),
-      })
-      .strict(),
-    claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema),
-  })
-  .strict();
+function modernAgentEvidenceFileSchema<const Version extends '0.3.0' | '0.4.0'>(version: Version) {
+  return z
+    .object({
+      schema_version: z.literal(version),
+      benchmark_version: z.literal(version),
+      target: z
+        .object({
+          repository: z.string().min(1),
+          git_head: z.string().min(1),
+        })
+        .strict(),
+      collector: z
+        .object({
+          name: z.string().min(1),
+          version: z.string().min(1),
+        })
+        .strict(),
+      claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema),
+    })
+    .strict();
+}
+
+export const AgentEvidenceFileV03Schema = modernAgentEvidenceFileSchema('0.3.0');
+
+export const AgentEvidenceFileV04Schema = modernAgentEvidenceFileSchema('0.4.0');
 
 export type AgentEvidenceClaim =
   z.infer<typeof AgentEvidenceClaimSchema> | z.infer<typeof AgentEvidenceClaimV03Schema>;
 export type AgentEvidenceFile =
-  z.infer<typeof AgentEvidenceFileSchema> | z.infer<typeof AgentEvidenceFileV03Schema>;
+  | z.infer<typeof AgentEvidenceFileSchema>
+  | z.infer<typeof AgentEvidenceFileV03Schema>
+  | z.infer<typeof AgentEvidenceFileV04Schema>;
 
 export type CheckStatus = 'met' | 'not_met' | 'unknown';
 export type ControlStatus = CheckStatus | 'not_applicable';
@@ -382,6 +390,7 @@ export interface ControlResult {
   risk: string;
   status: ControlStatus;
   confidence: EvidenceConfidence;
+  evidence_mode?: 'any';
   evidence: EvidenceResult[];
   agent_evidence: AgentEvidenceClaim | null;
   attestation: Attestation | null;
@@ -413,7 +422,7 @@ export interface ProfileResult {
 }
 
 export interface AssessmentReport {
-  schema_version: '0.2.0' | '0.3.0';
+  schema_version: '0.2.0' | '0.3.0' | '0.4.0';
   benchmark: { id: string; version: string };
   target: {
     repository: string;

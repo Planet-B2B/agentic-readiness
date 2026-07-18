@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.3.1 - Unreleased
+## 0.4.0 - Unreleased
+
+- Add semantic component evidence for `ADRB-RES-002`, including matched and missing containment
+  components and partial references without partial scoring.
+- Report required-check progress and exact blocking checks separately from control confidence.
+- Recognize conventional ownership files and structurally explicit ownership mappings for
+  `ADRB-GOV-002` without allowing vague ownership prose.
+- Require executable CI evidence for secret scanning and split untrusted-input enforcement into the
+  separate Level 3 `ADRB-SEC-007` control.
+- Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
+  from untrusted-input safeguards.
+- Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB
+  v0.4.0.
+
+## 0.3.1 - 2026-07-18
 
 - Make the complete agent-assisted workflow the recommended copy-and-paste path while retaining a
   clearly labelled fast repository-only baseline.

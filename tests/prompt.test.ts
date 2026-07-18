@@ -14,7 +14,7 @@ describe('recommended assessment prompt', () => {
     expect(prompt).toContain('--output <artifact-dir>/agent-evidence.yaml');
     expect(prompt).toContain('--request-output <artifact-dir>/evidence-request.md');
     expect(prompt).toContain('--agent-evidence <artifact-dir>/agent-evidence.yaml');
-    expect(normalizedPrompt).toContain('npm package version is 0.3.1');
-    expect(normalizedPrompt).toContain('ADRB benchmark version 0.3.0');
+    expect(normalizedPrompt).toContain('npm package and immutable ADRB benchmark are both');
+    expect(normalizedPrompt).toContain('version 0.4.0');
   });
 });

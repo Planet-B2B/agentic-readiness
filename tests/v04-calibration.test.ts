@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { loadBenchmark } from '../src/load.js';
+import { loadAttestations, loadBenchmark } from '../src/load.js';
 import { toMarkdown } from '../src/report.js';
 import { assess } from '../src/score.js';
+import type { AgentEvidenceFile } from '../src/schema.js';
 
 const v04Root = resolve(import.meta.dirname, '..', 'benchmark', 'v0.4');
 
@@ -46,6 +47,26 @@ function controlStatus(report: Awaited<ReturnType<typeof assess>>, id: string) {
 }
 
 describe('v0.4 evidence calibration', () => {
+  it('retains the mature level-three conformance result', async () => {
+    const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
+    const { benchmark, controls } = await loadBenchmark(v04Root);
+    const attestations = await loadAttestations(
+      join(repository, '.agentic', 'attestations-v0.4.yaml'),
+      benchmark.version,
+    );
+    const report = await assess(repository, benchmark, controls, 'limited-autonomous-maintenance', {
+      attestations,
+      now: new Date('2026-07-18T12:00:00.000Z'),
+    });
+
+    expect(report.score.total).toBe(30);
+    expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
+    expect(report.controls).toHaveLength(45);
+    expect(report.evidence_summary.attested).toBe(8);
+    expect(report.readiness.target_passed).toBe(true);
+    expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
+  });
+
   it('reports semantic containment coverage without promoting a partial match', async () => {
     const repository = await gitFixture({
       'AGENTS.md': [
@@ -114,7 +135,9 @@ describe('v0.4 evidence calibration', () => {
       expect(governance?.evidence.map(({ status }) => status)).toEqual(['not_met', 'met']);
       expect(markdown).toContain('Required evidence checks established: 1/2.');
       expect(markdown).toContain('Blocking checks: `repository/ownership_map`.');
-      expect(markdown).toContain('Control confidence: none.');
+      expect(markdown).toContain(
+        'Control confidence: none — all required evidence checks must pass.',
+      );
       expect(markdown).not.toContain('Evidence confidence: none.');
     } finally {
       await rm(repository, { recursive: true, force: true });
@@ -213,8 +236,18 @@ describe('v0.4 evidence calibration', () => {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const keywordReport = await assess(keywordOnly, benchmark, controls, 'pr-creation');
       const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
+      const keywordMarkdown = toMarkdown(keywordReport);
 
-      expect(controlStatus(keywordReport, 'ADRB-SEC-003')?.status).toBe('not_met');
+      expect(controlStatus(keywordReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(keywordMarkdown).toContain(
+        'Alternative evidence checks established: 0/2; one required.',
+      );
+      expect(keywordMarkdown).toContain(
+        'Unresolved alternatives: `repository/ci_command`, `platform/manual`.',
+      );
+      expect(keywordMarkdown).toContain(
+        'Control confidence: none — one evidence alternative must pass.',
+      );
       expect(controlStatus(executedReport, 'ADRB-SEC-003')?.status).toBe('met');
       expect(controlStatus(executedReport, 'ADRB-SEC-003')?.evidence[0]?.type).toBe('ci_command');
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.status).toBe('unknown');
@@ -222,6 +255,46 @@ describe('v0.4 evidence calibration', () => {
     } finally {
       await rm(keywordOnly, { recursive: true, force: true });
       await rm(executed, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts platform-native secret scanning without satisfying untrusted-input safeguards', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture repository' });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const gitHead = execFileSync('git', ['-C', repository, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
+      const evidence: AgentEvidenceFile = {
+        schema_version: '0.4.0',
+        benchmark_version: '0.4.0',
+        target: {
+          repository: 'https://example.invalid/acme/repository.git',
+          git_head: gitHead,
+        },
+        collector: { name: 'fixture-platform-adapter', version: '1.0.0' },
+        claims: {
+          'ADRB-SEC-003': {
+            status: 'met',
+            scope: 'platform',
+            summary: 'Host-native scanning and push protection cover the assessed repository.',
+            references: ['https://example.invalid/settings/security/secret-scanning'],
+            collected_at: '2026-07-18T10:00:00.000Z',
+            expires_at: '2026-08-17T10:00:00.000Z',
+            error: null,
+          },
+        },
+      };
+      const report = await assess(repository, benchmark, controls, 'pr-creation', {
+        agentEvidence: evidence,
+        now: new Date('2026-07-18T12:00:00.000Z'),
+      });
+
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.confidence).toBe('agent-collected');
+      expect(controlStatus(report, 'ADRB-SEC-007')?.status).toBe('unknown');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
     }
   });
 });
