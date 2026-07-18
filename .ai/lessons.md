@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Enforce evidence boundaries at every public entry point
+
+**Context.** PR review found that the JSON schema rejected ambiguous repository citations while the
+programmatic validator did not, and that a shared scope enum unintentionally allowed manual
+repository evidence.
+
+**Rule.** Keep trust-boundary schemas narrow and repeat critical validation in programmatic paths;
+shared enums must not silently widen the authority or provenance of a specialized evidence type.
+
 ## 2026-07-17 — Reviewable evidence includes valid citation bounds
 
 **Context.** ADRB v0.3 initially accepted repository claim line ranges without checking their order

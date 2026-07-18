@@ -57,9 +57,7 @@ function repositoryScore(
         (control) => control.dimension === dimension && control.level === level,
       );
       const repositoryDetectable = controlsAtLevel.every((control) =>
-        control.evidence.every(
-          (evidence) => evidence.scope === 'repository' && evidence.type !== 'manual',
-        ),
+        control.evidence.every((evidence) => evidence.scope === 'repository'),
       );
       if (ceilingOpen && repositoryDetectable) {
         dimensionCeiling = level;
@@ -361,6 +359,7 @@ function repositoryReference(reference: string): {
   if (
     path.length === 0 ||
     path.startsWith('/') ||
+    path.includes('#') ||
     path.includes('\\') ||
     path.split('/').some((part) => part === '..' || part === '.')
   ) {

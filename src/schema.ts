@@ -21,6 +21,7 @@ export type Level = z.infer<typeof LevelSchema>;
 
 export const EvidenceScopeSchema = z.enum(['repository', 'platform', 'organization', 'outcome']);
 export type EvidenceScope = z.infer<typeof EvidenceScopeSchema>;
+const ManualEvidenceScopeSchema = z.enum(['platform', 'organization', 'outcome']);
 
 export const AssessmentScopeSchema = z.enum(['tracked', 'workspace']);
 export type AssessmentScope = z.infer<typeof AssessmentScopeSchema>;
@@ -73,7 +74,7 @@ const MaxBytesSchema = z.object({
 
 const ManualSchema = z.object({
   type: z.literal('manual'),
-  scope: EvidenceScopeSchema.default('organization'),
+  scope: ManualEvidenceScopeSchema.default('organization'),
   prompt: z.string().min(1),
 });
 

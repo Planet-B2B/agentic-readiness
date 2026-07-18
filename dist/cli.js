@@ -30,6 +30,7 @@ var dimensionIds = [
 var DimensionIdSchema = z.enum(dimensionIds);
 var LevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 var EvidenceScopeSchema = z.enum(["repository", "platform", "organization", "outcome"]);
+var ManualEvidenceScopeSchema = z.enum(["platform", "organization", "outcome"]);
 var AssessmentScopeSchema = z.enum(["tracked", "workspace"]);
 var PathAnySchema = z.object({
   type: z.literal("path_any"),
@@ -73,7 +74,7 @@ var MaxBytesSchema = z.object({
 });
 var ManualSchema = z.object({
   type: z.literal("manual"),
-  scope: EvidenceScopeSchema.default("organization"),
+  scope: ManualEvidenceScopeSchema.default("organization"),
   prompt: z.string().min(1)
 });
 var EvidenceCheckSchema = z.discriminatedUnion("type", [
@@ -1045,9 +1046,7 @@ function repositoryScore(catalog, results, dimensions) {
         (control) => control.dimension === dimension && control.level === level
       );
       const repositoryDetectable = controlsAtLevel.every(
-        (control) => control.evidence.every(
-          (evidence) => evidence.scope === "repository" && evidence.type !== "manual"
-        )
+        (control) => control.evidence.every((evidence) => evidence.scope === "repository")
       );
       if (ceilingOpen && repositoryDetectable) {
         dimensionCeiling = level;
@@ -1278,7 +1277,7 @@ function repositoryReference(reference) {
   const withoutPrefix = reference.slice("repo:".length);
   const lineMatch = withoutPrefix.match(/#L(\d+)(?:-L?(\d+))?$/);
   const path = lineMatch ? withoutPrefix.slice(0, lineMatch.index) : withoutPrefix;
-  if (path.length === 0 || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => part === ".." || part === ".")) {
+  if (path.length === 0 || path.startsWith("/") || path.includes("#") || path.includes("\\") || path.split("/").some((part) => part === ".." || part === ".")) {
     return null;
   }
   const start = lineMatch ? Number(lineMatch[1]) : null;

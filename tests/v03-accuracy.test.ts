@@ -167,6 +167,10 @@ describe('v0.3 accuracy regressions', () => {
         '# AI safety',
         'Agents must not disclose secrets or credentials and must keep sensitive data out of logs.',
       ].join('\n'),
+      'POLICIES/AI#SAFETY.md': [
+        '# Ambiguous AI safety path',
+        'This tracked filename must not be accepted as a repository citation.',
+      ].join('\n'),
     });
     try {
       const { benchmark, controls } = await loadBenchmark();
@@ -224,6 +228,17 @@ describe('v0.3 accuracy regressions', () => {
       await expect(
         assess(repository, benchmark, controls, 'planning', {
           agentEvidence: invalidReference,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('unavailable tracked path');
+
+      const ambiguousReference = structuredClone(evidence);
+      const ambiguousClaim = ambiguousReference.claims['ADRB-SEC-001'];
+      if (!ambiguousClaim) throw new Error('Missing fixture claim');
+      ambiguousClaim.references = ['repo:POLICIES/AI#SAFETY.md#L1-L2'];
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: ambiguousReference,
           now: new Date('2026-07-17T12:00:00.000Z'),
         }),
       ).rejects.toThrow('unavailable tracked path');
