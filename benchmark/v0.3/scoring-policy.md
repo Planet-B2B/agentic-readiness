@@ -40,6 +40,9 @@ Each autonomy profile defines a floor for every dimension. A profile passes only
 met. Strength in one dimension cannot compensate for a security, testing, governance, or recovery
 gap elsewhere. No profile grants deployment or production authority.
 
+When a passed target profile depends on agent-collected or human-attested controls, the report's
+target-profile headline discloses the number of required controls from each provenance class.
+
 ## Evidence scopes and provenance
 
 - `repository-detected`: a deterministic collector found qualifying evidence in the selected path

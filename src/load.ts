@@ -24,6 +24,11 @@ import {
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.3');
 
+export interface ArtifactLoadOptions {
+  ignoreVersionMismatch?: boolean;
+  onWarning?: (warning: string) => void;
+}
+
 async function readYaml(path: string): Promise<unknown> {
   return parse(await readFile(path, 'utf8')) as unknown;
 }
@@ -119,9 +124,24 @@ function applyDetectorAdapter(
 export async function loadAttestations(
   path: string,
   benchmarkVersion: string,
+  options: ArtifactLoadOptions = {},
 ): Promise<AttestationFile | null> {
   try {
     const rawFile = await readYaml(path);
+    const artifactVersion = versionField(rawFile, 'benchmark_version');
+    if (
+      artifactVersion &&
+      handleVersionMismatch(
+        'Attestation',
+        path,
+        artifactVersion,
+        benchmarkVersion,
+        'init --force',
+        options,
+      )
+    ) {
+      return null;
+    }
     const file =
       benchmarkVersion === '0.1.0'
         ? LegacyAttestationFileSchema.parse(rawFile)
@@ -141,9 +161,28 @@ export async function loadAttestations(
 export async function loadAgentEvidence(
   path: string,
   benchmarkVersion: string,
+  options: ArtifactLoadOptions = {},
 ): Promise<AgentEvidenceFile | null> {
   try {
     const rawFile = await readYaml(path);
+    const artifactVersion = versionField(rawFile, 'benchmark_version');
+    const schemaVersion = versionField(rawFile, 'schema_version');
+    const mismatchedVersion = [artifactVersion, schemaVersion].find(
+      (version) => version && version !== benchmarkVersion,
+    );
+    if (
+      mismatchedVersion &&
+      handleVersionMismatch(
+        'Agent evidence',
+        path,
+        mismatchedVersion,
+        benchmarkVersion,
+        'init-evidence --force',
+        options,
+      )
+    ) {
+      return null;
+    }
     const file = (() => {
       if (benchmarkVersion === '0.2.0') return AgentEvidenceFileSchema.parse(rawFile);
       if (benchmarkVersion === '0.3.0') return AgentEvidenceFileV03Schema.parse(rawFile);
@@ -159,6 +198,33 @@ export async function loadAgentEvidence(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   }
+}
+
+function versionField(value: unknown, field: string): string | null {
+  if (!value || typeof value !== 'object' || !(field in value)) return null;
+  const version = (value as Record<string, unknown>)[field];
+  return typeof version === 'string' ? version : null;
+}
+
+function handleVersionMismatch(
+  label: string,
+  path: string,
+  artifactVersion: string,
+  benchmarkVersion: string,
+  regenerateCommand: string,
+  options: ArtifactLoadOptions,
+): boolean {
+  if (artifactVersion === benchmarkVersion) return false;
+  const mismatch = `${label} file ${path} targets ADRB v${artifactVersion}, not v${benchmarkVersion}`;
+  if (!options.ignoreVersionMismatch) {
+    throw new Error(
+      `${mismatch}. Regenerate it with \`agentic-scorecard ${regenerateCommand}\` or pass a v${benchmarkVersion} file.`,
+    );
+  }
+  options.onWarning?.(
+    `Ignored auto-loaded ${label.toLowerCase()} file ${path} because it targets ADRB v${artifactVersion}, not v${benchmarkVersion}. Regenerate it with \`agentic-scorecard ${regenerateCommand}\` before relying on its claims.`,
+  );
+  return true;
 }
 
 export function validateCatalog(benchmark: Benchmark, controls: Control[]): void {

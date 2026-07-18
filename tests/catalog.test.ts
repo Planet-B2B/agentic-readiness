@@ -40,7 +40,9 @@ describe('benchmark catalog', () => {
     const controlSource = (
       await Promise.all(controlPaths.map(async (path) => readFile(path, 'utf8')))
     ).join('\n');
-    expect(controlSource).not.toMatch(/CLAUDE|\.claude|\.codex|\.cursor|opencode|copilot|\.kiro/);
+    expect(controlSource).not.toMatch(
+      /CLAUDE|\.claude|\.codex|\.cursor|opencode|copilot|\.kiro|gitleaks|trufflehog/,
+    );
 
     const { controls } = await loadBenchmark(root);
     const contextEntry = controls.find(({ id }) => id === 'ADRB-CTX-001');
@@ -48,6 +50,9 @@ describe('benchmark catalog', () => {
     expect(pathCheck && 'patterns' in pathCheck ? pathCheck.patterns : []).toContain(
       '.cursor/skills/**',
     );
+    const securityAutomation = controls.find(({ id }) => id === 'ADRB-SEC-003');
+    const contentCheck = securityAutomation?.evidence.find(({ type }) => type === 'content_terms');
+    expect(contentCheck?.type === 'content_terms' ? contentCheck.terms : []).toContain('gitleaks');
   });
 
   it('preserves v0.1 attestation defaults and non-expiring files', async () => {
@@ -108,6 +113,51 @@ describe('benchmark catalog', () => {
         'utf8',
       );
       await expect(loadAttestations(path, '0.2.0')).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('skips version-mismatched auto-loaded artifacts with migration warnings', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'adrb-v03-migration-'));
+    const attestationPath = join(directory, 'attestations.yaml');
+    const evidencePath = join(directory, 'agent-evidence.yaml');
+    const warnings: string[] = [];
+    const options = {
+      ignoreVersionMismatch: true,
+      onWarning: (warning: string) => warnings.push(warning),
+    };
+    try {
+      await writeFile(attestationPath, 'benchmark_version: 0.2.0\nattestations: {}\n', 'utf8');
+      await writeFile(
+        evidencePath,
+        [
+          'schema_version: 0.2.0',
+          'benchmark_version: 0.2.0',
+          'target:',
+          '  repository: https://example.invalid/acme/repository.git',
+          '  git_head: null',
+          'collector:',
+          '  name: fixture',
+          '  version: 1.0.0',
+          'claims: {}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      await expect(loadAttestations(attestationPath, '0.3.0', options)).resolves.toBeNull();
+      await expect(loadAgentEvidence(evidencePath, '0.3.0', options)).resolves.toBeNull();
+      expect(warnings).toHaveLength(2);
+      expect(warnings[0]).toContain('Ignored auto-loaded attestation file');
+      expect(warnings[1]).toContain('agentic-scorecard init-evidence --force');
+
+      await expect(loadAttestations(attestationPath, '0.3.0')).rejects.toThrow(
+        'targets ADRB v0.2.0, not v0.3.0',
+      );
+      await expect(loadAgentEvidence(evidencePath, '0.3.0')).rejects.toThrow(
+        'targets ADRB v0.2.0, not v0.3.0',
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -369,6 +369,10 @@ export interface ProfileResult {
     required: Level;
     control_ids: string[];
   }>;
+  evidence_dependencies?: {
+    agent_collected: number;
+    attested: number;
+  };
 }
 
 export interface AssessmentReport {
@@ -383,6 +387,7 @@ export interface AssessmentReport {
     working_tree_dirty: boolean | null;
   };
   assessed_at: string;
+  warnings?: string[];
   score: {
     total: number;
     maximum: 40;

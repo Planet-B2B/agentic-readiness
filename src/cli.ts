@@ -235,19 +235,27 @@ program
       }
       const repo = resolve(repository);
       const { benchmark, controls } = await loadBenchmark();
+      const warnings: string[] = [];
       const attestationPath = resolve(
         options.attestations ?? join(repo, '.agentic', 'attestations.yaml'),
       );
-      const attestations = await loadAttestations(attestationPath, benchmark.version);
+      const attestations = await loadAttestations(attestationPath, benchmark.version, {
+        ignoreVersionMismatch: options.attestations === undefined,
+        onWarning: (warning) => warnings.push(warning),
+      });
       const agentEvidencePath = resolve(
         options.agentEvidence ?? join(repo, '.agentic', 'agent-evidence.yaml'),
       );
-      const agentEvidence = await loadAgentEvidence(agentEvidencePath, benchmark.version);
+      const agentEvidence = await loadAgentEvidence(agentEvidencePath, benchmark.version, {
+        ignoreVersionMismatch: options.agentEvidence === undefined,
+        onWarning: (warning) => warnings.push(warning),
+      });
       const reportPath = options.output ? resolve(options.output) : null;
       const report = await assess(repo, benchmark, controls, options.profile, {
         scope: options.scope as AssessmentScope,
         attestations,
         agentEvidence,
+        warnings,
         excludedPaths: [attestationPath, agentEvidencePath, ...(reportPath ? [reportPath] : [])],
       });
       const output =

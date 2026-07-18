@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { loadAttestations, loadBenchmark } from '../src/load.js';
+import { toMarkdown } from '../src/report.js';
 import { repositoryEvidenceTarget } from '../src/repository.js';
 import { assess } from '../src/score.js';
 import type { AgentEvidenceFile } from '../src/schema.js';
@@ -52,7 +53,7 @@ describe('v0.3 accuracy regressions', () => {
       join(repository, '.agentic', 'attestations-v0.3.yaml'),
       benchmark.version,
     );
-    const report = await assess(repository, benchmark, controls, 'pr-creation', {
+    const report = await assess(repository, benchmark, controls, 'limited-autonomous-maintenance', {
       attestations,
       now: new Date('2026-07-17T12:00:00.000Z'),
     });
@@ -60,6 +61,33 @@ describe('v0.3 accuracy regressions', () => {
     expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
     expect(report.readiness.target_passed).toBe(true);
     expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
+    const targetProfile = report.profiles.find(({ id }) => id === 'limited-autonomous-maintenance');
+    expect(targetProfile?.evidence_dependencies?.attested).toBeGreaterThan(0);
+    expect(toMarkdown(report)).toContain('PASS (depends on');
+  });
+
+  it('continues a default assessment with a prominent warning for v0.2 artifacts', () => {
+    const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
+    const cli = resolve(import.meta.dirname, '..', 'src', 'cli.ts');
+    const output = execFileSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        cli,
+        'assess',
+        repository,
+        '--profile',
+        'pr-creation',
+        '--format',
+        'json',
+      ],
+      { encoding: 'utf8' },
+    );
+    const report = JSON.parse(output) as { warnings?: string[] };
+    expect(report.warnings).toHaveLength(1);
+    expect(report.warnings?.[0]).toContain('Ignored auto-loaded attestation file');
+    expect(report.warnings?.[0]).toContain('agentic-scorecard init --force');
   });
 
   it('recognizes a Dialer-style Cursor harness and capitalized Agents.md', async () => {
@@ -199,6 +227,36 @@ describe('v0.3 accuracy regressions', () => {
           now: new Date('2026-07-17T12:00:00.000Z'),
         }),
       ).rejects.toThrow('unavailable tracked path');
+
+      const reversedRange = structuredClone(evidence);
+      const reversedRangeClaim = reversedRange.claims['ADRB-SEC-001'];
+      if (!reversedRangeClaim) throw new Error('Missing fixture claim');
+      reversedRangeClaim.references = ['repo:POLICIES/AI-SAFETY.md#L2-L1'];
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: reversedRange,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('invalid line range');
+
+      const outOfBoundsRange = structuredClone(evidence);
+      const outOfBoundsClaim = outOfBoundsRange.claims['ADRB-SEC-001'];
+      if (!outOfBoundsClaim) throw new Error('Missing fixture claim');
+      outOfBoundsClaim.references = ['repo:POLICIES/AI-SAFETY.md#L1-L9999'];
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          agentEvidence: outOfBoundsRange,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow("references lines beyond POLICIES/AI-SAFETY.md's 2 lines");
+
+      await expect(
+        assess(repository, benchmark, controls, 'planning', {
+          scope: 'workspace',
+          agentEvidence: evidence,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('repository-scoped agent evidence, which requires --scope tracked');
 
       await writeFile(join(repository, 'README.md'), 'Dirty fixture repository', 'utf8');
       await expect(

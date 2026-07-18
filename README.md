@@ -105,7 +105,14 @@ Run a new tracked-scope baseline and retain the old report as historical evidenc
 score change as improvement or regression because v0.3 changes evidence and control semantics.
 Re-review prior attestations and agent evidence before recreating them for v0.3. All claims must
 expire, and repository-scoped semantic claims require tracked files to match the commit-bound target
-plus `repo:<path>[#Lx-Ly]` references. Untracked generated reports do not block this workflow.
+plus `repo:<path>[#Lx-Ly]` references whose optional line ranges exist in the cited tracked file.
+Untracked generated reports do not block this workflow.
+
+The default `.agentic/attestations.yaml` and `.agentic/agent-evidence.yaml` paths are migration-safe:
+if either contains an older benchmark version, v0.3 ignores that auto-loaded file and places a
+prominent warning in the report. Regenerate it with `init --force` or `init-evidence --force` before
+relying on those claims. An explicitly supplied `--attestations` or `--agent-evidence` file still
+fails closed on a version mismatch.
 
 For development from this checkout:
 

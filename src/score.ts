@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import type {
   AssessmentReport,
   AgentEvidenceFile,
@@ -41,6 +44,7 @@ function repositoryScore(
 ): { achieved: number; ceiling: number; percentage: number } {
   let achieved = 0;
   let ceiling = 0;
+  const resultsById = new Map(results.map((result) => [result.id, result]));
 
   for (const { id: dimension } of dimensions) {
     let dimensionAchieved: Level = 0;
@@ -64,7 +68,7 @@ function repositoryScore(
       }
 
       const repositoryEstablished = controlsAtLevel.every((control) => {
-        const result = results.find(({ id }) => id === control.id);
+        const result = resultsById.get(control.id);
         return result?.status === 'met' && result.confidence === 'repository-detected';
       });
       if (achievedOpen && repositoryDetectable && repositoryEstablished) {
@@ -109,7 +113,26 @@ function assessProfiles(
         },
       ];
     });
-    return { id: profile.id, title: profile.title, passed: blockers.length === 0, blockers };
+    const requiredControls = controls.filter(
+      (control) => control.level <= profile.floors[control.dimension] && controlPasses(control),
+    );
+    return {
+      id: profile.id,
+      title: profile.title,
+      passed: blockers.length === 0,
+      blockers,
+      ...(benchmark.version === '0.3.0'
+        ? {
+            evidence_dependencies: {
+              agent_collected: requiredControls.filter(
+                ({ confidence }) => confidence === 'agent-collected',
+              ).length,
+              attested: requiredControls.filter(({ confidence }) => confidence === 'attested')
+                .length,
+            },
+          }
+        : {}),
+    };
   });
 }
 
@@ -124,6 +147,7 @@ export async function assess(
     agentEvidence?: AgentEvidenceFile | null;
     now?: Date;
     excludedPaths?: string[];
+    warnings?: string[];
   } = {},
 ): Promise<AssessmentReport> {
   const profile = benchmark.readiness_profiles.find(({ id }) => id === profileId);
@@ -136,7 +160,7 @@ export async function assess(
   const scope = options.scope ?? 'tracked';
   const now = options.now ?? new Date();
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
-  validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
+  await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
 
   const controls = await Promise.all(
     catalog.map(async (control) =>
@@ -180,6 +204,7 @@ export async function assess(
       working_tree_dirty: context.metadata.working_tree_dirty,
     },
     assessed_at: now.toISOString(),
+    ...(benchmark.version === '0.3.0' ? { warnings: options.warnings ?? [] } : {}),
     score: {
       total,
       maximum: 40,
@@ -226,13 +251,13 @@ export async function assess(
   };
 }
 
-function validateAgentEvidence(
+async function validateAgentEvidence(
   benchmark: Benchmark,
   catalog: Control[],
   context: RepositoryContext,
   evidence: AgentEvidenceFile | null,
   now: Date,
-): void {
+): Promise<void> {
   if (!evidence) return;
   if (evidence.benchmark_version !== benchmark.version) {
     throw new Error(
@@ -276,15 +301,37 @@ function validateAgentEvidence(
       throw new Error(`${controlId} does not accept ${claim.scope} evidence`);
     }
     if (claim.scope === 'repository') {
+      if (context.includedPaths === null) {
+        throw new Error(
+          `${controlId} uses repository-scoped agent evidence, which requires --scope tracked`,
+        );
+      }
       for (const reference of claim.references) {
-        const path = repositoryReferencePath(reference);
+        const parsedReference = repositoryReference(reference);
         if (
-          !path ||
-          context.includedPaths === null ||
-          !context.includedPaths.has(path) ||
-          context.excludedPaths.has(path)
+          !parsedReference ||
+          !context.includedPaths.has(parsedReference.path) ||
+          context.excludedPaths.has(parsedReference.path)
         ) {
           throw new Error(`${controlId} references an unavailable tracked path: ${reference}`);
+        }
+        if (parsedReference.lines) {
+          const contents = await readFile(
+            join(context.metadata.root, parsedReference.path),
+            'utf8',
+          );
+          const lineCount = countLines(contents);
+          if (
+            parsedReference.lines.start < 1 ||
+            parsedReference.lines.end < parsedReference.lines.start
+          ) {
+            throw new Error(`${controlId} references an invalid line range: ${reference}`);
+          }
+          if (parsedReference.lines.end > lineCount) {
+            throw new Error(
+              `${controlId} references lines beyond ${parsedReference.path}'s ${lineCount} lines: ${reference}`,
+            );
+          }
         }
       }
     }
@@ -303,10 +350,14 @@ function validateAgentEvidence(
   }
 }
 
-function repositoryReferencePath(reference: string): string | null {
+function repositoryReference(reference: string): {
+  path: string;
+  lines: { start: number; end: number } | null;
+} | null {
   if (!reference.startsWith('repo:')) return null;
   const withoutPrefix = reference.slice('repo:'.length);
-  const path = withoutPrefix.replace(/#L\d+(?:-L?\d+)?$/, '');
+  const lineMatch = withoutPrefix.match(/#L(\d+)(?:-L?(\d+))?$/);
+  const path = lineMatch ? withoutPrefix.slice(0, lineMatch.index) : withoutPrefix;
   if (
     path.length === 0 ||
     path.startsWith('/') ||
@@ -315,5 +366,16 @@ function repositoryReferencePath(reference: string): string | null {
   ) {
     return null;
   }
-  return path;
+  const start = lineMatch ? Number(lineMatch[1]) : null;
+  const end = lineMatch ? Number(lineMatch[2] ?? lineMatch[1]) : null;
+  return {
+    path,
+    lines: start === null || end === null ? null : { start, end },
+  };
+}
+
+function countLines(contents: string): number {
+  if (contents.length === 0) return 0;
+  const lines = contents.split('\n').length;
+  return contents.endsWith('\n') ? lines - 1 : lines;
 }

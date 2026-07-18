@@ -78,6 +78,20 @@ function appendControlDetails(lines: string[], heading: string, controls: Contro
 
 export function toMarkdown(report: AssessmentReport): string {
   const target = report.profiles.find(({ id }) => id === report.target.profile);
+  const targetDependencies = target?.evidence_dependencies;
+  const dependencyCount =
+    (targetDependencies?.agent_collected ?? 0) + (targetDependencies?.attested ?? 0);
+  const targetProvenance =
+    target?.passed && dependencyCount > 0
+      ? ` (depends on ${[
+          targetDependencies?.agent_collected
+            ? `${targetDependencies.agent_collected} agent-collected`
+            : null,
+          targetDependencies?.attested ? `${targetDependencies.attested} human-attested` : null,
+        ]
+          .filter(Boolean)
+          .join(' and ')} required ${dependencyCount === 1 ? 'control' : 'controls'})`
+      : '';
   const established = report.controls.filter(
     ({ status }) => status === 'met' || status === 'not_applicable',
   );
@@ -106,9 +120,20 @@ export function toMarkdown(report: AssessmentReport): string {
         ]
       : []),
     `- Highest readiness profile: **${report.readiness.highest_profile ?? 'none'}**`,
-    `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? 'PASS' : 'FAIL'}**`,
+    `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? `PASS${targetProvenance}` : 'FAIL'}**`,
     `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== undefined && report.evidence_summary.total !== undefined ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ''}`,
+    ...(report.warnings && report.warnings.length > 0
+      ? [`- Warnings: **${report.warnings.length} — review before using this assessment**`]
+      : []),
     '',
+    ...(report.warnings && report.warnings.length > 0
+      ? [
+          '## Warnings',
+          '',
+          ...report.warnings.map((warning) => `- WARNING: ${safeText(warning)}`),
+          '',
+        ]
+      : []),
     '## Dimensions',
     '',
     '| Dimension | Score | Controls met |',

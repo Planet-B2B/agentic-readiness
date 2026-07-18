@@ -12,6 +12,10 @@
   ceiling without changing the normative 40-point score or readiness floors.
 - Separate level-1 secret/sensitive-data boundaries from level-2 security reporting and response.
 - Add Open Mercato- and Dialer-shaped accuracy regressions while retaining v0.1 and v0.2 behavior.
+- Ignore version-mismatched artifacts only when they are discovered at default paths, with prominent
+  report warnings; explicit evidence paths continue to fail closed.
+- Validate repository citation line ranges and disclose when a passing target profile depends on
+  agent-collected or human-attested evidence.
 
 ## 0.2.0 - 2026-07-17
 

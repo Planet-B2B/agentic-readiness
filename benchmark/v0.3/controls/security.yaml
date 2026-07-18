@@ -99,7 +99,7 @@ controls:
       - type: content_terms
         scope: repository
         files: [.github/workflows/**, .gitlab-ci.yml, scripts/**, SECURITY.md, docs/security/**]
-        terms: [secret scan, gitleaks, trufflehog, prompt injection, untrusted content, sandbox]
+        terms: [secret scan, prompt injection, untrusted content, sandbox]
         min_terms: 2
         max_span_lines: 120
     remediation: Configure secret scanning and explicit untrusted-content or prompt-injection safeguards with tests.

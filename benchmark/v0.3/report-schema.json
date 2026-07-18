@@ -8,6 +8,7 @@
     "benchmark",
     "target",
     "assessed_at",
+    "warnings",
     "score",
     "evidence_summary",
     "dimensions",
@@ -36,6 +37,7 @@
       "properties": { "scope": { "enum": ["tracked", "workspace"] } }
     },
     "assessed_at": { "type": "string", "format": "date-time" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
     "score": {
       "type": "object",
       "additionalProperties": false,
