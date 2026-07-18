@@ -1,0 +1,6 @@
+id: known-security-tools
+benchmark_version: 0.4.0
+extensions:
+  - control_id: ADRB-SEC-003
+    evidence_index: 0
+    terms: [gitleaks, trufflehog]

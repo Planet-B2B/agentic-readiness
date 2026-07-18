@@ -1,0 +1,80 @@
+dimension: learning
+controls:
+  - id: ADRB-LRN-001
+    level: 1
+    title: Agent corrections have a durable home
+    outcome: Review corrections and post-merge lessons are recorded in a tracked repository artifact.
+    risk: Every agent session repeats the same repository-specific mistakes.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns:
+          [
+            .ai/lessons.md,
+            .ai/memory/**,
+            .agents/memory/**,
+            docs/lessons/**,
+            docs/decisions/**,
+            ADR/**,
+            docs/adr/**,
+          ]
+    remediation: Create a concise tracked correction log with context, rule, owner, and date.
+  - id: ADRB-LRN-002
+    level: 2
+    title: Knowledge promotion and ownership are documented
+    outcome: Guidance defines when corrections become instructions, skills, decisions, or maintained references.
+    risk: The lesson store becomes a stale archive rather than usable agent knowledge.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/lessons.md,
+            .ai/memory/**/*.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/knowledge/**,
+          ]
+        terms: [curation, promote, lesson, correction, stale, owner, deduplication]
+        min_terms: 3
+        required_any_terms: [curation, promote, lesson, correction]
+        max_span_lines: 120
+        max_files_per_pattern: 50
+    remediation: Define curation cadence, promotion rules, ownership, deduplication, and stale-content handling.
+  - id: ADRB-LRN-003
+    level: 3
+    title: Knowledge curation is mechanically enforced
+    outcome: Automation detects stale, duplicate, contradictory, or unpromoted agent knowledge.
+    risk: Knowledge quality relies on memory and quietly deteriorates as the repository evolves.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, scripts/**, package.json, Makefile]
+        terms: [curator, curation, knowledge lint, stale, contradiction, duplicate]
+        min_terms: 2
+        required_any_terms: [curator, curation, knowledge lint, contradiction]
+        max_span_lines: 30
+    remediation: Automate mechanical checks and require periodic judgement over knowledge quality.
+  - id: ADRB-LRN-004
+    level: 4
+    title: Knowledge effectiveness drives improvement
+    outcome: Recurring mistakes, stale guidance, retrieval success, and correction latency are trended and improve curation.
+    risk: Knowledge grows without evidence that it changes agent behavior.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide recurring-error and knowledge-quality trends plus a recent curation improvement driven by them.
+    remediation: Measure whether promoted knowledge prevents repeated mistakes and prioritize weak guidance.

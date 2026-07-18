@@ -1,0 +1,107 @@
+dimension: resilience
+controls:
+  - id: ADRB-RES-001
+    level: 1
+    title: Changes have a documented recovery path
+    outcome: Contributors can locate actionable rollback, revert, recovery, or incident guidance.
+    risk: A harmful agent change persists because recovery is improvised under pressure.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            README.md,
+            CONTRIBUTING.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/recovery/**,
+            docs/operations/**,
+            docs/agentic/**,
+            runbooks/**,
+            .github/**,
+          ]
+        terms: [rollback, revert, recovery, incident, restore]
+        min_terms: 2
+        required_any_terms: [change, deployment, release, agent, task, pull request]
+        max_span_lines: 100
+        max_files_per_pattern: 50
+    remediation: Document how to stop work, revert code, recover affected state, and escalate an incident.
+  - id: ADRB-RES-002
+    level: 2
+    title: Failure containment and stop conditions are documented
+    outcome: Agent guidance defines mutation limits, budgets, stop triggers, escalation, and recovery ownership.
+    risk: A looping or confused agent continues spending or mutating beyond the intended scope.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            SECURITY.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/agentic/**,
+            docs/recovery/**,
+            runbooks/**,
+            templates/**,
+          ]
+        terms:
+          [
+            stop condition,
+            rollback,
+            isolation,
+            budget,
+            kill switch,
+            escalation,
+            recovery owner,
+            retry limit,
+            max retries,
+          ]
+        min_terms: 3
+        required_any_terms: [stop condition, kill switch, recovery owner, retry limit, max retries]
+        max_span_lines: 120
+        max_files_per_pattern: 50
+    remediation: Add bounded scope, budget, retry, stop, escalation, and recovery requirements to task preflight.
+  - id: ADRB-RES-003
+    level: 3
+    title: Containment and recovery controls are exercised
+    outcome: Cancellation, credential revocation, rollback, timeout, and partial-failure recovery are tested.
+    risk: Recovery mechanisms exist on paper but fail when the harness behaves unexpectedly.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: organization
+        prompt: Show recent automated tests or exercises for stop, timeout, revocation, rollback, and partial failure.
+    remediation: Add failure-injection tests and periodic exercises for containment and reversible recovery.
+  - id: ADRB-RES-004
+    level: 4
+    title: Recovery outcomes drive improvement
+    outcome: Time-to-detect, time-to-stop, rollback success, impact, and recurrence trends improve containment.
+    risk: The same failure patterns repeat because recovery performance and residual impact are unknown.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide recovery outcome trends and a recent containment or rollback improvement driven by them.
+    remediation: Trend containment and recovery outcomes and feed them into autonomy and tool design.

@@ -1,0 +1,18 @@
+id: known-python-tooling
+benchmark_version: 0.4.0
+extensions:
+  - control_id: ADRB-ENV-001
+    evidence_index: 0
+    files: [pyproject.toml]
+  - control_id: ADRB-ENV-001
+    evidence_index: 0
+    terms: [requires-python, uv sync, python]
+  - control_id: ADRB-TST-002
+    evidence_index: 0
+    files: [run_quality_checks.sh, scripts/**/quality*.sh, tox.ini, noxfile.py]
+  - control_id: ADRB-TST-002
+    evidence_index: 0
+    terms: [pytest, mypy, flake8, ruff, pyright, tox, nox]
+  - control_id: ADRB-TST-003
+    evidence_index: 0
+    terms: [pytest, mypy, flake8, ruff, pyright, tox, nox, pytest-cov]

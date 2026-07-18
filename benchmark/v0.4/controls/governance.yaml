@@ -1,0 +1,97 @@
+dimension: governance
+controls:
+  - id: ADRB-GOV-001
+    level: 1
+    title: Contribution and review expectations are documented
+    outcome: Contributors can find non-empty guidance describing how changes are proposed and reviewed.
+    risk: Agents submit changes without a shared review or accountability process.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            CONTRIBUTING.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .github/pull_request_template.md,
+            .github/PULL_REQUEST_TEMPLATE/**,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/contributing/**,
+            docs/agentic/**,
+          ]
+        terms: [pull request, review, approval, testing, contribution, before merge]
+        min_terms: 2
+        required_any_terms: [pull request, review, approval, before merge]
+        max_span_lines: 100
+        max_files_per_pattern: 50
+    remediation: Publish contribution guidance covering change proposals, verification, reviewers, and approvals.
+  - id: ADRB-GOV-002
+    level: 2
+    title: Ownership and merge authority are declared
+    outcome: The tracked repository assigns review ownership and states who may approve or merge changes.
+    risk: Sensitive or cross-cutting changes reach reviewers without accountable ownership.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns: [.github/CODEOWNERS, CODEOWNERS]
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            CONTRIBUTING.md,
+            GOVERNANCE.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .github/pull_request_template.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/governance/**,
+            docs/agentic/**,
+          ]
+        terms: [owner, reviewer, approval, merge authority, required review, merge]
+        min_terms: 2
+        required_any_terms: [owner, reviewer, approval, merge authority, required review]
+        max_span_lines: 100
+        max_files_per_pattern: 50
+    remediation: Commit ownership rules and document reviewer, approval, merge, and exception authority.
+  - id: ADRB-GOV-003
+    level: 3
+    title: Protected merge governance is enforced
+    outcome: Platform rules enforce reviews, required checks, protected branches, and controlled exceptions.
+    risk: Repository-side declarations can be bypassed because platform enforcement is absent or too broad.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show protected branch or ruleset coverage, required reviews and checks, merge authority, bypass actors, and exception records.
+    remediation: Enforce branch or merge rules for relevant branches and restrict, record, and review bypasses.
+  - id: ADRB-GOV-004
+    level: 4
+    title: Governance outcomes drive improvement
+    outcome: Review escapes, bypasses, rollback causes, and approval latency are trended and improve governance.
+    risk: Governance becomes ceremony without evidence that it catches risk efficiently.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide governance outcome trends and a recent review or merge-policy improvement driven by them.
+    remediation: Trend governance outcomes by risk class and tune ownership, review depth, and exceptions.

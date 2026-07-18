@@ -1,0 +1,129 @@
+dimension: security
+controls:
+  - id: ADRB-SEC-001
+    level: 1
+    title: Agent secret and sensitive-data boundaries are documented
+    outcome: Contributors can find agent-specific rules for credentials, secrets, and sensitive data.
+    risk: Agents expose credentials or sensitive data while planning, changing, or reporting work.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            SECURITY.md,
+            .github/SECURITY.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/security/**,
+            docs/agentic/**,
+          ]
+        terms: [secret, secrets, credential, credentials, sensitive data, personal data, PII]
+        min_terms: 2
+        max_span_lines: 80
+        max_files_per_pattern: 50
+    remediation: Document agent-specific rules for secrets, credentials, sensitive data, logs, prompts, and generated artifacts.
+  - id: ADRB-SEC-002
+    level: 2
+    title: Agent data and autonomy boundaries are explicit
+    outcome: Agent preflight guidance binds permitted data, tools, mutations, approvals, and stop conditions.
+    risk: Operators grant more data or authority than the task requires.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            SECURITY.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/security/**,
+            docs/agentic/**,
+            templates/**,
+          ]
+        terms:
+          [
+            data classification,
+            allowed tools,
+            mutation,
+            budget,
+            human approval,
+            autonomy,
+            stop condition,
+          ]
+        min_terms: 3
+        max_span_lines: 120
+        max_files_per_pattern: 50
+    remediation: Add a task preflight that binds data, tools, write scope, budget, approvals, and stop conditions.
+  - id: ADRB-SEC-006
+    level: 2
+    title: Security reporting and response are documented
+    outcome: Contributors can find a vulnerability-reporting or security-escalation path.
+    risk: Security concerns discovered during agent work lack an accountable response path.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [SECURITY.md, .github/SECURITY.md, docs/security/**, docs/contributing/**]
+        terms: [report, vulnerability, security contact, escalation, incident]
+        min_terms: 2
+        max_span_lines: 80
+    remediation: Publish a vulnerability-reporting and security-escalation path with response ownership.
+  - id: ADRB-SEC-003
+    level: 3
+    title: Automated agent security safeguards are configured
+    outcome: Repository automation checks secrets and defines handling for untrusted agent input.
+    risk: Credential exposure or prompt-borne instructions can pass through an otherwise healthy pipeline.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files: [.github/workflows/**, .gitlab-ci.yml, scripts/**, SECURITY.md, docs/security/**]
+        terms: [secret scan, prompt injection, untrusted content, sandbox]
+        min_terms: 2
+        max_span_lines: 120
+    remediation: Configure secret scanning and explicit untrusted-content or prompt-injection safeguards with tests.
+  - id: ADRB-SEC-005
+    level: 3
+    title: High-impact agent actions are technically gated
+    outcome: External authority controls prevent unapproved high-impact actions and record controlled exceptions.
+    risk: Repository instructions alone cannot prevent credential misuse or irreversible external actions.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show authorization gates, scoped credentials, approval enforcement, audit records, and controlled bypasses for high-impact agent actions.
+    remediation: Enforce least-privileged credentials, approval gates, auditability, and restricted exception handling.
+  - id: ADRB-SEC-004
+    level: 4
+    title: Agent security outcomes drive improvement
+    outcome: Denials, near misses, incidents, exceptions, and adversarial exercises are trended and improve controls.
+    risk: Controls appear complete while effectiveness against real failure modes remains unknown.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide agent-security outcome trends or exercise results and a recent control change driven by them.
+    remediation: Run adversarial exercises, trend security outcomes, and update boundaries from the results.
