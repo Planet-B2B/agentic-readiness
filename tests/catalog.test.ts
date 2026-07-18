@@ -206,6 +206,51 @@ describe('benchmark catalog', () => {
     }
   });
 
+  it('keeps the published repository-reference grammar aligned with runtime validation', async () => {
+    const schema = JSON.parse(
+      await readFile(resolve(benchmarkFixture('v0.3'), 'agent-evidence-schema.json'), 'utf8'),
+    ) as {
+      properties?: {
+        claims?: {
+          additionalProperties?: {
+            allOf?: Array<{
+              then?: {
+                properties?: {
+                  references?: { items?: { pattern?: string } };
+                };
+              };
+            }>;
+          };
+        };
+      };
+    };
+    const pattern =
+      schema.properties?.claims?.additionalProperties?.allOf?.[0]?.then?.properties?.references
+        ?.items?.pattern;
+    expect(pattern).toBeDefined();
+    const reference = new RegExp(pattern ?? '');
+
+    for (const valid of [
+      'repo:README.md',
+      'repo:docs/security/policy.md#L1',
+      'repo:docs/security/policy.md#L1-L2',
+    ]) {
+      expect(reference.test(valid), valid).toBe(true);
+    }
+    for (const invalid of [
+      'repo:/README.md',
+      'repo:../README.md',
+      'repo:./README.md',
+      'repo:docs/../README.md',
+      'repo:docs/./README.md',
+      'repo:docs\\security.md',
+      'repo:README.md#fragment',
+      'repo:README.md#L0',
+    ]) {
+      expect(reference.test(invalid), invalid).toBe(false);
+    }
+  });
+
   it('uses an unmistakable unbound commit placeholder in the static evidence template', async () => {
     const template = await readFile(
       resolve(import.meta.dirname, '..', 'templates', 'agent-evidence.yaml'),

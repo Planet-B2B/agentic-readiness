@@ -18,6 +18,7 @@
   agent-collected or human-attested evidence.
 - Recognize conventional `docs/spec*.md` work artifacts and Python/uv verification vocabulary
   through portable paths and a language-tooling detector adapter.
+- Align the published repository-reference grammar with runtime path and line-anchor validation.
 
 ## 0.2.0 - 2026-07-17
 

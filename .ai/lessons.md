@@ -3,6 +3,14 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Keep published evidence schemas aligned with runtime validation
+
+**Context.** PR review found that the published repository-reference regex accepted backslashes and
+`.` path segments that the runtime validator correctly rejected.
+
+**Rule.** Treat published schemas and programmatic validators as one trust boundary; test the same
+valid and invalid input classes against both whenever either side changes.
+
 ## 2026-07-18 — Bound subprocess tests for cold-run overhead
 
 **Context.** A CLI regression test passed on warm runs but could exceed Vitest's five-second default
