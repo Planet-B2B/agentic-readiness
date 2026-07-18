@@ -107,6 +107,10 @@ export function toMarkdown(report: AssessmentReport): string {
     ({ agent_evidence: agentEvidence, attestation }) =>
       agentEvidence !== null || attestation !== null,
   );
+  const resolvedEvidence =
+    report.evidence_summary.resolved !== undefined && report.evidence_summary.total !== undefined
+      ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved`
+      : '';
 
   const lines = [
     '# Agentic Development Readiness Assessment',
@@ -130,7 +134,7 @@ export function toMarkdown(report: AssessmentReport): string {
     `- Normative readiness score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
     `- Highest readiness profile: **${report.readiness.highest_profile ?? 'none'}**`,
     `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? `PASS${targetProvenance}` : 'FAIL'}**`,
-    `- Established evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested; ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== undefined && report.evidence_summary.total !== undefined ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ''}`,
+    `- Established evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested; ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${resolvedEvidence}`,
     ...(report.warnings && report.warnings.length > 0
       ? [`- Warnings: **${report.warnings.length} — review before using this assessment**`]
       : []),

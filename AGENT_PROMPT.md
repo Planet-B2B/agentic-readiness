@@ -14,22 +14,29 @@ Perform the complete ADRB v0.3 assessment of this repository for AI-agent pull-r
 Do not change product source, tests, configuration, policies, Git history, or the user's current
 checkout. First inspect the repository's commit, tracked-file status, upstream tracking branch, and
 ahead/behind state. If read-only network access is already authorized, fetch the upstream before
-comparing it. Assess a clean target whose tracked files match HEAD. If the current checkout is dirty
-or behind, leave it untouched and use an isolated temporary worktree at the current upstream commit,
-unless I explicitly asked you to assess a different commit. State the exact commit you selected and
-why.
+comparing it. Select the commit before creating an assessment worktree. Default to the current HEAD;
+a dirty checkout does not change that selection, so assess HEAD from an isolated clean worktree. Use
+the fetched upstream commit only when I asked for the latest/current upstream state and the branch is
+behind. If the checkout is both dirty and behind, state both facts and preserve HEAD by default unless
+I explicitly asked for upstream or another commit. State the exact commit you selected and why.
+
+Before running the scorecard, choose and state an absolute durable artifact directory outside any
+temporary worktree. Do not delete that directory during worktree cleanup. In the commands below,
+replace `<artifact-dir>` with that path. The npm package version is 0.3.1, while report filenames use
+the immutable ADRB benchmark version 0.3.0.
 
 From that clean target, run the repository-only baseline:
-npx --yes agentic-scorecard@0.3.1 assess . --profile pr-creation --scope tracked --format markdown --output .agentic/reports/agentic-readiness-v0.3.0-baseline.md
+npx --yes agentic-scorecard@0.3.1 assess . --profile pr-creation --scope tracked --format markdown --output <artifact-dir>/agentic-readiness-v0.3.0-baseline.md
 
 Then prepare unresolved evidence:
-npx --yes agentic-scorecard@0.3.1 init-evidence .
+npx --yes agentic-scorecard@0.3.1 init-evidence . --output <artifact-dir>/agent-evidence.yaml --request-output <artifact-dir>/evidence-request.md
 
-Read the baseline, `.agentic/evidence-request.md`, and the empty target-bound
-`.agentic/agent-evidence.yaml`. Investigate nuanced repository-scoped requests only from tracked
-files at the selected commit. Before accessing Git hosting settings, CI, dashboards, logs, ticketing,
-or any other connected system, tell me exactly which least-privileged read-only tools, accounts,
-repositories, branches, dashboards, and time ranges you need, and why. Wait for my authorization.
+Read the baseline, `<artifact-dir>/evidence-request.md`, and the empty target-bound
+`<artifact-dir>/agent-evidence.yaml`. Investigate nuanced repository-scoped requests only from
+tracked files at the selected commit. Before accessing Git hosting settings, CI, dashboards, logs,
+ticketing, or any other connected system, tell me exactly which least-privileged read-only tools,
+accounts, repositories, branches, dashboards, and time ranges you need, and why. Wait for my
+authorization.
 
 After authorization, attempt only eligible requests. For every attempted claim, record its status,
 scope, concise derivation, collection time, 30-day-or-shorter expiry, and durable privacy-safe
@@ -41,14 +48,16 @@ Do not place credentials, prompts, source excerpts, raw logs, personal data, cus
 URLs that reveal secrets, or sensitive dashboard contents in generated files.
 
 When authorized evidence collection is complete, run:
-npx --yes agentic-scorecard@0.3.1 assess . --profile pr-creation --scope tracked --agent-evidence .agentic/agent-evidence.yaml --format markdown --output .agentic/reports/agentic-readiness-v0.3.0-assisted.md
+npx --yes agentic-scorecard@0.3.1 assess . --profile pr-creation --scope tracked --agent-evidence <artifact-dir>/agent-evidence.yaml --format markdown --output <artifact-dir>/agentic-readiness-v0.3.0-assisted.md
 
 Tell me the repository-detected progress and normative score, the highest passed profile, whether
 pr-creation passes, every target blocker, and the five highest-value improvements. Compare baseline
 and assisted reports control by control. Keep repository-detected, agent-collected, and
 human-attested evidence separate; treat UNKNOWN as unresolved, not failed; and flag likely false
 positives or negatives. If I decline external access, stop after the baseline and label it clearly as
-a repository-only baseline. Leave generated artifacts uncommitted unless I explicitly ask otherwise.
+a repository-only baseline. Before removing a temporary worktree, verify that every report, evidence
+request, and evidence bundle you cite exists in the durable artifact directory, then tell me that
+directory's absolute path. Leave generated artifacts uncommitted unless I explicitly ask otherwise.
 Do not describe any result as certified, compliant, safe, secure, or independently verified.
 ```
 

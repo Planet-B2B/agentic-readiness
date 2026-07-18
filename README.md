@@ -26,11 +26,13 @@ You do not need to install or learn the CLI yourself. Paste this instruction int
 GitHub Copilot, Cursor, or another coding agent that has terminal access to your repository:
 
 > Perform the complete ADRB v0.3 assessment of this repository for AI-agent pull-request work using
-> `agentic-scorecard@0.3.1`. First select and state a clean, current commit without modifying my
-> checkout. Run the tracked repository baseline, then run `init-evidence`, read its evidence request,
-> and tell me which least-privileged read-only connected systems you need. Wait for my authorization
-> before accessing them. After authorized collection, rerun the assessment and compare the baseline
-> and assisted reports control by control. Keep repository-detected, agent-collected, and
+> `agentic-scorecard@0.3.1`. First select and state the commit without modifying my checkout; preserve
+> HEAD when the checkout is dirty, and use upstream only if I requested the latest upstream state.
+> Assess it from a clean worktree and keep all generated artifacts in a durable directory outside any
+> temporary worktree. Run the tracked repository baseline, then run `init-evidence`, read its evidence
+> request, and tell me which least-privileged read-only connected systems you need. Wait for my
+> authorization before accessing them. After authorized collection, rerun the assessment and compare
+> the baseline and assisted reports control by control. Keep repository-detected, agent-collected, and
 > human-attested evidence separate; never invent evidence; treat UNKNOWN as unresolved; and leave
 > generated artifacts uncommitted.
 
@@ -38,6 +40,9 @@ The complete copy-and-paste prompt, including privacy limits and exact commands,
 [AGENT_PROMPT.md](AGENT_PROMPT.md). It makes the evidence-assisted workflow the recommendation. A
 fast filesystem scan remains available, but it is explicitly a **repository-only baseline** and
 cannot establish platform, organization, or outcome controls by itself.
+
+The reference CLI/package is version 0.3.1. Generated report names use benchmark version 0.3.0
+because the patch release changed workflow guidance, not the immutable scoring benchmark.
 
 ## Feedback and community
 
