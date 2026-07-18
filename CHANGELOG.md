@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.3.0 - Unreleased
+## 0.3.1 - Unreleased
+
+- Make the complete agent-assisted workflow the recommended copy-and-paste path while retaining a
+  clearly labelled fast repository-only baseline.
+- Warn when a tracked assessment includes uncommitted tracked-file contents or establishes no
+  agent-collected or human-attested evidence.
+- Lead Markdown reports with assessment mode and repository-detected progress before the normative
+  readiness score, without changing controls, scoring, or readiness floors.
+- Require coding-agent prompts to confirm a clean, current target before collecting commit-bound
+  evidence or comparing results.
+
+## 0.3.0 - 2026-07-18
 
 - Recognize portable generic `.ai` harnesses, common agent-guidance case variants, and Cursor-native
   rules, skills, agents, and plans where control-specific.

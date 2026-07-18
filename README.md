@@ -22,20 +22,22 @@ historical reproduction; scores from different benchmark versions are not direct
 
 ## Ask your coding agent
 
-You do not need to install or learn the CLI yourself. Paste this prompt into Codex, Claude Code,
+You do not need to install or learn the CLI yourself. Paste this instruction into Codex, Claude Code,
 GitHub Copilot, Cursor, or another coding agent that has terminal access to your repository:
 
-> Assess this repository's readiness for AI-agent pull-request work. From the repository root, run
-> `npx --yes agentic-scorecard@0.3.0 assess . --profile pr-creation --scope tracked --format markdown --output .agentic/reports/agentic-readiness-v0.3.0.md`.
-> Do not change product source code or invent attestations. Read the resulting report and summarize
-> the score, highest passed profile, whether `pr-creation` passes, target-profile blockers, and the
-> five highest-value improvements. Separate repository gaps from external and outcome evidence, and
-> keep repository-detected, agent-collected, and human-attested evidence distinct. Flag likely false
-> positives or negatives. Leave generated artifacts uncommitted unless I ask you to commit them.
+> Perform the complete ADRB v0.3 assessment of this repository for AI-agent pull-request work using
+> `agentic-scorecard@0.3.1`. First select and state a clean, current commit without modifying my
+> checkout. Run the tracked repository baseline, then run `init-evidence`, read its evidence request,
+> and tell me which least-privileged read-only connected systems you need. Wait for my authorization
+> before accessing them. After authorized collection, rerun the assessment and compare the baseline
+> and assisted reports control by control. Keep repository-detected, agent-collected, and
+> human-attested evidence separate; never invent evidence; treat UNKNOWN as unresolved; and leave
+> generated artifacts uncommitted.
 
-That is the recommended first assessment. The agent downloads the pinned benchmark package, runs the
-read-only local collector, and explains the results. For alternate authority levels or a guided
-remediation session, use the prompts in [AGENT_PROMPT.md](AGENT_PROMPT.md).
+The complete copy-and-paste prompt, including privacy limits and exact commands, is in
+[AGENT_PROMPT.md](AGENT_PROMPT.md). It makes the evidence-assisted workflow the recommendation. A
+fast filesystem scan remains available, but it is explicitly a **repository-only baseline** and
+cannot establish platform, organization, or outcome controls by itself.
 
 ## Feedback and community
 
@@ -70,7 +72,7 @@ A supported Node.js LTS release (20.19+, 22.13+, or 24+) is required. Assessment
 read-only, and offline by default.
 
 ```bash
-npx agentic-scorecard@0.3.0 assess /path/to/repository \
+npx agentic-scorecard@0.3.1 assess /path/to/repository \
   --profile pr-creation \
   --scope tracked \
   --format markdown \
@@ -80,7 +82,7 @@ npx agentic-scorecard@0.3.0 assess /path/to/repository \
 To record controls that repository inspection cannot prove:
 
 ```bash
-npx agentic-scorecard@0.3.0 init /path/to/repository
+npx agentic-scorecard@0.3.1 init /path/to/repository
 ```
 
 Complete `.agentic/attestations.yaml` with owners and durable evidence links, then assess again.
@@ -91,7 +93,7 @@ external systems, first generate a target-bound template. The repository must be
 with at least one commit so the bundle can bind to the exact assessed state:
 
 ```bash
-npx agentic-scorecard@0.3.0 init-evidence /path/to/repository
+npx agentic-scorecard@0.3.1 init-evidence /path/to/repository
 ```
 
 Ask the agent to review `.agentic/evidence-request.md`, obtain approval before using

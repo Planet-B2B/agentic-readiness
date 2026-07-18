@@ -537,6 +537,9 @@ function toMarkdown(report) {
     (control) => ["platform", "organization"].includes(controlScope(control))
   );
   const outcomeControls = unresolved.filter((control) => controlScope(control) === "outcome");
+  const repositoryOnlyBaseline = !report.controls.some(
+    ({ agent_evidence: agentEvidence, attestation }) => agentEvidence !== null || attestation !== null
+  );
   const lines = [
     "# Agentic Development Readiness Assessment",
     "",
@@ -546,13 +549,16 @@ function toMarkdown(report) {
     `- Git commit: ${report.target.git_head ? `\`${report.target.git_head}\`` : "unavailable"}`,
     `- Working tree dirty: ${report.target.working_tree_dirty === null ? "unknown" : String(report.target.working_tree_dirty)}`,
     `- Assessed: ${report.assessed_at}`,
-    `- Score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
+    ...repositoryOnlyBaseline ? [
+      "- Assessment mode: **repository-only baseline** \u2014 platform, organization, and outcome evidence has not been established"
+    ] : ["- Assessment mode: **evidence-assisted assessment**"],
     ...report.score.repository ? [
       `- Repository-detected progress: **${report.score.repository.achieved}/${report.score.repository.ceiling} (${report.score.repository.percentage}%)** of the maturity levels the offline repository collector can establish`
     ] : [],
+    `- Normative readiness score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
     `- Highest readiness profile: **${report.readiness.highest_profile ?? "none"}**`,
     `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? `PASS${targetProvenance}` : "FAIL"}**`,
-    `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== void 0 && report.evidence_summary.total !== void 0 ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ""}`,
+    `- Established evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested; ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== void 0 && report.evidence_summary.total !== void 0 ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ""}`,
     ...report.warnings && report.warnings.length > 0 ? [`- Warnings: **${report.warnings.length} \u2014 review before using this assessment**`] : [],
     "",
     ...report.warnings && report.warnings.length > 0 ? [
@@ -1130,6 +1136,27 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       )
     )
   );
+  const warnings = [...options.warnings ?? []];
+  if (benchmark.version === "0.3.0") {
+    if (scope === "tracked" && context.metadata.tracked_tree_dirty) {
+      warnings.push(
+        "Tracked assessment includes uncommitted tracked-file contents, so the result is not reproducible from git_head alone. Use a clean worktree before comparing scores or collecting agent evidence."
+      );
+    }
+    const hasActiveSupplementalEvidence = controls.some(
+      ({ agent_evidence: agentEvidence, attestation }) => agentEvidence !== null || attestation !== null
+    );
+    const unresolvedExternalOrOutcome = controls.some(
+      ({ evidence, status }) => (status === "unknown" || status === "not_met") && evidence.some(
+        ({ scope: evidenceScope }) => ["platform", "organization", "outcome"].includes(evidenceScope)
+      )
+    );
+    if (!hasActiveSupplementalEvidence && unresolvedExternalOrOutcome) {
+      warnings.push(
+        "Repository-only baseline: no active agent-collected or human-attested evidence was supplied. Platform, organization, and outcome evidence remains unresolved until authorized evidence is collected with init-evidence or supplied by accountable owners."
+      );
+    }
+  }
   const dimensions = benchmark.dimensions.map(({ id, title }) => {
     const dimensionControls = controls.filter((control) => control.dimension === id);
     return {
@@ -1157,7 +1184,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       working_tree_dirty: context.metadata.working_tree_dirty
     },
     assessed_at: now.toISOString(),
-    ...benchmark.version === "0.3.0" ? { warnings: options.warnings ?? [] } : {},
+    ...benchmark.version === "0.3.0" ? { warnings } : {},
     score: {
       total,
       maximum: 40,
@@ -1295,7 +1322,7 @@ function countLines(contents) {
 
 // src/cli.ts
 var program = new Command();
-program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.3.0");
+program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.3.1");
 program.command("validate").description("Validate the bundled benchmark catalog").action(async () => {
   const { benchmark, controls } = await loadBenchmark();
   process.stdout.write(

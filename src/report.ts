@@ -103,6 +103,10 @@ export function toMarkdown(report: AssessmentReport): string {
     ['platform', 'organization'].includes(controlScope(control)),
   );
   const outcomeControls = unresolved.filter((control) => controlScope(control) === 'outcome');
+  const repositoryOnlyBaseline = !report.controls.some(
+    ({ agent_evidence: agentEvidence, attestation }) =>
+      agentEvidence !== null || attestation !== null,
+  );
 
   const lines = [
     '# Agentic Development Readiness Assessment',
@@ -113,15 +117,20 @@ export function toMarkdown(report: AssessmentReport): string {
     `- Git commit: ${report.target.git_head ? `\`${report.target.git_head}\`` : 'unavailable'}`,
     `- Working tree dirty: ${report.target.working_tree_dirty === null ? 'unknown' : String(report.target.working_tree_dirty)}`,
     `- Assessed: ${report.assessed_at}`,
-    `- Score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
+    ...(repositoryOnlyBaseline
+      ? [
+          '- Assessment mode: **repository-only baseline** — platform, organization, and outcome evidence has not been established',
+        ]
+      : ['- Assessment mode: **evidence-assisted assessment**']),
     ...(report.score.repository
       ? [
           `- Repository-detected progress: **${report.score.repository.achieved}/${report.score.repository.ceiling} (${report.score.repository.percentage}%)** of the maturity levels the offline repository collector can establish`,
         ]
       : []),
+    `- Normative readiness score: **${report.score.total}/${report.score.maximum} (${report.score.percentage}%)**`,
     `- Highest readiness profile: **${report.readiness.highest_profile ?? 'none'}**`,
     `- Target \`${report.target.profile}\`: **${report.readiness.target_passed ? `PASS${targetProvenance}` : 'FAIL'}**`,
-    `- Evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested, ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== undefined && report.evidence_summary.total !== undefined ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ''}`,
+    `- Established evidence: ${report.evidence_summary.repository_detected} repository-detected, ${report.evidence_summary.agent_collected} agent-collected, ${report.evidence_summary.attested} human-attested; ${report.evidence_summary.unmet} unmet, ${report.evidence_summary.unknown} unknown${report.evidence_summary.resolved !== undefined && report.evidence_summary.total !== undefined ? `; ${report.evidence_summary.resolved}/${report.evidence_summary.total} controls resolved` : ''}`,
     ...(report.warnings && report.warnings.length > 0
       ? [`- Warnings: **${report.warnings.length} — review before using this assessment**`]
       : []),

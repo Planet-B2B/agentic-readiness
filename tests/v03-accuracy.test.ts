@@ -72,36 +72,98 @@ describe('v0.3 accuracy regressions', () => {
     expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
     const targetProfile = report.profiles.find(({ id }) => id === 'limited-autonomous-maintenance');
     expect(targetProfile?.evidence_dependencies?.attested).toBeGreaterThan(0);
-    expect(toMarkdown(report)).toContain('PASS (depends on');
+    const markdown = toMarkdown(report);
+    expect(markdown).toContain('PASS (depends on');
+    expect(markdown).toContain('Assessment mode: **evidence-assisted assessment**');
   });
 
   it(
     'continues a default assessment with a prominent warning for v0.2 artifacts',
     { timeout: 30_000 },
-    () => {
-      const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
-      const cli = resolve(import.meta.dirname, '..', 'src', 'cli.ts');
-      const output = execFileSync(
-        process.execPath,
-        [
-          '--import',
-          'tsx',
-          cli,
-          'assess',
-          repository,
-          '--profile',
-          'pr-creation',
-          '--format',
-          'json',
-        ],
-        { encoding: 'utf8', timeout: 25_000 },
+    async () => {
+      const repository = await gitDirectoryFixture(
+        resolve(import.meta.dirname, 'fixtures', 'mature'),
       );
-      const report = JSON.parse(output) as { warnings?: string[] };
-      expect(report.warnings).toHaveLength(1);
-      expect(report.warnings?.[0]).toContain('Ignored auto-loaded attestation file');
-      expect(report.warnings?.[0]).toContain('agentic-scorecard init --force');
+      const cli = resolve(import.meta.dirname, '..', 'src', 'cli.ts');
+      try {
+        const output = execFileSync(
+          process.execPath,
+          [
+            '--import',
+            'tsx',
+            cli,
+            'assess',
+            repository,
+            '--profile',
+            'pr-creation',
+            '--format',
+            'json',
+          ],
+          { encoding: 'utf8', timeout: 25_000 },
+        );
+        const report = JSON.parse(output) as { warnings?: string[] };
+        expect(report.warnings).toHaveLength(2);
+        expect(report.warnings?.[0]).toContain('Ignored auto-loaded attestation file');
+        expect(report.warnings?.[0]).toContain('agentic-scorecard init --force');
+        expect(report.warnings?.[1]).toContain('Repository-only baseline');
+      } finally {
+        await rm(repository, { recursive: true, force: true });
+      }
     },
   );
+
+  it('labels a zero-supplemental-evidence result as a repository-only baseline', async () => {
+    const repository = await gitFixture({ 'README.md': '# Minimal repository' });
+    try {
+      const { benchmark, controls } = await loadBenchmark();
+      const report = await assess(repository, benchmark, controls, 'planning');
+      const markdown = toMarkdown(report);
+
+      expect(report.warnings).toHaveLength(1);
+      expect(report.warnings?.[0]).toContain('Repository-only baseline');
+      expect(markdown).toContain('Assessment mode: **repository-only baseline**');
+      expect(markdown.indexOf('Repository-detected progress')).toBeLessThan(
+        markdown.indexOf('Normative readiness score'),
+      );
+
+      const evidenceAssisted = await assess(repository, benchmark, controls, 'planning', {
+        attestations: {
+          benchmark_version: '0.3.0',
+          attestations: {
+            'ADRB-GOV-003': {
+              status: 'not_met',
+              evidence: 'https://example.invalid/settings/rules',
+              owner: 'Fixture owner',
+              reviewed_at: '2026-07-18',
+              expires_at: '2026-08-18',
+            },
+          },
+        },
+        now: new Date('2026-07-18T12:00:00.000Z'),
+      });
+      expect(evidenceAssisted.warnings).toHaveLength(0);
+      expect(toMarkdown(evidenceAssisted)).toContain(
+        'Assessment mode: **evidence-assisted assessment**',
+      );
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('warns when tracked results include uncommitted tracked-file contents', async () => {
+    const repository = await gitFixture({ 'README.md': '# Minimal repository' });
+    try {
+      await writeFile(join(repository, 'README.md'), '# Changed after commit', 'utf8');
+      const { benchmark, controls } = await loadBenchmark();
+      const report = await assess(repository, benchmark, controls, 'planning');
+
+      expect(report.warnings).toHaveLength(2);
+      expect(report.warnings?.[0]).toContain('uncommitted tracked-file contents');
+      expect(report.warnings?.[1]).toContain('Repository-only baseline');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
 
   it('recognizes a Dialer-style Cursor harness and capitalized Agents.md', async () => {
     const repository = await gitFixture({

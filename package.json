@@ -1,6 +1,6 @@
 {
   "name": "agentic-scorecard",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Vendor-neutral, evidence-backed readiness benchmark for agentic software development harnesses.",
   "author": "Planet B2B Inc. <benchmark@planetb2b.com>",
   "homepage": "https://github.com/Planet-B2B/agentic-readiness#readme",
