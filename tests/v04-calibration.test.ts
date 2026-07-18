@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { loadBenchmark } from '../src/load.js';
+import { toMarkdown } from '../src/report.js';
 import { assess } from '../src/score.js';
 
 const v04Root = resolve(import.meta.dirname, '..', 'benchmark', 'v0.4');
@@ -89,6 +90,32 @@ describe('v0.4 evidence calibration', () => {
       expect(resilience?.status).toBe('met');
       expect(resilience?.confidence).toBe('repository-detected');
       expect(resilience?.evidence[0]?.summary).toContain('semantic coverage 5/5');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('distinguishes partial evidence checks from control confidence', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': [
+        '# Review governance',
+        'The repository owner assigns a reviewer. Human approval is required.',
+        'Only a maintainer has merge authority after the required review.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+      const markdown = toMarkdown(report);
+
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.confidence).toBe('none');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['not_met', 'met']);
+      expect(markdown).toContain('Required evidence checks established: 1/2.');
+      expect(markdown).toContain('Blocking checks: `repository/path_any`.');
+      expect(markdown).toContain('Control confidence: none.');
+      expect(markdown).not.toContain('Evidence confidence: none.');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

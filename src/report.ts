@@ -54,13 +54,23 @@ function evidenceLines(control: ControlResult): string[] {
   return lines;
 }
 
-function appendControlDetails(lines: string[], heading: string, controls: ControlResult[]): void {
+function appendControlDetails(
+  lines: string[],
+  heading: string,
+  controls: ControlResult[],
+  showCheckSummary: boolean,
+): void {
   lines.push('', `## ${heading}`, '');
   if (controls.length === 0) {
     lines.push('None.');
     return;
   }
   for (const control of controls) {
+    const establishedChecks = control.evidence.filter(({ status }) => status === 'met').length;
+    const blockingChecks = control.evidence
+      .filter(({ status }) => status !== 'met')
+      .map(({ scope, type }) => `${scope}/${type}`);
+    const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(', ');
     lines.push(
       `### ${statusIcon[control.status]} ${control.id} — ${control.title}`,
       '',
@@ -68,7 +78,13 @@ function appendControlDetails(lines: string[], heading: string, controls: Contro
       '',
       `**Improve:** ${control.remediation}`,
       '',
-      `Evidence confidence: ${control.confidence}.`,
+      ...(showCheckSummary
+        ? [
+            `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`,
+            ...(blockingChecks.length > 0 ? [`Blocking checks: ${blockingSummary}.`] : []),
+            `Control confidence: ${control.confidence}.`,
+          ]
+        : [`Evidence confidence: ${control.confidence}.`]),
       '',
       ...evidenceLines(control),
       '',
@@ -77,6 +93,7 @@ function appendControlDetails(lines: string[], heading: string, controls: Contro
 }
 
 export function toMarkdown(report: AssessmentReport): string {
+  const showCheckSummary = report.benchmark.version === '0.4.0';
   const target = report.profiles.find(({ id }) => id === report.target.profile);
   const targetDependencies = target?.evidence_dependencies;
   const dependencyCount =
@@ -180,9 +197,19 @@ export function toMarkdown(report: AssessmentReport): string {
     }
   }
 
-  appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps);
-  appendControlDetails(lines, 'External controls not established', externalControls);
-  appendControlDetails(lines, 'Outcome evidence not established', outcomeControls);
+  appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps, showCheckSummary);
+  appendControlDetails(
+    lines,
+    'External controls not established',
+    externalControls,
+    showCheckSummary,
+  );
+  appendControlDetails(
+    lines,
+    'Outcome evidence not established',
+    outcomeControls,
+    showCheckSummary,
+  );
 
   lines.push(
     '',
