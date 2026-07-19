@@ -39,7 +39,7 @@
   the selected reference.
 - Keep repository reads canonical, bounded, generated-output-safe, and linear for long source lines;
   constrain agent-document links to the checkout and align the published evidence schemas with
-  runtime validation.
+  runtime validation without echoing untrusted target values in diagnostics.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB
   v0.4.0 with independently runnable historical and mature conformance fixtures.
 

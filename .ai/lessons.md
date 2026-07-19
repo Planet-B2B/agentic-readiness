@@ -3,6 +3,14 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Validation errors do not echo untrusted evidence identifiers
+
+**Context.** Exact-head review found that a mismatched human-attestation target containing URL
+credentials would be interpolated into the CLI error and exposed in stderr or CI logs.
+
+**Rule.** Keep mismatch diagnostics actionable without repeating untrusted URLs, tokens, or other
+user-supplied evidence identifiers.
+
 ## 2026-07-19 — Evidence summaries cite only the artifacts they describe
 
 **Context.** Exact-head review found that tied partial semantic matches could cite several files

@@ -312,9 +312,7 @@ function validateAttestations(
     throw new Error('ADRB v0.4 attestations require a repository target');
   }
   if (normalizeRepositoryTarget(attestations.target.repository) !== expectedTarget) {
-    throw new Error(
-      `Attestation target ${attestations.target.repository} does not match ${expectedTarget}`,
-    );
+    throw new Error('Attestation target does not match the assessed repository');
   }
   const controlIds = new Set(catalog.map(({ id }) => id));
   for (const [controlId, attestation] of Object.entries(attestations.attestations)) {

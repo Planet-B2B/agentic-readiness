@@ -2987,14 +2987,17 @@ describe('v0.4 evidence calibration', () => {
           attestations: attestation('ADRB-SECURITY-003'),
         }),
       ).rejects.toThrow('malformed control ID ADRB-SECURITY-003');
-      await expect(
-        assess(repository, benchmark, controls, 'pr-creation', {
-          attestations: {
-            ...attestation('ADRB-SEC-003'),
-            target: { repository: 'https://example.invalid/other/repository.git' },
-          },
-        }),
-      ).rejects.toThrow('does not match https://example.invalid/acme/repository');
+      const mismatch = await assess(repository, benchmark, controls, 'pr-creation', {
+        attestations: {
+          ...attestation('ADRB-SEC-003'),
+          target: { repository: 'https://secret-token@example.invalid/other/repository.git' },
+        },
+      }).then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+      );
+      expect(mismatch?.message).toBe('Attestation target does not match the assessed repository');
+      expect(mismatch?.message).not.toContain('secret-token');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
