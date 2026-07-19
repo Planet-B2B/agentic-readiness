@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Provider setup and source reachability are enforcement inputs
+
+**Context.** Automated re-review found that inherited setup hooks or step working directories could
+redirect otherwise recognized CI commands, invalid mixed provider root forms could still contribute
+commands, and validation signatures inside a constant-false branch could imitate executable checks.
+
+**Rule.** Bind evidence to effective provider setup, repository-root execution, and a single valid
+execution hierarchy; fail closed on unresolved redirection and obviously unreachable validation
+branches.
+
 ## 2026-07-18 — Positive fixtures must execute the behavior they prove
 
 **Context.** Automated review found a positive conformance fixture with undeclared dependencies, an

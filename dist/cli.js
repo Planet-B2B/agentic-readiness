@@ -1563,6 +1563,7 @@ function invocationFromField(node, field, kind) {
 }
 function gitlabIntegrationInvocations(document) {
   if (document.include !== void 0) return [];
+  if (document.before_script !== void 0) return [];
   const workflow = asRecord(document.workflow);
   const hasWorkflowRules = asArray(workflow?.rules).length > 0;
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
@@ -1576,7 +1577,9 @@ function gitlabJobInvocations(name, value, workflowAllowsMergeRequests, globalVa
   if (name.startsWith(".") || gitlabReservedKeys.has(name)) return [];
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
-  if (job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0) return [];
+  if (job.before_script !== void 0 || job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0) {
+    return [];
+  }
   if (!isSupportedBlockingGitlabWhen(job.when)) return [];
   if (!gitlabRepositoryAvailable(globalVariables, job.variables)) return [];
   const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
@@ -1612,7 +1615,9 @@ function hasRiskyGitlabDefaults(value) {
   const defaults = asRecord(value);
   if (!defaults) return true;
   if (Object.hasOwn(defaults, "allow_failure") && defaults.allow_failure !== false) return true;
-  return ["except", "only", "rules", "script", "when"].some((key) => Object.hasOwn(defaults, key));
+  return ["before_script", "except", "only", "rules", "script", "when"].some(
+    (key) => Object.hasOwn(defaults, key)
+  );
 }
 function azureIntegrationInvocations(document) {
   if (!hasAzurePullRequestTrigger(document.pr)) return [];
@@ -1623,11 +1628,15 @@ function collectAzureInvocations(node, kind) {
   if (kind === "step") return azureStepInvocations(node);
   if (kind === "stage") return azureChildInvocations(node.jobs, "job");
   if (kind === "job") return azureStepsInvocations(node.steps);
-  return [
-    ...azureChildInvocations(node.stages, "stage"),
-    ...azureChildInvocations(node.jobs, "job"),
-    ...azureStepsInvocations(node.steps)
-  ];
+  const rootCollections = [
+    { kind: "stage", value: node.stages },
+    { kind: "job", value: node.jobs },
+    { kind: "step", value: node.steps }
+  ].filter((collection2) => collection2.value !== void 0);
+  if (rootCollections.length !== 1) return [];
+  const collection = rootCollections[0];
+  if (!collection) return [];
+  return collection.kind === "step" ? azureStepsInvocations(collection.value) : azureChildInvocations(collection.value, collection.kind);
 }
 function azureChildInvocations(value, kind) {
   return asArray(value).flatMap((childValue) => {
@@ -1639,8 +1648,21 @@ function azureStepInvocations(node) {
   const commandFields = ["script", "bash", "pwsh", "powershell"].filter(
     (field) => typeof node[field] === "string"
   );
-  if (commandFields.length !== 1) return [];
+  if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
   return [{ kind: "command", value: node[commandFields[0] ?? ""] }];
+}
+function azureWorkingDirectoryIsRoot(value) {
+  if (value === void 0) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  return [
+    ".",
+    "./",
+    "$(build.repository.localpath)",
+    "$(build.sourcesdirectory)",
+    "$(pipeline.workspace)/s",
+    "$(system.defaultworkingdirectory)"
+  ].includes(normalized);
 }
 function azureStepsInvocations(value) {
   const steps = asArray(value);
@@ -1941,6 +1963,7 @@ function commandSourceMatches(signature, arguments_, bindings) {
     const source = bindings.commandSources.get(path);
     if (source === void 0) return false;
     const uncommented = stripSourceComments(source, path);
+    if (hasObviouslyUnreachableBranch(uncommented, path)) return false;
     return sourceGroupsAreCoLocated(
       uncommented,
       signature.source_content_groups,
@@ -1951,6 +1974,12 @@ function commandSourceMatches(signature, arguments_, bindings) {
       signature.source_max_span_lines
     );
   });
+}
+function hasObviouslyUnreachableBranch(source, path) {
+  let pattern = "^\\s*if\\s+(?:false|\\[\\s+(?:false|0)\\s+\\])\\s*;?\\s*then\\b";
+  if (/\.[cm]?[jt]sx?$/i.test(path)) pattern = "\\bif\\s*\\(\\s*(?:false|0)\\s*\\)";
+  else if (/\.py$/i.test(path)) pattern = "^\\s*if\\s+(?:false|0)\\s*:";
+  return source.split(/\r?\n/).some((line) => executableSourcePatternMatches(line, pattern));
 }
 function stripSourceComments(source, path) {
   return /\.[cm]?[jt]sx?$/i.test(path) ? stripCStyleComments(source) : stripHashComments(source);

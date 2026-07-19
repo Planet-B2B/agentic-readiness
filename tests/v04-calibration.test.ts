@@ -581,6 +581,7 @@ describe('v0.4 evidence calibration', () => {
         '    include: ["*"]',
         'steps:',
         '  - script: gitleaks detect',
+        '    workingDirectory: $(Build.SourcesDirectory)',
         "    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))",
       ].join('\n'),
       '.azure-pipelines/continue.yml': [
@@ -902,21 +903,44 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npm run agent-doc-check',
       ].join('\n'),
     });
+    const unreachable = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        'if (false) {',
+        "  const guidance = readFileSync('AGENTS.md', 'utf8');",
+        "  if (!guidance.includes('scope')) throw new Error('AGENTS.md is invalid');",
+        '}',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const commentsReport = await assess(commentsOnly, benchmark, controls, 'pr-creation');
       const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
       const noOpReport = await assess(noOp, benchmark, controls, 'pr-creation');
+      const unreachableReport = await assess(unreachable, benchmark, controls, 'pr-creation');
 
       expect(controlStatus(commentsReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(commentsReport, 'ADRB-TST-003')?.status).toBe('not_met');
       expect(controlStatus(executedReport, 'ADRB-CTX-003')?.status).toBe('met');
       expect(controlStatus(executedReport, 'ADRB-TST-003')?.status).toBe('met');
       expect(controlStatus(noOpReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(unreachableReport, 'ADRB-CTX-003')?.status).toBe('not_met');
     } finally {
       await rm(commentsOnly, { recursive: true, force: true });
       await rm(executed, { recursive: true, force: true });
       await rm(noOp, { recursive: true, force: true });
+      await rm(unreachable, { recursive: true, force: true });
     }
   });
 
@@ -1508,6 +1532,31 @@ describe('v0.4 evidence calibration', () => {
       },
       {
         '.gitlab-ci.yml': [
+          'before_script: [cd docs]',
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'default:',
+          '  before_script: [cd docs]',
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  before_script: [cd docs]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
           'workflow:',
           '  rules:',
           '    - when: never',
@@ -1613,6 +1662,25 @@ describe('v0.4 evidence calibration', () => {
           '  - stage: Security',
           '    steps:',
           '      - script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'steps:',
+          '  - script: gitleaks detect',
+          '    workingDirectory: /tmp/empty',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'jobs:',
+          '  - job: Security',
+          '    steps:',
+          '      - script: echo no-op',
+          'steps:',
+          '  - script: gitleaks detect',
         ].join('\n'),
       },
       {
