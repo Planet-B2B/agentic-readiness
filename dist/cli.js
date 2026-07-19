@@ -1103,16 +1103,23 @@ function activeOwnershipLines(lines) {
   const active = [];
   let inactiveHeadingLevel = null;
   for (const line of lines) {
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    const heading = markdownHeading(line);
     if (heading) {
-      const level = heading[1]?.length ?? 0;
+      const { level, title } = heading;
       if (inactiveHeadingLevel !== null && level > inactiveHeadingLevel) continue;
-      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(heading[2] ?? "") ? level : null;
+      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(title) ? level : null;
       continue;
     }
     if (inactiveHeadingLevel === null) active.push(line);
   }
   return active;
+}
+function markdownHeading(line) {
+  let level = 0;
+  while (level < 6 && line[level] === "#") level += 1;
+  if (level === 0 || !/\s/.test(line[level] ?? "")) return null;
+  const title = line.slice(level).trim();
+  return title.length > 0 ? { level, title } : null;
 }
 function markdownOwnershipRows(lines) {
   let entries = 0;
