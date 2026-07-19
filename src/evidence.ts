@@ -563,31 +563,45 @@ async function readSearchableFilesUncached(
   const seenCanonicalPaths = new Set<string>();
   let totalBytes = 0;
   for (const path of paths) {
-    try {
-      const requestedPath = resolve(root, path);
-      if ((await lstat(requestedPath)).isSymbolicLink()) continue;
-      const canonicalPath = await realpath(requestedPath);
-      if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep}`)) continue;
-      if (seenCanonicalPaths.has(canonicalPath)) continue;
-      const metadata = await stat(canonicalPath);
-      if (
-        !metadata.isFile() ||
-        metadata.size === 0 ||
-        metadata.size > maxContentFileBytes ||
-        totalBytes + metadata.size > maxContentTotalBytes
-      ) {
-        continue;
-      }
-      const rawText = await readFile(canonicalPath, 'utf8');
-      if (isGeneratedAssessment(rawText)) continue;
-      seenCanonicalPaths.add(canonicalPath);
-      totalBytes += metadata.size;
-      files.push({ path, text: preserveCase ? rawText : rawText.toLowerCase() });
-    } catch {
-      // Races, unreadable files, and binary content are unavailable evidence.
-    }
+    const candidate = await readSearchableFile(
+      root,
+      path,
+      preserveCase,
+      seenCanonicalPaths,
+      maxContentTotalBytes - totalBytes,
+    );
+    if (!candidate) continue;
+    totalBytes += candidate.size;
+    files.push({ path, text: candidate.text });
   }
   return files;
+}
+
+async function readSearchableFile(
+  root: string,
+  path: string,
+  preserveCase: boolean,
+  seenCanonicalPaths: Set<string>,
+  remainingBytes: number,
+): Promise<{ size: number; text: string } | null> {
+  try {
+    const requestedPath = resolve(root, path);
+    if ((await lstat(requestedPath)).isSymbolicLink()) return null;
+    const canonicalPath = await realpath(requestedPath);
+    if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep}`)) return null;
+    if (seenCanonicalPaths.has(canonicalPath)) return null;
+    const metadata = await stat(canonicalPath);
+    if (!metadata.isFile() || metadata.size === 0 || metadata.size > maxContentFileBytes)
+      return null;
+    if (metadata.size > remainingBytes) return null;
+    const rawText = await readFile(canonicalPath, 'utf8');
+    if (isGeneratedAssessment(rawText)) return null;
+    seenCanonicalPaths.add(canonicalPath);
+    return { size: metadata.size, text: preserveCase ? rawText : rawText.toLowerCase() };
+  } catch {
+    // Races, unreadable files, and binary content are unavailable evidence.
+    return null;
+  }
 }
 
 async function prioritizedMatches(

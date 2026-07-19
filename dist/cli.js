@@ -1389,25 +1389,37 @@ async function readSearchableFilesUncached(context, patterns, maxFilesPerPattern
   const seenCanonicalPaths = /* @__PURE__ */ new Set();
   let totalBytes = 0;
   for (const path of paths) {
-    try {
-      const requestedPath = resolve3(root, path);
-      if ((await lstat(requestedPath)).isSymbolicLink()) continue;
-      const canonicalPath = await realpath2(requestedPath);
-      if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep2}`)) continue;
-      if (seenCanonicalPaths.has(canonicalPath)) continue;
-      const metadata = await stat(canonicalPath);
-      if (!metadata.isFile() || metadata.size === 0 || metadata.size > maxContentFileBytes || totalBytes + metadata.size > maxContentTotalBytes) {
-        continue;
-      }
-      const rawText = await readFile2(canonicalPath, "utf8");
-      if (isGeneratedAssessment(rawText)) continue;
-      seenCanonicalPaths.add(canonicalPath);
-      totalBytes += metadata.size;
-      files.push({ path, text: preserveCase ? rawText : rawText.toLowerCase() });
-    } catch {
-    }
+    const candidate = await readSearchableFile(
+      root,
+      path,
+      preserveCase,
+      seenCanonicalPaths,
+      maxContentTotalBytes - totalBytes
+    );
+    if (!candidate) continue;
+    totalBytes += candidate.size;
+    files.push({ path, text: candidate.text });
   }
   return files;
+}
+async function readSearchableFile(root, path, preserveCase, seenCanonicalPaths, remainingBytes) {
+  try {
+    const requestedPath = resolve3(root, path);
+    if ((await lstat(requestedPath)).isSymbolicLink()) return null;
+    const canonicalPath = await realpath2(requestedPath);
+    if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep2}`)) return null;
+    if (seenCanonicalPaths.has(canonicalPath)) return null;
+    const metadata = await stat(canonicalPath);
+    if (!metadata.isFile() || metadata.size === 0 || metadata.size > maxContentFileBytes)
+      return null;
+    if (metadata.size > remainingBytes) return null;
+    const rawText = await readFile2(canonicalPath, "utf8");
+    if (isGeneratedAssessment(rawText)) return null;
+    seenCanonicalPaths.add(canonicalPath);
+    return { size: metadata.size, text: preserveCase ? rawText : rawText.toLowerCase() };
+  } catch {
+    return null;
+  }
 }
 async function prioritizedMatches(context, patterns, maxFilesPerPattern) {
   const selected = [];
