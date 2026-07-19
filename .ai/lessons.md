@@ -10,8 +10,9 @@ runtime validation silently stripped fields forbidden by the published schema, a
 was interpreted as fail-fast Bash even on Windows or unresolved GitHub runners.
 
 **Rule.** Bind supplemental evidence to a normalized assessed target, keep published and runtime
-schemas equally strict, and infer provider defaults only when the execution environment establishes
-them.
+schemas equally strict (including required collections and key grammar), build conformance fixtures
+with deterministic repository identity, and infer provider defaults only when the execution
+environment establishes them.
 
 ## 2026-07-19 — Input bounds must also bound parser complexity
 

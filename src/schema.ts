@@ -334,6 +334,8 @@ const AttestationTargetV04Schema = z
   })
   .strict();
 
+const AttestationControlIdV04Schema = z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/);
+
 const LegacyAttestationSchema = AttestationSchema.extend({
   expires_at: z.string().date().nullable().default(null),
 });
@@ -347,7 +349,7 @@ export const AttestationFileV04Schema = z
   .object({
     benchmark_version: z.literal('0.4.0'),
     target: AttestationTargetV04Schema,
-    attestations: z.record(z.string(), AttestationV04Schema).default({}),
+    attestations: z.record(AttestationControlIdV04Schema, AttestationV04Schema),
   })
   .strict();
 

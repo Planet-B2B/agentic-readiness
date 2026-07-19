@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import fg from 'fast-glob';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
@@ -43,31 +44,56 @@ async function gitFixture(files: Record<string, string>): Promise<string> {
   return repository;
 }
 
+async function gitDirectoryFixture(directory: string): Promise<string> {
+  const paths = await fg('**/*', {
+    cwd: directory,
+    dot: true,
+    onlyFiles: true,
+    ignore: ['.git/**', 'node_modules/**'],
+  });
+  const entries = await Promise.all(
+    paths.map(async (path) => [path, await readFile(join(directory, path), 'utf8')] as const),
+  );
+  return gitFixture(Object.fromEntries(entries));
+}
+
 function controlStatus(report: Awaited<ReturnType<typeof assess>>, id: string) {
   return report.controls.find((control) => control.id === id);
 }
 
 describe('v0.4 evidence calibration', () => {
   it('retains the mature level-three conformance result', async () => {
-    const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
-    const { benchmark, controls } = await loadBenchmark(v04Root);
-    const attestations = await loadAttestations(
-      join(repository, '.agentic', 'attestations-v0.4.yaml'),
-      benchmark.version,
+    const repository = await gitDirectoryFixture(
+      resolve(import.meta.dirname, 'fixtures', 'mature'),
     );
-    const report = await assess(repository, benchmark, controls, 'limited-autonomous-maintenance', {
-      attestations,
-      now: new Date('2026-07-18T12:00:00.000Z'),
-    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const attestations = await loadAttestations(
+        join(repository, '.agentic', 'attestations-v0.4.yaml'),
+        benchmark.version,
+      );
+      const report = await assess(
+        repository,
+        benchmark,
+        controls,
+        'limited-autonomous-maintenance',
+        {
+          attestations,
+          now: new Date('2026-07-18T12:00:00.000Z'),
+        },
+      );
 
-    expect(report.score.total).toBe(30);
-    expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
-    expect(report.controls).toHaveLength(45);
-    expect(report.evidence_summary.attested).toBe(8);
-    expect(report.readiness.target_passed).toBe(true);
-    expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
-    for (const id of ['ADRB-ENV-003', 'ADRB-SPC-003', 'ADRB-LRN-003']) {
-      expect(controlStatus(report, id)?.confidence).toBe('repository-detected');
+      expect(report.score.total).toBe(30);
+      expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
+      expect(report.controls).toHaveLength(45);
+      expect(report.evidence_summary.attested).toBe(8);
+      expect(report.readiness.target_passed).toBe(true);
+      expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
+      for (const id of ['ADRB-ENV-003', 'ADRB-SPC-003', 'ADRB-LRN-003']) {
+        expect(controlStatus(report, id)?.confidence).toBe('repository-detected');
+      }
+    } finally {
+      await rm(repository, { recursive: true, force: true });
     }
   });
 
@@ -2844,6 +2870,23 @@ describe('v0.4 evidence calibration', () => {
       '    expires_at: 2026-10-19',
     ];
     try {
+      await writeFile(
+        path,
+        [
+          'benchmark_version: 0.4.0',
+          'target:',
+          '  repository: https://example.invalid/acme/repository.git',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await expect(loadAttestations(path, '0.4.0')).rejects.toThrow();
+      await writeFile(
+        path,
+        [...document].join('\n').replace('ADRB-SEC-003', 'ADRB-SECURITY-003'),
+        'utf8',
+      );
+      await expect(loadAttestations(path, '0.4.0')).rejects.toThrow();
       await writeFile(path, [...document, 'unexpected: true', ''].join('\n'), 'utf8');
       await expect(loadAttestations(path, '0.4.0')).rejects.toThrow();
       await writeFile(

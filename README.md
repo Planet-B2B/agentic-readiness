@@ -128,7 +128,7 @@ For development from this checkout:
 ```bash
 npm ci
 npm run check
-npm run dev -- assess tests/fixtures/mature --profile pr-creation --attestations tests/fixtures/mature/.agentic/attestations-v0.4.yaml
+npx vitest run tests/v04-calibration.test.ts -t "retains the mature level-three conformance result"
 ```
 
 ## What it assesses
