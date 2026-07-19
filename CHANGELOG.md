@@ -87,6 +87,9 @@
 - Root validation-function reachability in top-level execution, bind git-secrets to its default
   repository target, reject AI/bot-qualified governance actors and test-listing modes, and make this
   repository's own agent-guidance check structurally discoverable.
+- Scope Nox's `-l` listing mode without rejecting Pytest's local-variable display, recognize only
+  tracked adapter-declared Maven/Gradle wrappers, and reject malformed GitLab workflow or job-rule
+  node shapes.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

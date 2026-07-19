@@ -1494,6 +1494,7 @@ describe('v0.4 evidence calibration', () => {
         '      - run: pytest --fixtures=true',
         '      - run: pytest --markers',
         '      - run: nox --list-sessions',
+        '      - run: nox -l',
         '      - run: go test -list .',
         '      - run: dotnet test --list-tests',
         '      - run: mypy .',
@@ -1507,6 +1508,69 @@ describe('v0.4 evidence calibration', () => {
       expect(testing?.evidence[0]?.summary).toContain('aggregate command-class match 1/2');
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts pytest local-variable display as an executing test run', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: pytest -l',
+        '      - run: mypy .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes only tracked declared Maven and Gradle repository wrappers', async () => {
+    const workflow = (wrapper: string, analysis: string): Record<string, string> => ({
+      [wrapper]: '#!/bin/sh\nexit 0\n',
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        `      - run: ./${wrapper} test`,
+        `      - run: ./${wrapper} ${analysis}`,
+      ].join('\n'),
+    });
+    const maven = await gitFixture(workflow('mvnw', 'checkstyle:check'));
+    const gradle = await gitFixture(workflow('gradlew', 'check'));
+    const missingFiles = workflow('mvnw', 'checkstyle:check');
+    delete missingFiles.mvnw;
+    const missing = await gitFixture(missingFiles);
+    const bareFiles = workflow('mvnw', 'checkstyle:check');
+    const bareWorkflow = bareFiles['.github/workflows/verify.yml'] ?? '';
+    bareFiles['.github/workflows/verify.yml'] = bareWorkflow.replaceAll('./mvnw', 'mvnw');
+    const bare = await gitFixture(bareFiles);
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      for (const repository of [maven, gradle]) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+      }
+      const missingReport = await assess(missing, benchmark, controls, 'pr-creation');
+      const bareReport = await assess(bare, benchmark, controls, 'pr-creation');
+      expect(controlStatus(missingReport, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(bareReport, 'ADRB-TST-003')?.status).toBe('not_met');
+    } finally {
+      await rm(maven, { recursive: true, force: true });
+      await rm(gradle, { recursive: true, force: true });
+      await rm(missing, { recursive: true, force: true });
+      await rm(bare, { recursive: true, force: true });
     }
   });
 
@@ -2064,6 +2128,35 @@ describe('v0.4 evidence calibration', () => {
           '    - when: never',
           `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
           'secret-scan:',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'workflow: invalid',
+          'secret-scan:',
+          '  rules:',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'workflow:',
+          '  rules: invalid',
+          'secret-scan:',
+          '  rules:',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'workflow:',
+          '  rules:',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+          'secret-scan:',
+          '  rules: invalid',
           '  script: gitleaks detect',
         ].join('\n'),
       },

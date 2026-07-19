@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Flags and repository wrappers are executable-specific
+
+**Context.** Automated review found that one runner's listing flag rejected another runner's valid
+test mode, declared Maven/Gradle wrapper aliases were unreachable under the path-identity guard, and
+malformed GitLab rule nodes were treated as absent.
+
+**Rule.** Scope ambiguous flags to the executable that owns them, trust repository wrappers only by
+exact adapter-declared tracked path, and distinguish absent provider configuration from a present
+invalid shape.
+
 ## 2026-07-18 — Enforcement proof needs a reachable root and an in-scope target
 
 **Context.** Automated review found that calls inside unused functions could fake validator

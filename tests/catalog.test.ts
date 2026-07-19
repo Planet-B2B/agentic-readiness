@@ -87,6 +87,7 @@ describe('benchmark catalog', () => {
         commands: [
           {
             executables: ['gitleaks'],
+            repository_executables: [],
             argument_groups: [['detect']],
             source_content_groups: [],
             source_pattern_groups: [],
@@ -150,6 +151,7 @@ describe('benchmark catalog', () => {
     const staticCommands = ciTools.find(({ id }) => id === 'static-analysis')?.commands ?? [];
     expect(staticCommands.find(({ executables }) => executables.includes('cargo'))).toEqual({
       executables: ['cargo'],
+      repository_executables: [],
       argument_groups: [['clippy', 'check']],
       source_content_groups: [],
       source_pattern_groups: [],
@@ -160,6 +162,7 @@ describe('benchmark catalog', () => {
     });
     expect(staticCommands.find(({ executables }) => executables.includes('go'))).toEqual({
       executables: ['go'],
+      repository_executables: [],
       argument_groups: [['vet']],
       source_content_groups: [],
       source_pattern_groups: [],

@@ -68,11 +68,15 @@ validation excludes language comments before checking bounded structural groups,
 repository validation scripts must exist as non-empty assessed files. A plausible task name,
 missing path, collection-only test mode, or
 configuration-display mode is insufficient.
+Repository wrapper executables qualify only when an adapter declares the exact root path and that
+non-empty path exists in the assessed tree; arbitrary path-qualified basenames remain untrusted.
 Deterministic provider discovery is limited to auto-loaded entry points: direct GitHub workflow
 YAML files, the root GitLab CI file, and conventional root Azure pipeline files. Include graphs and
 custom pipeline paths require eligible source-backed evidence until they are structurally resolved.
 Azure commands qualify only inside valid step collections, never from command-shaped root, stage, or
 job fields.
+Present GitLab `workflow` and job `rules` nodes must have supported object/array shapes; malformed
+nodes fail closed instead of being treated as absent.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

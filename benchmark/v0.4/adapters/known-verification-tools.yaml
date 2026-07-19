@@ -5,14 +5,17 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: tests
-        prohibited_arguments: [--fixtures, --fixtures-per-test, --markers, --list-sessions, -l]
+        prohibited_arguments: [--fixtures, --fixtures-per-test, --markers, --list-sessions]
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
             argument_groups:
               - [test, test:unit, test:integration, test:e2e, unit-test, integration-test, e2e]
-          - executables: [cargo, go, dotnet, mvn, mvnw, gradle, gradlew, bazel]
+          - executables: [cargo, go, dotnet, mvn, gradle, bazel]
+            repository_executables: [mvnw, gradlew]
             argument_groups: [[test]]
-        standalone_executables: [pytest, pytest-cov, jest, vitest, tox, nox]
+          - executables: [nox]
+            prohibited_arguments: [-l, --list-sessions]
+        standalone_executables: [pytest, pytest-cov, jest, vitest, tox]
       - id: static-analysis
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
@@ -21,9 +24,11 @@ extensions:
             argument_groups: [[clippy, check]]
           - executables: [go]
             argument_groups: [[vet]]
-          - executables: [mvn, mvnw]
+          - executables: [mvn]
+            repository_executables: [mvnw]
             argument_groups: [[checkstyle:check, spotbugs:check, pmd:check]]
-          - executables: [gradle, gradlew]
+          - executables: [gradle]
+            repository_executables: [gradlew]
             argument_groups: [[check]]
           - executables: [ruff]
             argument_groups: [[check]]
@@ -32,14 +37,17 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: tests
-        prohibited_arguments: [--fixtures, --fixtures-per-test, --markers, --list-sessions, -l]
+        prohibited_arguments: [--fixtures, --fixtures-per-test, --markers, --list-sessions]
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
             argument_groups:
               - [test, test:unit, test:integration, test:e2e, unit-test, integration-test, e2e]
-          - executables: [cargo, go, dotnet, mvn, mvnw, gradle, gradlew, bazel]
+          - executables: [cargo, go, dotnet, mvn, gradle, bazel]
+            repository_executables: [mvnw, gradlew]
             argument_groups: [[test]]
-        standalone_executables: [pytest, pytest-cov, jest, vitest, tox, nox]
+          - executables: [nox]
+            prohibited_arguments: [-l, --list-sessions]
+        standalone_executables: [pytest, pytest-cov, jest, vitest, tox]
       - id: static-analysis
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
@@ -48,9 +56,11 @@ extensions:
             argument_groups: [[clippy, check]]
           - executables: [go]
             argument_groups: [[vet]]
-          - executables: [mvn, mvnw]
+          - executables: [mvn]
+            repository_executables: [mvnw]
             argument_groups: [[checkstyle:check, spotbugs:check, pmd:check]]
-          - executables: [gradle, gradlew]
+          - executables: [gradle]
+            repository_executables: [gradlew]
             argument_groups: [[check]]
           - executables: [ruff]
             argument_groups: [[check]]

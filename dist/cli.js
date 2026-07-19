@@ -99,7 +99,8 @@ var SourcePatternSchema = z.string().min(1).refine((pattern) => {
 }, "Source patterns must be valid regular expressions");
 var CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
-  argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  repository_executables: z.array(z.string().min(1)).default([]),
+  argument_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
   source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
   source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
   source_max_span_lines: z.number().int().positive().max(200).default(120),
@@ -1516,11 +1517,12 @@ async function repositoryCommandBindings(context, tools) {
   const commandPaths = [
     ...new Set(
       tools.flatMap(
-        ({ commands }) => commands.flatMap(
-          ({ argument_groups }) => argument_groups.flatMap(
+        ({ commands }) => commands.flatMap(({ argument_groups, repository_executables }) => [
+          ...repository_executables.map(normalizeCommandPath),
+          ...argument_groups.flatMap(
             (arguments_) => arguments_.filter(isRepositoryCommandPath).map(normalizeCommandPath)
           )
-        )
+        ])
       )
     )
   ];
@@ -1659,6 +1661,7 @@ function invocationFromField(node, field, kind) {
 function gitlabIntegrationInvocations(document) {
   if (document.include !== void 0) return [];
   if (document.before_script !== void 0) return [];
+  if (!validGitlabWorkflowShape(document.workflow)) return [];
   const workflow = asRecord(document.workflow);
   const hasWorkflowRules = asArray(workflow?.rules).length > 0;
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
@@ -1668,10 +1671,16 @@ function gitlabIntegrationInvocations(document) {
     ([name, value]) => gitlabJobInvocations(name, value, workflowAllowsMergeRequests, document.variables)
   );
 }
+function validGitlabWorkflowShape(value) {
+  if (value === void 0) return true;
+  const workflow = asRecord(value);
+  return workflow !== null && (workflow.rules === void 0 || Array.isArray(workflow.rules));
+}
 function gitlabJobInvocations(name, value, workflowAllowsMergeRequests, globalVariables) {
   if (name.startsWith(".") || gitlabReservedKeys.has(name)) return [];
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
+  if (job.rules !== void 0 && !Array.isArray(job.rules)) return [];
   if (job.before_script !== void 0 || job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0) {
     return [];
   }
@@ -1990,15 +1999,27 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
   if (tokens.some(isNonExecutingCommandArgument)) return false;
   const packageMatch = packageScriptMatchesTool(tokens, tool, bindings, visitedScripts);
   if (packageMatch !== null) return packageMatch;
-  const recognizedExecutables = [
-    ...tool.commands.flatMap(({ executables }) => executables),
-    ...tool.standalone_executables
-  ];
   return tokens.some(
-    (token, executableIndex) => recognizedExecutables.some((executable) => executableTokenMatches(token, executable)) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts)
+    (token, executableIndex) => (tool.standalone_executables.some(
+      (executable) => unqualifiedExecutableTokenMatches(token, executable)
+    ) || tool.commands.some(
+      (signature) => commandExecutableTokenMatches(token, signature, bindings)
+    )) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts)
   );
 }
-function executableTokenMatches(token, executable) {
+function commandExecutableTokenMatches(token, signature, bindings) {
+  if (!/[\\/]/.test(token) && !token.startsWith(".")) {
+    return signature.executables.some(
+      (executable) => unqualifiedExecutableTokenMatches(token, executable)
+    );
+  }
+  const path = normalizeCommandPath(token);
+  if (!bindings.availableCommandPaths.has(path)) return false;
+  return signature.repository_executables.some(
+    (candidate) => normalizeCommandPath(candidate) === path
+  );
+}
+function unqualifiedExecutableTokenMatches(token, executable) {
   if (/[\\/]/.test(token) || token.startsWith(".")) return false;
   return executableIdentity(token) === executable.toLowerCase();
 }
@@ -2012,13 +2033,13 @@ function executablePositionMatchesTool(tokens, executableIndex, tool, bindings, 
   );
   if (wrappedPackageMatch !== null) return wrappedPackageMatch;
   const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
-  const executable = executableIdentity(tokens[executableIndex] ?? "");
+  const executableToken = tokens[executableIndex] ?? "";
   if (hasProhibitedArguments(tool, arguments_)) return false;
-  if (tool.standalone_executables.some((standalone) => standalone.toLowerCase() === executable))
+  if (tool.standalone_executables.some(
+    (standalone) => unqualifiedExecutableTokenMatches(executableToken, standalone)
+  ))
     return true;
-  return tool.commands.filter(
-    ({ executables }) => executables.some((candidate) => candidate.toLowerCase() === executable)
-  ).some((signature) => commandSignatureMatches(signature, arguments_, bindings));
+  return tool.commands.filter((signature) => commandExecutableTokenMatches(executableToken, signature, bindings)).some((signature) => commandSignatureMatches(signature, arguments_, bindings));
 }
 function isNonExecutingCommandArgument(value) {
   const normalized = value.toLowerCase();

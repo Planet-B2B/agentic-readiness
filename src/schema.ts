@@ -107,7 +107,8 @@ const SourcePatternSchema = z
 
 const CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
-  argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  repository_executables: z.array(z.string().min(1)).default([]),
+  argument_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
   source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
   source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
   source_max_span_lines: z.number().int().positive().max(200).default(120),
