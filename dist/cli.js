@@ -957,6 +957,18 @@ var placeholderOwnerValues = /* @__PURE__ */ new Set([
   "vacant"
 ]);
 var supportedGitlabRuleKeys = /* @__PURE__ */ new Set(["allow_failure", "if", "when"]);
+var gitlabReservedKeys = /* @__PURE__ */ new Set([
+  "after_script",
+  "before_script",
+  "cache",
+  "default",
+  "image",
+  "include",
+  "services",
+  "stages",
+  "variables",
+  "workflow"
+]);
 var nonExecutingCommandArguments = /* @__PURE__ */ new Set([
   "--co",
   "--collect-only",
@@ -1479,34 +1491,19 @@ function gitlabIntegrationInvocations(document) {
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
   if (hasWorkflowRules && !workflowAllowsMergeRequests) return [];
   if (hasRiskyGitlabDefaults(document.default)) return [];
-  const reserved = /* @__PURE__ */ new Set([
-    "after_script",
-    "before_script",
-    "cache",
-    "default",
-    "image",
-    "include",
-    "services",
-    "stages",
-    "variables",
-    "workflow"
-  ]);
-  const invocations = [];
-  for (const [name, jobValue] of Object.entries(document)) {
-    if (name.startsWith(".") || reserved.has(name)) continue;
-    const job = asRecord(jobValue);
-    if (!job || isDisabledCiNode(job)) continue;
-    if (job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0)
-      continue;
-    const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
-    const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasUnconditionallyNamedTrigger(job.only, ["merge_requests"]);
-    if (hasJobTriggerRules && !jobAllowsMergeRequests) continue;
-    if (!hasJobTriggerRules && !workflowAllowsMergeRequests) continue;
-    for (const command of stringValues(job.script)) {
-      invocations.push({ kind: "command", value: command });
-    }
-  }
-  return invocations;
+  return Object.entries(document).flatMap(
+    ([name, value]) => gitlabJobInvocations(name, value, workflowAllowsMergeRequests)
+  );
+}
+function gitlabJobInvocations(name, value, workflowAllowsMergeRequests) {
+  if (name.startsWith(".") || gitlabReservedKeys.has(name)) return [];
+  const job = asRecord(value);
+  if (!job || isDisabledCiNode(job)) return [];
+  if (job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0) return [];
+  const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
+  const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasUnconditionallyNamedTrigger(job.only, ["merge_requests"]);
+  if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) return [];
+  return stringValues(job.script).map((command) => ({ kind: "command", value: command }));
 }
 function hasRiskyGitlabDefaults(value) {
   if (value === void 0) return false;
