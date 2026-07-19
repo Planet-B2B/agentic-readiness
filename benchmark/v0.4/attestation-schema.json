@@ -4,9 +4,17 @@
   "title": "ADRB v0.4 human attestation file",
   "type": "object",
   "additionalProperties": false,
-  "required": ["benchmark_version", "attestations"],
+  "required": ["benchmark_version", "target", "attestations"],
   "properties": {
     "benchmark_version": { "const": "0.4.0" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 }
+      }
+    },
     "attestations": {
       "type": "object",
       "propertyNames": { "pattern": "^ADRB-[A-Z]{3}-[0-9]{3}$" },

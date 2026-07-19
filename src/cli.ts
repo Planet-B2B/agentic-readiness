@@ -57,6 +57,8 @@ program
       }
     }
     const { benchmark, controls } = await loadBenchmark();
+    const context = await createRepositoryContext(repo, 'workspace');
+    const target = { repository: repositoryEvidenceTarget(context.metadata).repository };
     const reviewedAt = new Date();
     const expiresAt = new Date(reviewedAt);
     expiresAt.setDate(expiresAt.getDate() + 90);
@@ -85,7 +87,7 @@ program
     await mkdir(dirname(path), { recursive: true });
     await writeFile(
       path,
-      `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.\n${stringify({ benchmark_version: benchmark.version, attestations })}`,
+      `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.\n${stringify({ benchmark_version: benchmark.version, target, attestations })}`,
       'utf8',
     );
     process.stdout.write(`Created ${path}\n`);

@@ -9,6 +9,7 @@ import {
   AgentEvidenceFileV03Schema,
   AgentEvidenceFileV04Schema,
   AttestationFileSchema,
+  AttestationFileV04Schema,
   BenchmarkSchema,
   ControlFileSchema,
   DetectorAdapterSchema,
@@ -230,7 +231,9 @@ export async function loadAttestations(
     const file =
       benchmarkVersion === '0.1.0'
         ? LegacyAttestationFileSchema.parse(rawFile)
-        : AttestationFileSchema.parse(rawFile);
+        : benchmarkVersion === '0.4.0'
+          ? AttestationFileV04Schema.parse(rawFile)
+          : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
         `Attestation benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`,

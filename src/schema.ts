@@ -326,6 +326,14 @@ export const AttestationSchema = z.object({
   expires_at: z.string().date(),
 });
 
+const AttestationV04Schema = AttestationSchema.strict();
+
+const AttestationTargetV04Schema = z
+  .object({
+    repository: z.string().min(1),
+  })
+  .strict();
+
 const LegacyAttestationSchema = AttestationSchema.extend({
   expires_at: z.string().date().nullable().default(null),
 });
@@ -334,6 +342,14 @@ export const AttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), AttestationSchema).default({}),
 });
+
+export const AttestationFileV04Schema = z
+  .object({
+    benchmark_version: z.literal('0.4.0'),
+    target: AttestationTargetV04Schema,
+    attestations: z.record(z.string(), AttestationV04Schema).default({}),
+  })
+  .strict();
 
 export const LegacyAttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
@@ -344,6 +360,7 @@ export type Attestation =
   z.infer<typeof AttestationSchema> | z.infer<typeof LegacyAttestationSchema>;
 export interface AttestationFile {
   benchmark_version: string;
+  target?: { repository: string };
   attestations: Record<string, Attestation>;
 }
 

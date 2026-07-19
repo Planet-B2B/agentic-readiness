@@ -1,4 +1,6 @@
 benchmark_version: 0.4.0
+target:
+  repository: https://github.com/Planet-B2B/agentic-readiness.git
 attestations:
   ADRB-TOL-003:
     status: met

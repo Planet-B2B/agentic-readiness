@@ -111,9 +111,11 @@ rerun with `--agent-evidence`. The default bundle path is loaded automatically. 
 Run a new tracked-scope baseline and retain the old report as historical evidence. Do not present the
 score change as improvement or regression because v0.4 changes evidence and control semantics.
 Re-review prior attestations and agent evidence before recreating them for v0.4. All claims must
-expire, and repository-scoped semantic claims require tracked files to match the commit-bound target
-plus `repo:<path>[#Lx-Ly]` references whose optional line ranges exist in the cited tracked file.
-Untracked generated reports do not block this workflow.
+expire. Human-attestation files created by `init` are bound to the assessed repository; they are not
+commit-bound because accountable platform, organization, and outcome facts may span commits.
+Repository-scoped semantic agent claims require tracked files to match the commit-bound target plus
+`repo:<path>[#Lx-Ly]` references whose optional line ranges exist in the cited tracked file. Untracked
+generated reports do not block this workflow.
 
 The default `.agentic/attestations.yaml` and `.agentic/agent-evidence.yaml` paths are migration-safe:
 if either contains an older benchmark version, v0.4 ignores that auto-loaded file and places a

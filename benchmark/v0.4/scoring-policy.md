@@ -106,7 +106,12 @@ pass: it remains separately labelled and does not increase repository-detected p
 attestations cannot override repository-artifact controls. `ADRB-SEC-003` permits a dated, expiring
 human attestation only for its platform alternative, such as host-native secret scanning or push
 protection; it cannot attest the repository CI alternative. Malformed or unknown v0.4 attestation
-control IDs are rejected rather than silently ignored.
+control IDs are rejected rather than silently ignored. Every v0.4 attestation file is bound to the
+assessed repository's sanitized origin URL, or its canonical root when no origin exists, and rejects
+unknown file or claim fields. Human attestations are repository-bound and expiring but not
+commit-bound: they establish accountable platform, organization, or outcome facts whose review
+period may span repository commits. `agentic-scorecard init` derives the target; a file for another
+repository fails closed.
 
 Controls require every evidence check by default. A v0.4 control may explicitly declare
 `evidence_mode: any` only when the checks are alternative ways to establish the same outcome. A

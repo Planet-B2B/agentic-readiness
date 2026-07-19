@@ -27,8 +27,9 @@
 - Validate guidance, specification, and knowledge-maintenance scripts by reachable executable
   behavior instead of filenames or inert source strings; make this repository's guidance check part
   of `npm run check`.
-- Permit dated platform attestation for host-native secret scanning, reject malformed or unknown
-  v0.4 attestation IDs, and keep platform scanning distinct from untrusted-input safeguards.
+- Permit dated platform attestation for host-native secret scanning; bind v0.4 attestation files to
+  one repository, reject unknown fields and malformed or unknown IDs, and keep platform scanning
+  distinct from untrusted-input safeguards.
 - Report required-check progress, stable blocker labels, actual mixed-evidence scope, and unresolved
   alternative controls separately from control-level confidence.
 - Keep repository reads canonical, bounded, generated-output-safe, and linear for long source lines;

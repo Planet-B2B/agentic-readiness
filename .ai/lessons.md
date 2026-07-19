@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Supplemental evidence and inherited CI behavior must bind to their target
+
+**Context.** Release review found that a human-attestation file could be reused across repositories,
+runtime validation silently stripped fields forbidden by the published schema, and an omitted shell
+was interpreted as fail-fast Bash even on Windows or unresolved GitHub runners.
+
+**Rule.** Bind supplemental evidence to the assessed target, keep published and runtime schemas
+equally strict, and infer provider defaults only when the execution environment establishes them.
+
 ## 2026-07-19 — Input bounds must also bound parser complexity
 
 **Context.** Release review found that quote-aware source validation respected byte limits but

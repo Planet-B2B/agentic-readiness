@@ -272,6 +272,10 @@ var AttestationSchema = z.object({
   reviewed_at: z.string().date(),
   expires_at: z.string().date()
 });
+var AttestationV04Schema = AttestationSchema.strict();
+var AttestationTargetV04Schema = z.object({
+  repository: z.string().min(1)
+}).strict();
 var LegacyAttestationSchema = AttestationSchema.extend({
   expires_at: z.string().date().nullable().default(null)
 });
@@ -279,6 +283,11 @@ var AttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), AttestationSchema).default({})
 });
+var AttestationFileV04Schema = z.object({
+  benchmark_version: z.literal("0.4.0"),
+  target: AttestationTargetV04Schema,
+  attestations: z.record(z.string(), AttestationV04Schema).default({})
+}).strict();
 var LegacyAttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), LegacyAttestationSchema).default({})
@@ -531,7 +540,7 @@ async function loadAttestations(path, benchmarkVersion, options = {}) {
     )) {
       return null;
     }
-    const file = benchmarkVersion === "0.1.0" ? LegacyAttestationFileSchema.parse(rawFile) : AttestationFileSchema.parse(rawFile);
+    const file = benchmarkVersion === "0.1.0" ? LegacyAttestationFileSchema.parse(rawFile) : benchmarkVersion === "0.4.0" ? AttestationFileV04Schema.parse(rawFile) : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
         `Attestation benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`
@@ -1345,6 +1354,10 @@ function isConventionalOwnerListEntry(value) {
   return !hasNegativeOwnerAssignment(normalized) && isDirectOwnerContact(normalized);
 }
 function isDirectOwnerContact(value) {
+  const namedEmail = /^([^<>]+?)\s*<([^<>\s]+)>$/.exec(value.trim());
+  if (namedEmail) {
+    return isNamedOwnerIdentity(namedEmail[1] ?? "") && isExactEmailContact(namedEmail[2] ?? "");
+  }
   const contacts = value.replace(/\band\b/gi, " ").split(/[\s,&]+/).filter(Boolean);
   return contacts.length > 0 && contacts.every((contact) => isOwnerHandle(contact) || isExactEmailContact(contact));
 }
@@ -1706,6 +1719,7 @@ function githubJobInvocations(value, parentEvents, workflowDefaults, executionGr
       step,
       runDefaults.workingDirectory,
       runDefaults.shell,
+      job["runs-on"],
       executionGroup
     );
   });
@@ -1753,17 +1767,19 @@ function mergeGithubRunDefaults(workflow, job) {
     workingDirectory: job.workingDirectory ?? workflow.workingDirectory
   };
 }
-function githubStepInvocations(value, defaultWorkingDirectory, defaultShell, executionGroup) {
+function githubStepInvocations(value, defaultWorkingDirectory, defaultShell, runner, executionGroup) {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (step.uses !== void 0 && step.run !== void 0) return [];
   const action = invocationFromField(step, "uses", "action", executionGroup);
-  const shell = githubShellSemantics(step.shell ?? defaultShell);
+  const shell = githubShellSemantics(step.shell ?? defaultShell, runner);
   const command = githubWorkingDirectoryIsRoot(step["working-directory"] ?? defaultWorkingDirectory) && shell.supported ? invocationFromField(step, "run", "command", executionGroup, shell.failFast) : null;
   return [action, command].filter((invocation) => invocation !== null);
 }
-function githubShellSemantics(value) {
-  if (value === void 0) return { failFast: true, supported: true };
+function githubShellSemantics(value, runner) {
+  if (value === void 0) {
+    return githubRunnerUsesFailFastDefaultShell(runner) ? { failFast: true, supported: true } : { failFast: false, supported: false };
+  }
   if (typeof value !== "string") return { failFast: false, supported: false };
   const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
   if (["bash", "sh"].includes(normalized)) return { failFast: true, supported: true };
@@ -1771,6 +1787,17 @@ function githubShellSemantics(value) {
     return { failFast: false, supported: true };
   }
   return { failFast: false, supported: false };
+}
+function githubRunnerUsesFailFastDefaultShell(value) {
+  const labels = (Array.isArray(value) ? value : [value]).filter(
+    (label) => typeof label === "string"
+  );
+  if (labels.length === 0 || labels.some((label) => label.includes("${{"))) return false;
+  const normalized = labels.map((label) => label.trim().toLowerCase());
+  if (normalized.some((label) => label.includes("windows"))) return false;
+  return normalized.some(
+    (label) => ["ubuntu", "linux", "macos"].some((operatingSystem) => label.includes(operatingSystem))
+  );
 }
 function githubWorkingDirectoryIsRoot(value) {
   if (value === void 0) return true;
@@ -3135,7 +3162,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   const modernEvidence = usesModernEvidence(benchmark.version);
   const schemaVersion = reportSchemaVersion(benchmark.version);
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
-  validateAttestations(benchmark, catalog, options.attestations ?? null);
+  validateAttestations(benchmark, catalog, context, options.attestations ?? null);
   await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
   const controls = await Promise.all(
     catalog.map(
@@ -3236,8 +3263,22 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     ]
   };
 }
-function validateAttestations(benchmark, catalog, attestations) {
+function validateAttestations(benchmark, catalog, context, attestations) {
   if (!attestations || benchmark.version !== "0.4.0") return;
+  if (attestations.benchmark_version !== benchmark.version) {
+    throw new Error(
+      `Attestation benchmark ${attestations.benchmark_version} does not match ${benchmark.version}`
+    );
+  }
+  const expectedTarget = repositoryEvidenceTarget(context.metadata).repository;
+  if (!attestations.target) {
+    throw new Error("ADRB v0.4 attestations require a repository target");
+  }
+  if (attestations.target.repository !== expectedTarget) {
+    throw new Error(
+      `Attestation target ${attestations.target.repository} does not match ${expectedTarget}`
+    );
+  }
   const controlIds = new Set(catalog.map(({ id }) => id));
   for (const controlId of Object.keys(attestations.attestations)) {
     if (!/^ADRB-[A-Z]{3}-\d{3}$/.test(controlId)) {
@@ -3385,6 +3426,8 @@ program.command("init").argument("[repository]", "repository to initialize", "."
     }
   }
   const { benchmark, controls } = await loadBenchmark();
+  const context = await createRepositoryContext(repo, "workspace");
+  const target = { repository: repositoryEvidenceTarget(context.metadata).repository };
   const reviewedAt = /* @__PURE__ */ new Date();
   const expiresAt = new Date(reviewedAt);
   expiresAt.setDate(expiresAt.getDate() + 90);
@@ -3411,7 +3454,7 @@ program.command("init").argument("[repository]", "repository to initialize", "."
   await writeFile(
     path,
     `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.
-${stringify({ benchmark_version: benchmark.version, attestations })}`,
+${stringify({ benchmark_version: benchmark.version, target, attestations })}`,
     "utf8"
   );
   process.stdout.write(`Created ${path}

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -2617,12 +2617,12 @@ describe('v0.4 evidence calibration', () => {
   });
 
   it('uses shell fail-fast semantics for multiline secret-scan gates', async () => {
-    const workflow = (shell?: string) =>
+    const workflow = (shell?: string, runner = 'ubuntu-latest') =>
       [
         'on: [pull_request]',
         'jobs:',
         '  scan:',
-        '    runs-on: ubuntu-latest',
+        `    runs-on: ${runner}`,
         '    steps:',
         '      - uses: actions/checkout@v4',
         '      - run: |',
@@ -2632,15 +2632,21 @@ describe('v0.4 evidence calibration', () => {
       ].join('\n');
     const failFast = await gitFixture({ '.github/workflows/scan.yml': workflow() });
     const rawShell = await gitFixture({ '.github/workflows/scan.yml': workflow('bash {0}') });
+    const windowsDefault = await gitFixture({
+      '.github/workflows/scan.yml': workflow(undefined, 'windows-latest'),
+    });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const failFastReport = await assess(failFast, benchmark, controls, 'pr-creation');
       const rawShellReport = await assess(rawShell, benchmark, controls, 'pr-creation');
+      const windowsDefaultReport = await assess(windowsDefault, benchmark, controls, 'pr-creation');
       expect(controlStatus(failFastReport, 'ADRB-SEC-003')?.status).toBe('met');
       expect(controlStatus(rawShellReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(windowsDefaultReport, 'ADRB-SEC-003')?.status).toBe('unknown');
     } finally {
       await rm(failFast, { recursive: true, force: true });
       await rm(rawShell, { recursive: true, force: true });
+      await rm(windowsDefault, { recursive: true, force: true });
     }
   });
 
@@ -2654,15 +2660,22 @@ describe('v0.4 evidence calibration', () => {
       'CONTRIBUTING.md': authority,
       'OWNERS.md': ['## Former maintainers', 'Contact:', '- @alice'].join('\n'),
     });
+    const namedEmail = await gitFixture({
+      'CONTRIBUTING.md': authority,
+      'MAINTAINERS.md': '- Alice Example <alice@example.com>\n',
+    });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const currentReport = await assess(current, benchmark, controls, 'pr-creation');
       const retiredReport = await assess(retired, benchmark, controls, 'pr-creation');
+      const namedEmailReport = await assess(namedEmail, benchmark, controls, 'pr-creation');
       expect(controlStatus(currentReport, 'ADRB-GOV-002')?.status).toBe('met');
       expect(controlStatus(retiredReport, 'ADRB-GOV-002')?.status).toBe('not_met');
+      expect(controlStatus(namedEmailReport, 'ADRB-GOV-002')?.status).toBe('met');
     } finally {
       await rm(current, { recursive: true, force: true });
       await rm(retired, { recursive: true, force: true });
+      await rm(namedEmail, { recursive: true, force: true });
     }
   });
 
@@ -2773,6 +2786,7 @@ describe('v0.4 evidence calibration', () => {
     const repository = await gitFixture({ 'README.md': '# Fixture\n' });
     const attestation = (controlId: string): AttestationFile => ({
       benchmark_version: '0.4.0',
+      target: { repository: 'https://example.invalid/acme/repository.git' },
       attestations: {
         [controlId]: {
           status: 'met',
@@ -2801,8 +2815,45 @@ describe('v0.4 evidence calibration', () => {
           attestations: attestation('ADRB-SECURITY-003'),
         }),
       ).rejects.toThrow('malformed control ID ADRB-SECURITY-003');
+      await expect(
+        assess(repository, benchmark, controls, 'pr-creation', {
+          attestations: {
+            ...attestation('ADRB-SEC-003'),
+            target: { repository: 'https://example.invalid/other/repository.git' },
+          },
+        }),
+      ).rejects.toThrow('does not match https://example.invalid/acme/repository.git');
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps v0.4 attestation runtime validation strict at file and claim boundaries', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'adrb-v04-attestation-schema-'));
+    const path = join(directory, 'attestations.yaml');
+    const document = [
+      'benchmark_version: 0.4.0',
+      'target:',
+      '  repository: https://example.invalid/acme/repository.git',
+      'attestations:',
+      '  ADRB-SEC-003:',
+      '    status: met',
+      '    evidence: https://example.invalid/evidence',
+      '    owner: Security owner',
+      '    reviewed_at: 2026-07-19',
+      '    expires_at: 2026-10-19',
+    ];
+    try {
+      await writeFile(path, [...document, 'unexpected: true', ''].join('\n'), 'utf8');
+      await expect(loadAttestations(path, '0.4.0')).rejects.toThrow();
+      await writeFile(
+        path,
+        [...document, '    unexpected_claim_field: true', ''].join('\n'),
+        'utf8',
+      );
+      await expect(loadAttestations(path, '0.4.0')).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   });
 
@@ -2862,7 +2913,8 @@ describe('v0.4 evidence calibration', () => {
       });
       const document = parse(
         await readFile(join(repository, '.agentic', 'attestations.yaml'), 'utf8'),
-      ) as { attestations: Record<string, unknown> };
+      ) as { target: { repository: string }; attestations: Record<string, unknown> };
+      expect(document.target.repository).toBe(await realpath(repository));
       expect(document.attestations).toHaveProperty('ADRB-SEC-003');
       expect(document.attestations).toHaveProperty('ADRB-SEC-007');
       expect(document.attestations).toHaveProperty('ADRB-SEC-005');

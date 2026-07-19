@@ -484,6 +484,10 @@ function isConventionalOwnerListEntry(value: string): boolean {
 }
 
 function isDirectOwnerContact(value: string): boolean {
+  const namedEmail = /^([^<>]+?)\s*<([^<>\s]+)>$/.exec(value.trim());
+  if (namedEmail) {
+    return isNamedOwnerIdentity(namedEmail[1] ?? '') && isExactEmailContact(namedEmail[2] ?? '');
+  }
   const contacts = value
     .replace(/\band\b/gi, ' ')
     .split(/[\s,&]+/)
@@ -991,6 +995,7 @@ function githubJobInvocations(
       step,
       runDefaults.workingDirectory,
       runDefaults.shell,
+      job['runs-on'],
       executionGroup,
     );
   });
@@ -1071,13 +1076,14 @@ function githubStepInvocations(
   value: unknown,
   defaultWorkingDirectory: unknown,
   defaultShell: unknown,
+  runner: unknown,
   executionGroup: string,
 ): CiInvocation[] {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (step.uses !== undefined && step.run !== undefined) return [];
   const action = invocationFromField(step, 'uses', 'action', executionGroup);
-  const shell = githubShellSemantics(step.shell ?? defaultShell);
+  const shell = githubShellSemantics(step.shell ?? defaultShell, runner);
   const command =
     githubWorkingDirectoryIsRoot(step['working-directory'] ?? defaultWorkingDirectory) &&
     shell.supported
@@ -1086,8 +1092,15 @@ function githubStepInvocations(
   return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
 }
 
-function githubShellSemantics(value: unknown): { failFast: boolean; supported: boolean } {
-  if (value === undefined) return { failFast: true, supported: true };
+function githubShellSemantics(
+  value: unknown,
+  runner: unknown,
+): { failFast: boolean; supported: boolean } {
+  if (value === undefined) {
+    return githubRunnerUsesFailFastDefaultShell(runner)
+      ? { failFast: true, supported: true }
+      : { failFast: false, supported: false };
+  }
   if (typeof value !== 'string') return { failFast: false, supported: false };
   const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
   if (['bash', 'sh'].includes(normalized)) return { failFast: true, supported: true };
@@ -1095,6 +1108,18 @@ function githubShellSemantics(value: unknown): { failFast: boolean; supported: b
     return { failFast: false, supported: true };
   }
   return { failFast: false, supported: false };
+}
+
+function githubRunnerUsesFailFastDefaultShell(value: unknown): boolean {
+  const labels = (Array.isArray(value) ? value : [value]).filter(
+    (label): label is string => typeof label === 'string',
+  );
+  if (labels.length === 0 || labels.some((label) => label.includes('${{'))) return false;
+  const normalized = labels.map((label) => label.trim().toLowerCase());
+  if (normalized.some((label) => label.includes('windows'))) return false;
+  return normalized.some((label) =>
+    ['ubuntu', 'linux', 'macos'].some((operatingSystem) => label.includes(operatingSystem)),
+  );
 }
 
 function githubWorkingDirectoryIsRoot(value: unknown): boolean {

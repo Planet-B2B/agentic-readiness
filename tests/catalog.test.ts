@@ -382,8 +382,21 @@ describe('benchmark catalog', () => {
     const schema = JSON.parse(
       await readFile(resolve(benchmarkFixture('v0.4'), 'attestation-schema.json'), 'utf8'),
     ) as {
-      properties?: { attestations?: { propertyNames?: { pattern?: string } } };
+      additionalProperties?: boolean;
+      required?: string[];
+      properties?: {
+        target?: { additionalProperties?: boolean; required?: string[] };
+        attestations?: {
+          propertyNames?: { pattern?: string };
+          additionalProperties?: { additionalProperties?: boolean };
+        };
+      };
     };
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toContain('target');
+    expect(schema.properties?.target?.required).toEqual(['repository']);
+    expect(schema.properties?.target?.additionalProperties).toBe(false);
+    expect(schema.properties?.attestations?.additionalProperties?.additionalProperties).toBe(false);
     expect(schema.properties?.attestations?.propertyNames?.pattern).toBe(
       '^ADRB-[A-Z]{3}-[0-9]{3}$',
     );
