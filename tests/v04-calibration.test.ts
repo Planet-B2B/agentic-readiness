@@ -797,6 +797,60 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('attributes an alternative pass to the supplemental source that establishes it', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture repository\n' });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const gitHead = execFileSync('git', ['-C', repository, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
+      const agentEvidence: AgentEvidenceFile = {
+        schema_version: '0.4.0',
+        benchmark_version: '0.4.0',
+        target: {
+          repository: 'https://example.invalid/acme/repository.git',
+          git_head: gitHead,
+        },
+        collector: { name: 'fixture-repository-adapter', version: '1.0.0' },
+        claims: {
+          'ADRB-SEC-003': {
+            status: 'not_met',
+            scope: 'repository',
+            summary: 'No repository CI secret-scanning gate is configured.',
+            references: ['repo:README.md#L1'],
+            collected_at: '2026-07-18T10:00:00.000Z',
+            expires_at: '2026-08-17T10:00:00.000Z',
+            error: null,
+          },
+        },
+      };
+      const attestations: AttestationFile = {
+        benchmark_version: '0.4.0',
+        target: { repository: 'https://example.invalid/acme/repository.git' },
+        attestations: {
+          'ADRB-SEC-003': {
+            status: 'met',
+            evidence: 'https://example.invalid/settings/security/secret-scanning',
+            owner: 'Security owner',
+            reviewed_at: '2026-07-18',
+            expires_at: '2026-10-18',
+          },
+        },
+      };
+      const report = await assess(repository, benchmark, controls, 'pr-creation', {
+        agentEvidence,
+        attestations,
+        now: new Date('2026-07-18T12:00:00.000Z'),
+      });
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.confidence).toBe('attested');
+      expect(report.evidence_summary.attested).toBe(1);
+      expect(report.evidence_summary.agent_collected).toBe(0);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('recognizes enabled merge-request scanners in GitLab and Azure pipelines', async () => {
     const gitlab = await gitFixture({
       '.gitlab-ci.yml': [
@@ -2854,6 +2908,33 @@ describe('v0.4 evidence calibration', () => {
       await rm(disjoint, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('does not combine mutually exclusive GitHub events into one environment execution', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/verify.yml': [
+        'on: [pull_request, merge_group]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        "      - if: github.event_name == 'pull_request'",
+        '        run: npm ci',
+        "      - if: github.event_name == 'merge_group'",
+        '        run: pytest',
+        "      - if: github.event_name == 'merge_group'",
+        '        run: mypy .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-ENV-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
 
   it('rejects malformed and unknown v0.4 attestation control IDs', async () => {
     const repository = await gitFixture({ 'README.md': '# Fixture\n' });

@@ -77,7 +77,9 @@ Mechanical Level 3 context, environment, specification, testing, and learning co
 structurally recognized CI commands; comments, documentation, and command-name keywords do not
 establish execution. `ADRB-ENV-003` requires a locked installation plus independent test and
 static-analysis command classes in the same CI execution group; commands split across jobs or
-workflow files do not prove that one clean environment performs canonical verification.
+workflow files do not prove that one clean environment performs canonical verification. GitHub
+event conditions are part of that identity, so commands restricted to mutually exclusive
+`pull_request` and `merge_group` executions do not combine.
 `ADRB-TST-003`
 requires independent test and static-analysis command classes aggregated across the assessed CI
 entry points. Root package-manager tasks must
@@ -122,7 +124,9 @@ alternative has not been collected; it does not infer either a platform pass or 
 Supplemental evidence resolves only alternatives with the same scope. A negative claim makes the
 control `not_met` only when every alternative is established negatively; any uncollected alternative
 keeps the control `unknown`.
-The report shows every alternative and its provenance.
+The report shows every alternative and its provenance. Control confidence comes from the
+alternative that establishes the decisive pass or complete negative result; supplemental input on a
+different alternative does not relabel the result or its evidence-summary/profile dependency.
 Established-control tables display the scope of the evidence that resolved the control rather than
 an unresolved alternative scope.
 

@@ -990,13 +990,15 @@ function githubJobInvocations(
     if (!condition.certain || isDisabledCiNode(step)) return [];
     const stepEvents = condition.events;
     if (stepEvents.size === 0) return [];
-    if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
+    const executableEvents = new Set([...stepEvents].filter((event) => checkoutEvents.has(event)));
+    if (executableEvents.size === 0) return [];
     return githubStepInvocations(
       step,
       runDefaults.workingDirectory,
       runDefaults.shell,
       job['runs-on'],
       executionGroup,
+      executableEvents,
     );
   });
 }
@@ -1078,6 +1080,7 @@ function githubStepInvocations(
   defaultShell: unknown,
   runner: unknown,
   executionGroup: string,
+  events: Set<string>,
 ): CiInvocation[] {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
@@ -1089,7 +1092,15 @@ function githubStepInvocations(
     shell.supported
       ? invocationFromField(step, 'run', 'command', executionGroup, shell.failFast)
       : null;
-  return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
+  const invocations = [action, command].filter(
+    (invocation): invocation is CiInvocation => invocation !== null,
+  );
+  return [...events].flatMap((event) =>
+    invocations.map((invocation) => ({
+      ...invocation,
+      executionGroup: `${executionGroup}:event-${event}`,
+    })),
+  );
 }
 
 function githubShellSemantics(
@@ -2754,6 +2765,7 @@ function alternativeSupplementalResolution(
     return { confidence: 'attested', status: 'not_applicable' };
   }
   const statuses = evidence.map(({ status }) => status);
+  const sources: Array<ControlResolution['confidence'] | null> = evidence.map(() => null);
   const agentIndexes = matchingAlternativeIndexes(evidence, agentEvidence?.scope ?? null);
   const attestationIndexes = manualAlternativeIndexes(evidence);
   if (
@@ -2767,15 +2779,30 @@ function alternativeSupplementalResolution(
     return { confidence: 'none', status: 'unknown' };
   }
 
-  applyAlternativeStatus(statuses, agentIndexes, agentEvidence?.status ?? null);
-  applyAlternativeStatus(statuses, attestationIndexes, attestation?.status ?? null);
-
-  const confidence = alternativeSupplementalConfidence(
-    agentEvidence !== null && agentIndexes.length > 0,
-    attestation !== null && attestationIndexes.length > 0,
+  applyAlternativeStatus(
+    statuses,
+    sources,
+    agentIndexes,
+    agentEvidence?.status ?? null,
+    'agent-collected',
   );
-  if (statuses.includes('met')) return { confidence, status: 'met' };
-  if (statuses.every((status) => status === 'not_met')) return { confidence, status: 'not_met' };
+  applyAlternativeStatus(
+    statuses,
+    sources,
+    attestationIndexes,
+    attestation?.status ?? null,
+    'attested',
+  );
+
+  if (statuses.includes('met')) {
+    return { confidence: decisiveAlternativeConfidence(statuses, sources, 'met'), status: 'met' };
+  }
+  if (statuses.every((status) => status === 'not_met')) {
+    return {
+      confidence: decisiveAlternativeConfidence(statuses, sources, 'not_met'),
+      status: 'not_met',
+    };
+  }
   return { confidence: 'none', status: 'unknown' };
 }
 
@@ -2807,19 +2834,28 @@ function alternativeSupplementalEvidenceConflicts(
 
 function applyAlternativeStatus(
   statuses: EvidenceResult['status'][],
+  sources: Array<ControlResolution['confidence'] | null>,
   indexes: number[],
   status: Attestation['status'] | AgentEvidenceClaim['status'] | null,
+  source: Exclude<ControlResolution['confidence'], 'none' | 'repository-detected'>,
 ): void {
   if (status === null || status === 'not_applicable') return;
-  for (const index of indexes) statuses[index] = status;
+  for (const index of indexes) {
+    statuses[index] = status;
+    sources[index] = source;
+  }
 }
 
-function alternativeSupplementalConfidence(
-  agentContributed: boolean,
-  attestationContributed: boolean,
+function decisiveAlternativeConfidence(
+  statuses: EvidenceResult['status'][],
+  sources: Array<ControlResolution['confidence'] | null>,
+  decisiveStatus: 'met' | 'not_met',
 ): ControlResolution['confidence'] {
-  if (agentContributed) return 'agent-collected';
-  if (attestationContributed) return 'attested';
+  const decisiveSources = sources.filter(
+    (source, index) => statuses[index] === decisiveStatus && source !== null,
+  );
+  if (decisiveSources.includes('agent-collected')) return 'agent-collected';
+  if (decisiveSources.includes('attested')) return 'attested';
   return 'none';
 }
 

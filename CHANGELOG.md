@@ -22,7 +22,8 @@
   inherited working directories, supported fail-fast multiline scripts, failure propagation, and
   path, condition, or allow-failure exclusions.
 - Require `ADRB-ENV-003` install, test, and static-analysis classes in one CI execution group, while
-  preserving aggregate verification where the benchmark outcome permits independent workflows.
+  preserving effective GitHub event partitions and aggregate verification where the benchmark
+  outcome permits independent workflows.
 - Validate ownership tables, mappings, contacts, CODEOWNERS targets and inline comments, while
   excluding retired, placeholder, bot-qualified, negated, or structurally ambiguous assignments.
 - Validate guidance, specification, and knowledge-maintenance scripts by reachable executable
@@ -33,7 +34,8 @@
   distinct from untrusted-input safeguards; reject future review dates and unresolved placeholders
   on active claims.
 - Report required-check progress, stable blocker labels, actual mixed-evidence scope, and unresolved
-  alternative controls separately from control-level confidence.
+  alternative controls separately from control-level confidence; attribute mixed-alternative
+  results to the source that supplies the decisive status.
 - Keep repository reads canonical, bounded, generated-output-safe, and linear for long source lines;
   constrain agent-document links to the checkout and align the published evidence schemas with
   runtime validation.

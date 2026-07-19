@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Aggregation preserves execution partitions and decisive provenance
+
+**Context.** Exact-head review found that commands guarded to mutually exclusive GitHub events could
+combine under one job identity, while an unrelated agent claim could relabel a pass established by a
+human attestation.
+
+**Rule.** Carry effective event partitions through same-execution aggregation, and derive result
+confidence only from the evidence source that establishes the decisive status.
+
 ## 2026-07-19 — Passing evidence must be executable, current, accountable, and non-overlapping
 
 **Context.** Final release review found that dry-run install/test commands could satisfy execution

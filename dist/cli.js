@@ -1720,13 +1720,15 @@ function githubJobInvocations(value, parentEvents, workflowDefaults, executionGr
     if (!condition.certain || isDisabledCiNode(step)) return [];
     const stepEvents = condition.events;
     if (stepEvents.size === 0) return [];
-    if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
+    const executableEvents = new Set([...stepEvents].filter((event) => checkoutEvents.has(event)));
+    if (executableEvents.size === 0) return [];
     return githubStepInvocations(
       step,
       runDefaults.workingDirectory,
       runDefaults.shell,
       job["runs-on"],
-      executionGroup
+      executionGroup,
+      executableEvents
     );
   });
 }
@@ -1773,14 +1775,22 @@ function mergeGithubRunDefaults(workflow, job) {
     workingDirectory: job.workingDirectory ?? workflow.workingDirectory
   };
 }
-function githubStepInvocations(value, defaultWorkingDirectory, defaultShell, runner, executionGroup) {
+function githubStepInvocations(value, defaultWorkingDirectory, defaultShell, runner, executionGroup, events) {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (step.uses !== void 0 && step.run !== void 0) return [];
   const action = invocationFromField(step, "uses", "action", executionGroup);
   const shell = githubShellSemantics(step.shell ?? defaultShell, runner);
   const command = githubWorkingDirectoryIsRoot(step["working-directory"] ?? defaultWorkingDirectory) && shell.supported ? invocationFromField(step, "run", "command", executionGroup, shell.failFast) : null;
-  return [action, command].filter((invocation) => invocation !== null);
+  const invocations = [action, command].filter(
+    (invocation) => invocation !== null
+  );
+  return [...events].flatMap(
+    (event) => invocations.map((invocation) => ({
+      ...invocation,
+      executionGroup: `${executionGroup}:event-${event}`
+    }))
+  );
 }
 function githubShellSemantics(value, runner) {
   if (value === void 0) {
@@ -2972,6 +2982,7 @@ function alternativeSupplementalResolution(evidence, attestation, agentEvidence)
     return { confidence: "attested", status: "not_applicable" };
   }
   const statuses = evidence.map(({ status }) => status);
+  const sources = evidence.map(() => null);
   const agentIndexes = matchingAlternativeIndexes(evidence, agentEvidence?.scope ?? null);
   const attestationIndexes = manualAlternativeIndexes(evidence);
   if (alternativeSupplementalEvidenceConflicts(
@@ -2982,14 +2993,29 @@ function alternativeSupplementalResolution(evidence, attestation, agentEvidence)
   )) {
     return { confidence: "none", status: "unknown" };
   }
-  applyAlternativeStatus(statuses, agentIndexes, agentEvidence?.status ?? null);
-  applyAlternativeStatus(statuses, attestationIndexes, attestation?.status ?? null);
-  const confidence = alternativeSupplementalConfidence(
-    agentEvidence !== null && agentIndexes.length > 0,
-    attestation !== null && attestationIndexes.length > 0
+  applyAlternativeStatus(
+    statuses,
+    sources,
+    agentIndexes,
+    agentEvidence?.status ?? null,
+    "agent-collected"
   );
-  if (statuses.includes("met")) return { confidence, status: "met" };
-  if (statuses.every((status) => status === "not_met")) return { confidence, status: "not_met" };
+  applyAlternativeStatus(
+    statuses,
+    sources,
+    attestationIndexes,
+    attestation?.status ?? null,
+    "attested"
+  );
+  if (statuses.includes("met")) {
+    return { confidence: decisiveAlternativeConfidence(statuses, sources, "met"), status: "met" };
+  }
+  if (statuses.every((status) => status === "not_met")) {
+    return {
+      confidence: decisiveAlternativeConfidence(statuses, sources, "not_met"),
+      status: "not_met"
+    };
+  }
   return { confidence: "none", status: "unknown" };
 }
 function matchingAlternativeIndexes(evidence, scope) {
@@ -3007,13 +3033,19 @@ function alternativeSupplementalEvidenceConflicts(evidence, attestationIndexes, 
   );
   return sameAlternative && agentEvidence.status !== attestation.status;
 }
-function applyAlternativeStatus(statuses, indexes, status) {
+function applyAlternativeStatus(statuses, sources, indexes, status, source) {
   if (status === null || status === "not_applicable") return;
-  for (const index of indexes) statuses[index] = status;
+  for (const index of indexes) {
+    statuses[index] = status;
+    sources[index] = source;
+  }
 }
-function alternativeSupplementalConfidence(agentContributed, attestationContributed) {
-  if (agentContributed) return "agent-collected";
-  if (attestationContributed) return "attested";
+function decisiveAlternativeConfidence(statuses, sources, decisiveStatus) {
+  const decisiveSources = sources.filter(
+    (source, index) => statuses[index] === decisiveStatus && source !== null
+  );
+  if (decisiveSources.includes("agent-collected")) return "agent-collected";
+  if (decisiveSources.includes("attested")) return "attested";
   return "none";
 }
 function resolveControl(control, evidence, attestation, agentEvidence) {
