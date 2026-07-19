@@ -44,6 +44,11 @@ var PathAllSchema = z.object({
   patterns: z.array(z.string().min(1)).min(1),
   min_bytes: z.number().int().positive().default(1)
 });
+var OwnershipMapSchema = z.object({
+  type: z.literal("ownership_map"),
+  scope: z.literal("repository").default("repository"),
+  patterns: z.array(z.string().min(1)).min(1)
+});
 var ContentAnySchema = z.object({
   type: z.literal("content_any"),
   scope: z.literal("repository").default("repository"),
@@ -66,6 +71,82 @@ var ContentTermsSchema = z.object({
   max_span_lines: z.number().int().positive().max(200).optional(),
   max_files_per_pattern: z.number().int().positive().max(250).optional()
 });
+var ContentGroupsSchema = z.object({
+  type: z.literal("content_groups"),
+  scope: z.literal("repository").default("repository"),
+  files: z.array(z.string().min(1)).min(1),
+  groups: z.array(
+    z.object({
+      id: z.string().regex(/^[a-z0-9-]+$/),
+      terms: z.array(z.string().min(1)).min(1)
+    })
+  ).min(1),
+  min_groups: z.number().int().positive(),
+  max_span_lines: z.number().int().positive().max(200).optional(),
+  max_files_per_pattern: z.number().int().positive().max(250).optional()
+});
+var CiProviderSchema = z.object({
+  id: z.enum(["github-actions", "gitlab-ci", "azure-pipelines"]),
+  files: z.array(z.string().min(1)).min(1)
+});
+var SourcePatternSchema = z.string().min(1).refine((pattern) => {
+  try {
+    new RegExp(pattern, "u");
+    return true;
+  } catch {
+    return false;
+  }
+}, "Source patterns must be valid regular expressions");
+var CiCommandSignatureSchema = z.object({
+  executables: z.array(z.string().min(1)).min(1),
+  repository_executables: z.array(z.string().min(1)).default([]),
+  argument_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
+  source_max_span_lines: z.number().int().positive().max(200).default(120),
+  required_argument_prefixes: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  max_arguments: z.number().int().nonnegative().optional(),
+  prohibited_arguments: z.array(z.string().min(1)).default([]),
+  prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([])
+});
+var CiToolSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/),
+  commands: z.array(CiCommandSignatureSchema).default([]),
+  standalone_executables: z.array(z.string().min(1)).default([]),
+  actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([]),
+  prohibited_arguments: z.array(z.string().min(1)).default([]),
+  prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([]),
+  requires_final_exit_status: z.boolean().default(false)
+}).superRefine((tool, context) => {
+  const commandConfigured = tool.commands.length > 0 || tool.standalone_executables.length > 0;
+  if (!commandConfigured && tool.actions.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A CI tool must define a command signature, a standalone executable, or a full action identity"
+    });
+  }
+});
+var CiCommandWrapperSchema = z.object({
+  executable_patterns: z.array(SourcePatternSchema).min(1),
+  command_prefixes: z.array(z.array(z.string().min(1))).min(1)
+}).strict();
+var CiInvocationGrammarSchema = z.object({
+  wrappers: z.array(CiCommandWrapperSchema).default([]),
+  wrapper_options_with_values: z.array(z.string().min(1)).default([])
+}).strict();
+var CiCommandSchema = z.object({
+  type: z.literal("ci_command"),
+  scope: z.literal("repository").default("repository"),
+  providers: z.array(CiProviderSchema).default([]),
+  tools: z.array(CiToolSchema).default([]),
+  min_tools: z.number().int().positive().default(1),
+  tool_match_mode: z.enum(["aggregate", "same-execution"]).default("aggregate"),
+  invocation_grammar: CiInvocationGrammarSchema.default({
+    wrappers: [],
+    wrapper_options_with_values: []
+  }),
+  max_files_per_pattern: z.number().int().positive().max(250).optional()
+});
 var MaxBytesSchema = z.object({
   type: z.literal("max_bytes"),
   scope: z.literal("repository").default("repository"),
@@ -80,9 +161,12 @@ var ManualSchema = z.object({
 var EvidenceCheckSchema = z.discriminatedUnion("type", [
   PathAnySchema,
   PathAllSchema,
+  OwnershipMapSchema,
   ContentAnySchema,
   ContentAllSchema,
   ContentTermsSchema,
+  ContentGroupsSchema,
+  CiCommandSchema,
   MaxBytesSchema,
   ManualSchema
 ]);
@@ -93,6 +177,7 @@ var RawControlSchema = z.object({
   outcome: z.string().min(1),
   risk: z.string().min(1),
   evidence: z.array(EvidenceCheckSchema).min(1),
+  evidence_mode: z.enum(["all", "any"]).default("all"),
   remediation: z.string().min(1),
   references: z.array(z.string().min(1)).default([]),
   allow_attestation: z.boolean().default(false),
@@ -117,26 +202,38 @@ var DetectorAdapterExtensionSchema = z.object({
   patterns: z.array(z.string().min(1)).min(1).optional(),
   files: z.array(z.string().min(1)).min(1).optional(),
   terms: z.array(z.string().min(1)).min(1).optional(),
-  required_any_terms: z.array(z.string().min(1)).min(1).optional()
+  required_any_terms: z.array(z.string().min(1)).min(1).optional(),
+  ci_providers: z.array(CiProviderSchema).min(1).optional(),
+  ci_tools: z.array(CiToolSchema).min(1).optional()
 }).strict().superRefine((extension, context) => {
   const extensionKinds = [
     extension.patterns,
     extension.files,
     extension.terms,
-    extension.required_any_terms
+    extension.required_any_terms,
+    extension.ci_providers,
+    extension.ci_tools
   ].filter(Boolean).length;
   if (extensionKinds !== 1) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "A detector extension must declare exactly one of patterns, files, terms, or required_any_terms"
+      message: "A detector extension must declare exactly one of patterns, files, terms, required_any_terms, ci_providers, or ci_tools"
     });
   }
 });
 var DetectorAdapterSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   benchmark_version: z.string().regex(/^\d+\.\d+\.\d+$/),
-  extensions: z.array(DetectorAdapterExtensionSchema).min(1)
-}).strict();
+  ci_invocation_grammar: CiInvocationGrammarSchema.optional(),
+  extensions: z.array(DetectorAdapterExtensionSchema).default([])
+}).strict().superRefine((adapter, context) => {
+  if (adapter.extensions.length === 0 && !adapter.ci_invocation_grammar) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A detector adapter must declare extensions or CI invocation grammar"
+    });
+  }
+});
 var DimensionSchema = z.object({
   id: DimensionIdSchema,
   title: z.string().min(1),
@@ -175,6 +272,11 @@ var AttestationSchema = z.object({
   reviewed_at: z.string().date(),
   expires_at: z.string().date()
 });
+var AttestationV04Schema = AttestationSchema.strict();
+var AttestationTargetV04Schema = z.object({
+  repository: z.string().min(1)
+}).strict();
+var AttestationControlIdV04Schema = z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/);
 var LegacyAttestationSchema = AttestationSchema.extend({
   expires_at: z.string().date().nullable().default(null)
 });
@@ -182,6 +284,11 @@ var AttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), AttestationSchema).default({})
 });
+var AttestationFileV04Schema = z.object({
+  benchmark_version: z.literal("0.4.0"),
+  target: AttestationTargetV04Schema,
+  attestations: z.record(AttestationControlIdV04Schema, AttestationV04Schema)
+}).strict();
 var LegacyAttestationFileSchema = z.object({
   benchmark_version: z.string().min(1),
   attestations: z.record(z.string(), LegacyAttestationSchema).default({})
@@ -240,23 +347,27 @@ var AgentEvidenceClaimV03Schema = z.object({
     });
   }
 });
-var AgentEvidenceFileV03Schema = z.object({
-  schema_version: z.literal("0.3.0"),
-  benchmark_version: z.literal("0.3.0"),
-  target: z.object({
-    repository: z.string().min(1),
-    git_head: z.string().min(1)
-  }).strict(),
-  collector: z.object({
-    name: z.string().min(1),
-    version: z.string().min(1)
-  }).strict(),
-  claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema)
-}).strict();
+function modernAgentEvidenceFileSchema(version) {
+  return z.object({
+    schema_version: z.literal(version),
+    benchmark_version: z.literal(version),
+    target: z.object({
+      repository: z.string().min(1),
+      git_head: z.string().min(1)
+    }).strict(),
+    collector: z.object({
+      name: z.string().min(1),
+      version: z.string().min(1)
+    }).strict(),
+    claims: z.record(z.string().regex(/^ADRB-[A-Z]{3}-\d{3}$/), AgentEvidenceClaimV03Schema)
+  }).strict();
+}
+var AgentEvidenceFileV03Schema = modernAgentEvidenceFileSchema("0.3.0");
+var AgentEvidenceFileV04Schema = modernAgentEvidenceFileSchema("0.4.0");
 
 // src/load.ts
 var packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-var defaultBenchmarkRoot = join(packageRoot, "benchmark", "v0.3");
+var defaultBenchmarkRoot = join(packageRoot, "benchmark", "v0.4");
 async function readYaml(path) {
   return parse(await readFile(path, "utf8"));
 }
@@ -285,6 +396,28 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
     throw new Error(
       `Detector adapter ${adapter.id} targets ${adapter.benchmark_version}, not ${benchmark.version}`
     );
+  }
+  if (adapter.ci_invocation_grammar) {
+    for (const control of controls) {
+      for (const check of control.evidence) {
+        if (check.type !== "ci_command") continue;
+        check.invocation_grammar = {
+          wrappers: [
+            ...new Map(
+              [...check.invocation_grammar.wrappers, ...adapter.ci_invocation_grammar.wrappers].map(
+                (wrapper) => [JSON.stringify(wrapper), wrapper]
+              )
+            ).values()
+          ],
+          wrapper_options_with_values: [
+            .../* @__PURE__ */ new Set([
+              ...check.invocation_grammar.wrapper_options_with_values,
+              ...adapter.ci_invocation_grammar.wrapper_options_with_values
+            ])
+          ]
+        };
+      }
+    }
   }
   for (const extension of adapter.extensions) {
     const control = controls.find(({ id }) => id === extension.control_id);
@@ -331,6 +464,67 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
         .../* @__PURE__ */ new Set([...check.required_any_terms ?? [], ...extension.required_any_terms])
       ];
     }
+    if (extension.ci_providers) {
+      if (check.type !== "ci_command") {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI providers to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      const providers = new Map(check.providers.map((provider) => [provider.id, provider]));
+      for (const extensionProvider of extension.ci_providers) {
+        const provider = providers.get(extensionProvider.id);
+        providers.set(extensionProvider.id, {
+          id: extensionProvider.id,
+          files: [.../* @__PURE__ */ new Set([...provider?.files ?? [], ...extensionProvider.files])]
+        });
+      }
+      check.providers = [...providers.values()];
+    }
+    if (extension.ci_tools) {
+      if (check.type !== "ci_command") {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI tools to ${control.id} evidence ${extension.evidence_index}`
+        );
+      }
+      const tools = new Map(check.tools.map((tool) => [tool.id, tool]));
+      for (const extensionTool of extension.ci_tools) {
+        const tool = tools.get(extensionTool.id);
+        tools.set(extensionTool.id, {
+          id: extensionTool.id,
+          commands: [
+            ...new Map(
+              [...tool?.commands ?? [], ...extensionTool.commands].map((command) => [
+                JSON.stringify(command),
+                command
+              ])
+            ).values()
+          ],
+          standalone_executables: [
+            .../* @__PURE__ */ new Set([
+              ...tool?.standalone_executables ?? [],
+              ...extensionTool.standalone_executables
+            ])
+          ],
+          actions: [.../* @__PURE__ */ new Set([...tool?.actions ?? [], ...extensionTool.actions])],
+          prohibited_arguments: [
+            .../* @__PURE__ */ new Set([
+              ...tool?.prohibited_arguments ?? [],
+              ...extensionTool.prohibited_arguments
+            ])
+          ],
+          prohibited_argument_sequences: [
+            ...new Map(
+              [
+                ...tool?.prohibited_argument_sequences ?? [],
+                ...extensionTool.prohibited_argument_sequences
+              ].map((sequence) => [JSON.stringify(sequence), sequence])
+            ).values()
+          ],
+          requires_final_exit_status: (tool?.requires_final_exit_status ?? false) || extensionTool.requires_final_exit_status
+        });
+      }
+      check.tools = [...tools.values()];
+    }
   }
 }
 async function loadAttestations(path, benchmarkVersion, options = {}) {
@@ -347,7 +541,7 @@ async function loadAttestations(path, benchmarkVersion, options = {}) {
     )) {
       return null;
     }
-    const file = benchmarkVersion === "0.1.0" ? LegacyAttestationFileSchema.parse(rawFile) : AttestationFileSchema.parse(rawFile);
+    const file = benchmarkVersion === "0.1.0" ? LegacyAttestationFileSchema.parse(rawFile) : benchmarkVersion === "0.4.0" ? AttestationFileV04Schema.parse(rawFile) : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
         `Attestation benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`
@@ -380,6 +574,7 @@ async function loadAgentEvidence(path, benchmarkVersion, options = {}) {
     const file = (() => {
       if (benchmarkVersion === "0.2.0") return AgentEvidenceFileSchema.parse(rawFile);
       if (benchmarkVersion === "0.3.0") return AgentEvidenceFileV03Schema.parse(rawFile);
+      if (benchmarkVersion === "0.4.0") return AgentEvidenceFileV04Schema.parse(rawFile);
       throw new Error(`Agent evidence bundles are unsupported for benchmark ${benchmarkVersion}`);
     })();
     if (file.benchmark_version !== benchmarkVersion) {
@@ -416,7 +611,7 @@ function validateCatalog(benchmark, controls) {
   for (const control of controls) {
     if (ids.has(control.id)) throw new Error(`Duplicate control id: ${control.id}`);
     ids.add(control.id);
-    if (["0.2.0", "0.3.0"].includes(benchmark.version) && control.evidence.some(({ type }) => type === "content_any" || type === "content_all")) {
+    if (["0.2.0", "0.3.0", "0.4.0"].includes(benchmark.version) && control.evidence.some(({ type }) => type === "content_any" || type === "content_all")) {
       throw new Error(
         `${control.id} uses a legacy broad content collector in benchmark ${benchmark.version}`
       );
@@ -432,12 +627,33 @@ function validateCatalog(benchmark, controls) {
     if (benchmark.version === "0.2.0" && control.agent_evidence_scopes.some((scope) => scope === "repository")) {
       throw new Error(`${control.id} changes immutable v0.2 repository evidence semantics`);
     }
-    if (["0.2.0", "0.3.0"].includes(benchmark.version) && control.allow_attestation && !control.evidence.some(({ type }) => type === "manual")) {
+    if (["0.2.0", "0.3.0", "0.4.0"].includes(benchmark.version) && control.allow_attestation && !control.evidence.some(({ type }) => type === "manual")) {
       throw new Error(`${control.id} allows attestation for repository-detected evidence`);
+    }
+    if (control.evidence_mode === "any" && control.evidence.length < 2) {
+      throw new Error(`${control.id} uses alternative evidence without multiple evidence checks`);
     }
     for (const check of control.evidence) {
       if (check.type === "content_terms" && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more content terms than it defines`);
+      }
+      if (check.type === "ci_command" && check.providers.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a provider adapter`);
+      }
+      if (check.type === "ci_command" && check.tools.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a tool adapter`);
+      }
+      if (check.type === "ci_command" && check.min_tools > check.tools.length) {
+        throw new Error(`${control.id} requires more CI tools than it defines`);
+      }
+      if (check.type === "content_groups") {
+        const groupIds = check.groups.map(({ id }) => id);
+        if (new Set(groupIds).size !== groupIds.length) {
+          throw new Error(`${control.id} defines duplicate semantic evidence groups`);
+        }
+        if (check.min_groups > check.groups.length) {
+          throw new Error(`${control.id} requires more semantic groups than it defines`);
+        }
       }
     }
   }
@@ -463,6 +679,12 @@ var statusIcon = {
   not_applicable: "N/A"
 };
 function controlScope(control) {
+  if (control.confidence === "repository-detected") return "repository";
+  if (control.confidence === "agent-collected" && control.agent_evidence?.status === "met") {
+    return control.agent_evidence.scope;
+  }
+  const establishedEvidence = control.evidence.find(({ status }) => status === "met");
+  if (establishedEvidence) return establishedEvidence.scope;
   return control.evidence.find(({ scope }) => scope !== "repository")?.scope ?? "repository";
 }
 function safeText(value) {
@@ -497,13 +719,28 @@ function evidenceLines(control) {
   }
   return lines;
 }
-function appendControlDetails(lines, heading, controls) {
+function confidenceRule(control) {
+  if (controlLevelConfidence(control) !== "none") return "";
+  return control.evidence_mode === "any" ? " \u2014 one evidence alternative must pass" : " \u2014 all required evidence checks must pass";
+}
+function controlLevelConfidence(control) {
+  return control.status === "unknown" ? "none" : control.confidence;
+}
+function appendControlDetails(lines, heading, controls, showCheckSummary) {
   lines.push("", `## ${heading}`, "");
   if (controls.length === 0) {
     lines.push("None.");
     return;
   }
   for (const control of controls) {
+    const establishedChecks = control.evidence.filter(({ status }) => status === "met").length;
+    const blockingChecks = control.evidence.flatMap(
+      ({ scope, status, type }, index) => status === "met" ? [] : [`#${index + 1} ${scope}/${type}`]
+    );
+    const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(", ");
+    const checkSummary = control.evidence_mode === "any" ? `Alternative evidence checks established: ${establishedChecks}/${control.evidence.length}; one required.` : `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`;
+    const blockingLabel = control.evidence_mode === "any" ? "Unresolved alternatives" : "Blocking checks";
+    const confidenceExplanation = confidenceRule(control);
     lines.push(
       `### ${statusIcon[control.status]} ${control.id} \u2014 ${control.title}`,
       "",
@@ -511,7 +748,11 @@ function appendControlDetails(lines, heading, controls) {
       "",
       `**Improve:** ${control.remediation}`,
       "",
-      `Evidence confidence: ${control.confidence}.`,
+      ...showCheckSummary ? [
+        checkSummary,
+        ...blockingChecks.length > 0 ? [`${blockingLabel}: ${blockingSummary}.`] : [],
+        `Control confidence: ${controlLevelConfidence(control)}${confidenceExplanation}.`
+      ] : [`Evidence confidence: ${control.confidence}.`],
       "",
       ...evidenceLines(control),
       ""
@@ -519,6 +760,7 @@ function appendControlDetails(lines, heading, controls) {
   }
 }
 function toMarkdown(report) {
+  const showCheckSummary = report.benchmark.version === "0.4.0";
   const target = report.profiles.find(({ id }) => id === report.target.profile);
   const targetDependencies = target?.evidence_dependencies;
   const dependencyCount = (targetDependencies?.agent_collected ?? 0) + (targetDependencies?.attested ?? 0);
@@ -532,11 +774,15 @@ function toMarkdown(report) {
   const unresolved = report.controls.filter(
     ({ status }) => status === "not_met" || status === "unknown"
   );
-  const repositoryGaps = unresolved.filter((control) => controlScope(control) === "repository");
-  const externalControls = unresolved.filter(
+  const alternativeControls = unresolved.filter(({ evidence_mode: mode }) => mode === "any");
+  const requiredControls = unresolved.filter(({ evidence_mode: mode }) => mode !== "any");
+  const repositoryGaps = requiredControls.filter(
+    (control) => controlScope(control) === "repository"
+  );
+  const externalControls = requiredControls.filter(
     (control) => ["platform", "organization"].includes(controlScope(control))
   );
-  const outcomeControls = unresolved.filter((control) => controlScope(control) === "outcome");
+  const outcomeControls = requiredControls.filter((control) => controlScope(control) === "outcome");
   const repositoryOnlyBaseline = !report.controls.some(
     ({ agent_evidence: agentEvidence, attestation }) => agentEvidence !== null || attestation !== null
   );
@@ -597,9 +843,27 @@ function toMarkdown(report) {
       );
     }
   }
-  appendControlDetails(lines, "Repository evidence gaps", repositoryGaps);
-  appendControlDetails(lines, "External controls not established", externalControls);
-  appendControlDetails(lines, "Outcome evidence not established", outcomeControls);
+  appendControlDetails(lines, "Repository evidence gaps", repositoryGaps, showCheckSummary);
+  if (alternativeControls.length > 0) {
+    appendControlDetails(
+      lines,
+      "Alternative evidence paths not established",
+      alternativeControls,
+      showCheckSummary
+    );
+  }
+  appendControlDetails(
+    lines,
+    "External controls not established",
+    externalControls,
+    showCheckSummary
+  );
+  appendControlDetails(
+    lines,
+    "Outcome evidence not established",
+    outcomeControls,
+    showCheckSummary
+  );
   lines.push(
     "",
     "## Limitations",
@@ -710,6 +974,11 @@ function repositoryEvidenceTarget(metadata) {
     git_head: metadata.git_head
   };
 }
+function normalizeRepositoryTarget(repository) {
+  const target = repository.trim();
+  const remoteLike = target.includes("://") || /^[^/\\]+@[^:]+:/.test(target);
+  return remoteLike ? target.replace(/\/+$/, "").replace(/\.git$/i, "") : target;
+}
 
 // src/score.ts
 import { readFile as readFile3 } from "fs/promises";
@@ -717,21 +986,148 @@ import { join as join2 } from "path";
 
 // src/evidence.ts
 import { lstat, readFile as readFile2, realpath as realpath2, stat } from "fs/promises";
-import { resolve as resolve3, sep as sep2 } from "path";
+import { basename, resolve as resolve3, sep as sep2 } from "path";
 import fg2 from "fast-glob";
+import { parse as parse2 } from "yaml";
 var maxContentFileBytes = 512e3;
 var maxContentFiles = 250;
 var maxContentTotalBytes = 5e6;
+var namedOwnerRolePattern = /^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i;
+var ownerRoleAssignmentPattern = /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i;
+var repositoryWideOwnershipTargets = /* @__PURE__ */ new Set([
+  "all files",
+  "default",
+  "entire repository",
+  "global",
+  "repo",
+  "repository",
+  "root"
+]);
+var namedOwnershipTargetPrefixes = /* @__PURE__ */ new Set(["area", "component", "module", "path", "scope"]);
+var placeholderOwnerValues = /* @__PURE__ */ new Set([
+  "tbd",
+  "to be assigned",
+  "to be determined",
+  "not assigned",
+  "unassigned",
+  "n/a",
+  "na",
+  "not applicable",
+  "none",
+  "no owner",
+  "no owners",
+  "no designated owner",
+  "no designated owners",
+  "without owner",
+  "without owners",
+  "without a owner",
+  "without an owner",
+  "without a owners",
+  "without an owners",
+  "nobody",
+  "unknown",
+  "pending",
+  "vacant"
+]);
+var semanticPlaceholderQualifiers = [
+  "n/a",
+  "none",
+  "pending",
+  "tbd",
+  "to be assigned",
+  "to be determined",
+  "unassigned",
+  "unknown",
+  "vacant"
+];
+var supportedGitlabRuleKeys = /* @__PURE__ */ new Set(["allow_failure", "if", "when"]);
+var gitlabReservedKeys = /* @__PURE__ */ new Set([
+  "after_script",
+  "before_script",
+  "cache",
+  "default",
+  "image",
+  "include",
+  "services",
+  "stages",
+  "variables",
+  "workflow"
+]);
+var nonExecutingCommandArguments = /* @__PURE__ */ new Set([
+  "--co",
+  "--collect-only",
+  "--help",
+  "--list",
+  "--list-tests",
+  "--listtests",
+  "--print-config",
+  "--showconfig",
+  "--version",
+  "-h",
+  "-list",
+  "help",
+  "list",
+  "version"
+]);
+var packageContextOptions = /* @__PURE__ */ new Set([
+  "--cwd",
+  "--dir",
+  "--filter",
+  "--prefix",
+  "--workspace",
+  "-c",
+  "-w"
+]);
+var packageGlobalOptionsWithValues = /* @__PURE__ */ new Set([
+  "--cache",
+  "--cafile",
+  "--color",
+  "--config",
+  "--https-proxy",
+  "--key",
+  "--location",
+  "--loglevel",
+  "--otp",
+  "--proxy",
+  "--registry",
+  "--scope",
+  "--tag",
+  "--userconfig"
+]);
+var npmImplicitScripts = /* @__PURE__ */ new Map([
+  ["restart", "restart"],
+  ["start", "start"],
+  ["stop", "stop"],
+  ["t", "test"],
+  ["test", "test"],
+  ["tst", "test"]
+]);
+var packageManagerDirectToolCommands = /* @__PURE__ */ new Map([
+  ["bun", /* @__PURE__ */ new Set(["install"])],
+  ["npm", /* @__PURE__ */ new Set(["ci"])],
+  ["pnpm", /* @__PURE__ */ new Set(["install"])],
+  ["yarn", /* @__PURE__ */ new Set(["install"])]
+]);
+var matchCache = /* @__PURE__ */ new WeakMap();
+var searchableFileCache = /* @__PURE__ */ new WeakMap();
 async function matches(context, patterns) {
-  const found = await fg2(patterns, {
+  const cache = matchCache.get(context) ?? /* @__PURE__ */ new Map();
+  matchCache.set(context, cache);
+  const key = JSON.stringify(patterns);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const scan = fg2(patterns, {
     cwd: context.metadata.root,
     dot: true,
     onlyFiles: true,
     unique: true,
     followSymbolicLinks: false,
     ignore: generatedEvidenceIgnores
-  });
-  return found.filter((path) => context.includedPaths === null || context.includedPaths.has(path)).filter((path) => !context.excludedPaths.has(path)).sort();
+  }).then(
+    (found) => found.filter((path) => context.includedPaths === null || context.includedPaths.has(path)).filter((path) => !context.excludedPaths.has(path)).sort()
+  );
+  cache.set(key, scan);
+  return scan;
 }
 async function safeFileSize(root, path) {
   try {
@@ -776,29 +1172,273 @@ async function evaluatePathAll(context, check) {
     found
   );
 }
-async function readSearchableFiles(context, patterns, maxFilesPerPattern) {
+async function evaluateOwnershipMap(context, check) {
+  const files = await readSearchableFiles(context, check.patterns);
+  const inspected = files.map(({ path, text }) => ({
+    path,
+    entries: ownershipEntries(path, text)
+  }));
+  const qualifying = inspected.filter(({ entries }) => entries > 0);
+  const entryCount = qualifying.reduce((total, { entries }) => total + entries, 0);
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? "met" : "not_met",
+    `${qualifying.length} ownership mapping file(s) with ${entryCount} structurally identifiable assignment(s) across ${files.length} candidate file(s)`,
+    qualifying.map(({ path }) => path)
+  );
+}
+function ownershipEntries(path, text) {
+  const name = basename(path).toLowerCase();
+  const lines = text.split(/\r?\n/).map((line) => line.trim());
+  if (name === "codeowners") {
+    return lines.filter((line) => !line.startsWith("#")).filter((line) => {
+      const fields = line.split(/\s+/);
+      const inlineComment = fields.findIndex(
+        (field, index) => index > 0 && field.startsWith("#")
+      );
+      const ownerFields = fields.slice(1, inlineComment < 0 ? void 0 : inlineComment);
+      return ownerFields.length > 0 && isCodeownersTarget(fields[0] ?? "") && ownerFields.every((field) => isOwnerHandle(field) || isExactEmailContact(field));
+    }).length;
+  }
+  if (["owners", "owners.md", "maintainers", "maintainers.md"].includes(name)) {
+    return conventionalOwnershipEntries(activeOwnershipLines(lines));
+  }
+  const contentLines = activeOwnershipLines(lines);
+  return markdownOwnershipRows(contentLines) + explicitOwnershipMappings(contentLines);
+}
+function conventionalOwnershipEntries(lines) {
+  const listEntries = lines.filter(isConventionalOwnerListEntry).length;
+  return listEntries + markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+}
+function activeOwnershipLines(lines) {
+  const active = [];
+  let inactiveHeadingLevel = null;
+  for (const line of lines) {
+    const section = ownershipSectionState(line, inactiveHeadingLevel);
+    if (section.handled) {
+      inactiveHeadingLevel = section.inactiveHeadingLevel;
+      active.push("");
+      continue;
+    }
+    if (inactiveHeadingLevel === null) active.push(line);
+  }
+  return active;
+}
+function ownershipSectionState(line, inactiveHeadingLevel) {
+  const heading = markdownHeading(line);
+  if (heading) {
+    if (inactiveHeadingLevel !== null && heading.level > inactiveHeadingLevel) {
+      return { handled: true, inactiveHeadingLevel };
+    }
+    return {
+      handled: true,
+      inactiveHeadingLevel: inactiveOwnershipTitle(heading.title) ? heading.level : null
+    };
+  }
+  const plainHeading = plainOwnershipHeading(line);
+  if (!plainHeading) return { handled: false, inactiveHeadingLevel };
+  if (inactiveHeadingLevel !== null && inactiveHeadingLevel <= 6) {
+    return { handled: true, inactiveHeadingLevel };
+  }
+  return {
+    handled: true,
+    inactiveHeadingLevel: inactiveOwnershipTitle(plainHeading) ? 7 : null
+  };
+}
+function inactiveOwnershipTitle(value) {
+  return /\b(?:former|inactive|past|retired)\b/i.test(value);
+}
+function plainOwnershipHeading(line) {
+  if (!line.endsWith(":") || line.includes("@")) return null;
+  const title = line.slice(0, -1).trim();
+  return /^[a-z][a-z0-9 &/_-]{1,80}$/i.test(title) ? title : null;
+}
+function markdownHeading(line) {
+  let level = 0;
+  while (level < 6 && line[level] === "#") level += 1;
+  if (level === 0 || !/\s/.test(line[level] ?? "")) return null;
+  const title = line.slice(level).trim();
+  return title.length > 0 ? { level, title } : null;
+}
+function markdownOwnershipRows(lines) {
+  let entries = 0;
+  for (let index = 0; index < lines.length - 2; index += 1) {
+    const columns = ownershipTableColumns(lines[index] ?? "", lines[index + 1] ?? "");
+    if (!columns) continue;
+    entries += countOwnershipTableRows(lines, index + 2, columns);
+  }
+  return entries;
+}
+function ownershipTableColumns(headerLine, separatorLine) {
+  const header = markdownCells(headerLine);
+  const separator = markdownCells(separatorLine);
+  if (header.length < 2 || separator.length !== header.length) return null;
+  if (!separator.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+  const scope = header.findIndex(
+    (cell) => /\b(path|component|module|area|scope|repository)\b/i.test(cell)
+  );
+  const owner = header.findIndex((cell) => /\b(owner|reviewer|maintainer|team)\b/i.test(cell));
+  return scope < 0 || owner < 0 ? null : { count: header.length, owner, scope };
+}
+function countOwnershipTableRows(lines, start, columns) {
+  let entries = 0;
+  for (let index = start; index < lines.length; index += 1) {
+    const row = markdownCells(lines[index] ?? "");
+    if (row.length !== columns.count) break;
+    const scope = row[columns.scope] ?? "";
+    const owner = row[columns.owner] ?? "";
+    if (isOwnershipTableTarget(scope) && isOwnerReference(owner)) entries += 1;
+  }
+  return entries;
+}
+function isOwnershipTableTarget(value) {
+  const target = value.trim();
+  if (isOwnershipTarget(target)) return true;
+  const firstSpace = target.indexOf(" ");
+  const prefix = firstSpace > 0 ? target.slice(0, firstSpace).toLowerCase() : "";
+  if (namedOwnershipTargetPrefixes.has(prefix)) return false;
+  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) return false;
+  return !isPlaceholderOwner(target) && target.length >= 2 && target.length <= 100 && /^[a-z0-9][a-z0-9 _-]*$/i.test(target);
+}
+function markdownCells(line) {
+  if (!line.includes("|")) return [];
+  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function explicitOwnershipMappings(lines) {
+  return lines.filter((line) => {
+    const mapping = parseOwnershipMapping(line);
+    if (!mapping) return false;
+    const { owner, target } = mapping;
+    return isOwnershipTarget(target) && isOwnerReference(owner);
+  }).length;
+}
+function isOwnershipTarget(value) {
+  const target = value.trim();
+  if (repositoryWideOwnershipTargets.has(target.toLowerCase())) return true;
+  const firstSpace = target.indexOf(" ");
+  if (firstSpace > 0) {
+    const prefix = target.slice(0, firstSpace).toLowerCase();
+    if (namedOwnershipTargetPrefixes.has(prefix)) {
+      const namedScope = target.slice(firstSpace + 1);
+      return !isPlaceholderOwner(namedScope) && /[a-z0-9_-]/i.test(namedScope);
+    }
+  }
+  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) {
+    return /[a-z0-9_-]/i.test(target.replace(/^\.{0,2}\//, ""));
+  }
+  return /^[a-z0-9_.-]+\.[a-z0-9]{1,10}$/i.test(target);
+}
+function isCodeownersTarget(value) {
+  const target = value.trim();
+  if (["*", "**", "/*", "/**"].includes(target)) return true;
+  return target.length > 0 && target.length <= 200 && !target.startsWith("!") && !target.includes("@") && /^[^\s]+$/.test(target) && /[a-z0-9_]/i.test(target);
+}
+function parseOwnershipMapping(line) {
+  const normalized = line.replace(/^[-*]\s*/, "").trim();
+  const separators = ["=>", "->", ":"];
+  const separator = separators.map((value) => ({ index: normalized.indexOf(value), value })).filter(({ index }) => index > 0).sort((left, right) => left.index - right.index)[0];
+  if (!separator) return null;
+  const target = normalized.slice(0, separator.index).trim();
+  const owner = normalized.slice(separator.index + separator.value.length).trim();
+  if (target.length === 0 || target.length > 100 || owner.length === 0 || owner.length > 120) {
+    return null;
+  }
+  return { owner, target };
+}
+function isOwnerReference(value) {
+  const normalized = value.replace(/^[-*]\s*/, "").replace(/[*_`]/g, "").trim();
+  if (isPlaceholderOwner(normalized) || hasNegativeOwnerAssignment(normalized)) return false;
+  if (isDirectOwnerContact(normalized)) return true;
+  const namedRole = namedOwnerRolePattern.exec(normalized);
+  if (namedRole) return isNamedOwnerIdentity(namedRole[1] ?? "");
+  const roleAssignment = ownerRoleAssignmentPattern.exec(normalized);
+  return roleAssignment ? isNamedOwnerIdentity(roleAssignment[1] ?? "") : false;
+}
+function isConventionalOwnerListEntry(value) {
+  const normalized = value.replace(/^[-*]\s*/, "").trim();
+  return !hasNegativeOwnerAssignment(normalized) && isDirectOwnerContact(normalized);
+}
+function isDirectOwnerContact(value) {
+  const namedEmail = /^([^<>]+?)\s*<([^<>\s]+)>$/.exec(value.trim());
+  if (namedEmail) {
+    return isNamedOwnerIdentity(namedEmail[1] ?? "") && isExactEmailContact(namedEmail[2] ?? "");
+  }
+  const contacts = value.replace(/\band\b/gi, " ").split(/[\s,&]+/).filter(Boolean);
+  return contacts.length > 0 && contacts.every((contact) => isOwnerHandle(contact) || isExactEmailContact(contact));
+}
+function isOwnerHandle(value) {
+  return /^@[a-z0-9][a-z0-9_/-]*$/i.test(value);
+}
+function isExactEmailContact(value) {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.indexOf(".");
+  return dot > 0 && dot < domain.length - 1 && !domain.endsWith(".");
+}
+function isNamedOwnerIdentity(value) {
+  const normalized = value.trim();
+  return !isPlaceholderOwner(normalized) && !hasNegativeOwnerAssignment(normalized) && /^[a-z0-9][a-z0-9 ._/-]{1,79}$/i.test(normalized);
+}
+function hasNegativeOwnerAssignment(value) {
+  const inactiveRole = /\b(?:former|inactive|retired|unassigned|vacant|deprecated)\b/i.test(value);
+  const absentRole = /\b(?:no|without)\s+(?:designated\s+)?(?:owner|maintainer|reviewer|team)s?\b/i.test(value);
+  return inactiveRole || absentRole;
+}
+function isPlaceholderOwner(value) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  return placeholderOwnerValues.has(normalized) || normalized.length > 0 && normalized.replaceAll("-", "").length === 0;
+}
+async function readSearchableFiles(context, patterns, maxFilesPerPattern, preserveCase = false) {
+  const cache = searchableFileCache.get(context) ?? /* @__PURE__ */ new Map();
+  searchableFileCache.set(context, cache);
+  const key = JSON.stringify([patterns, maxFilesPerPattern ?? null, preserveCase]);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const read = readSearchableFilesUncached(context, patterns, maxFilesPerPattern, preserveCase);
+  cache.set(key, read);
+  return read;
+}
+async function readSearchableFilesUncached(context, patterns, maxFilesPerPattern, preserveCase = false) {
   const root = context.metadata.root;
   const paths = maxFilesPerPattern ? await prioritizedMatches(context, patterns, maxFilesPerPattern) : (await matches(context, patterns)).slice(0, maxContentFiles);
   const files = [];
+  const seenCanonicalPaths = /* @__PURE__ */ new Set();
   let totalBytes = 0;
   for (const path of paths) {
-    try {
-      const requestedPath = resolve3(root, path);
-      if ((await lstat(requestedPath)).isSymbolicLink()) continue;
-      const canonicalPath = await realpath2(requestedPath);
-      if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep2}`)) continue;
-      const metadata = await stat(canonicalPath);
-      if (!metadata.isFile() || metadata.size === 0 || metadata.size > maxContentFileBytes || totalBytes + metadata.size > maxContentTotalBytes) {
-        continue;
-      }
-      const text = (await readFile2(canonicalPath, "utf8")).toLowerCase();
-      if (isGeneratedAssessment(text)) continue;
-      totalBytes += metadata.size;
-      files.push({ path, text });
-    } catch {
-    }
+    const candidate = await readSearchableFile(
+      root,
+      path,
+      preserveCase,
+      seenCanonicalPaths,
+      maxContentTotalBytes - totalBytes
+    );
+    if (!candidate) continue;
+    totalBytes += candidate.size;
+    files.push({ path, text: candidate.text });
   }
   return files;
+}
+async function readSearchableFile(root, path, preserveCase, seenCanonicalPaths, remainingBytes) {
+  try {
+    const requestedPath = resolve3(root, path);
+    if ((await lstat(requestedPath)).isSymbolicLink()) return null;
+    const canonicalPath = await realpath2(requestedPath);
+    if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep2}`)) return null;
+    if (seenCanonicalPaths.has(canonicalPath)) return null;
+    const metadata = await stat(canonicalPath);
+    if (!metadata.isFile() || metadata.size === 0 || metadata.size > maxContentFileBytes)
+      return null;
+    if (metadata.size > remainingBytes) return null;
+    const rawText = await readFile2(canonicalPath, "utf8");
+    if (isGeneratedAssessment(rawText)) return null;
+    seenCanonicalPaths.add(canonicalPath);
+    return { size: metadata.size, text: preserveCase ? rawText : rawText.toLowerCase() };
+  } catch {
+    return null;
+  }
 }
 async function prioritizedMatches(context, patterns, maxFilesPerPattern) {
   const selected = [];
@@ -822,7 +1462,9 @@ async function prioritizedMatches(context, patterns, maxFilesPerPattern) {
 }
 function isGeneratedAssessment(text) {
   const normalized = text.trimStart();
-  if (normalized.startsWith("# agentic development readiness assessment")) return true;
+  if (normalized.toLowerCase().startsWith("# agentic development readiness assessment")) {
+    return true;
+  }
   if (!normalized.startsWith("{")) return false;
   try {
     const candidate = JSON.parse(normalized);
@@ -879,6 +1521,1243 @@ async function evaluateContentTerms(context, check) {
     qualifying.map(({ path }) => path)
   );
 }
+async function evaluateContentGroups(context, check) {
+  const files = await readSearchableFiles(context, check.files, check.max_files_per_pattern);
+  const matchesByFile = files.map(({ path, text }) => ({
+    path,
+    ...strongestGroupMatch(text, check.groups, check.min_groups, check.max_span_lines)
+  }));
+  const qualifying = matchesByFile.filter(({ qualifies }) => qualifies);
+  const strongest = matchesByFile.reduce(
+    (maximum, candidate) => candidate.matchedGroups.length > maximum.matchedGroups.length ? candidate : maximum,
+    { path: null, matchedGroups: [], qualifies: false }
+  );
+  const matched = new Set(strongest.matchedGroups);
+  const missing = check.groups.map(({ id }) => id).filter((id) => !matched.has(id));
+  const proximitySummary = check.max_span_lines ? ` within ${check.max_span_lines}-line window(s)` : "";
+  const partialReferences = qualifying.length > 0 ? qualifying.map(({ path }) => path) : strongest.path && strongest.matchedGroups.length > 0 ? [strongest.path] : [];
+  return result(
+    check.type,
+    check.scope,
+    qualifying.length > 0 ? "met" : "not_met",
+    `${qualifying.length} qualifying file(s); strongest semantic coverage ${strongest.matchedGroups.length}/${check.groups.length} group(s)${proximitySummary} across ${files.length} candidate file(s); matched: ${strongest.matchedGroups.join(", ") || "none"}; missing: ${missing.join(", ") || "none"}; threshold ${check.min_groups}`,
+    partialReferences
+  );
+}
+function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
+  if (!maxSpanLines) {
+    const lines2 = text.split(/\r?\n/);
+    const matchedGroups = groups.filter(
+      ({ terms }) => terms.some((term) => lines2.some((line) => containsPositiveTerm(line, term)))
+    ).map(({ id }) => id);
+    return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
+  }
+  const groupCounts = groups.map(() => 0);
+  const lines = text.split(/\r?\n/);
+  let strongestGroups = [];
+  const update = (line, direction) => {
+    groups.forEach(({ terms }, index) => {
+      if (terms.some((term) => containsPositiveTerm(line, term))) {
+        groupCounts[index] = (groupCounts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    const activeGroups = groups.filter((_, groupIndex) => (groupCounts[groupIndex] ?? 0) > 0).map(({ id }) => id);
+    if (activeGroups.length > strongestGroups.length) strongestGroups = activeGroups;
+  }
+  return { matchedGroups: strongestGroups, qualifies: strongestGroups.length >= minGroups };
+}
+async function evaluateCiCommand(context, check) {
+  const bindings = await repositoryCommandBindings(context, check.tools);
+  const patterns = check.providers.flatMap(({ files: files2 }) => files2);
+  const files = await readSearchableFiles(context, patterns, check.max_files_per_pattern, true);
+  const providerPaths = await Promise.all(
+    check.providers.map(async (provider) => ({
+      id: provider.id,
+      paths: new Set(await matches(context, provider.files))
+    }))
+  );
+  const inspected = files.map(({ path, text }) => {
+    const invocations = providerPaths.flatMap(
+      ({ id, paths }) => paths.has(path) ? ciIntegrationInvocations(id, text) : []
+    );
+    const matchesByExecution = /* @__PURE__ */ new Map();
+    for (const invocation of invocations) {
+      const matches2 = matchesByExecution.get(invocation.executionGroup) ?? /* @__PURE__ */ new Set();
+      for (const tool of check.tools) {
+        if (invocationMatchesTool(invocation, tool, bindings, check.invocation_grammar)) {
+          matches2.add(tool.id);
+        }
+      }
+      matchesByExecution.set(invocation.executionGroup, matches2);
+    }
+    const matchedToolIds2 = new Set(
+      [...matchesByExecution.values()].flatMap((identities) => [...identities])
+    );
+    return {
+      path,
+      matchedTools: check.tools.filter(({ id }) => matchedToolIds2.has(id)),
+      strongestExecutionMatch: Math.max(
+        0,
+        ...[...matchesByExecution.values()].map(({ size }) => size)
+      )
+    };
+  });
+  const matchedToolIds = new Set(
+    inspected.flatMap(({ matchedTools }) => matchedTools.map(({ id }) => id))
+  );
+  const contributing = inspected.filter(({ matchedTools }) => matchedTools.length > 0);
+  const strongestExecutionMatch = Math.max(
+    0,
+    ...inspected.map(({ strongestExecutionMatch: strongestExecutionMatch2 }) => strongestExecutionMatch2)
+  );
+  const passed = check.tool_match_mode === "same-execution" ? strongestExecutionMatch >= check.min_tools : matchedToolIds.size >= check.min_tools;
+  const matchSummary = check.tool_match_mode === "same-execution" ? `strongest execution-group command-class match ${strongestExecutionMatch}/${check.tools.length}` : `aggregate command-class match ${matchedToolIds.size}/${check.tools.length}`;
+  return result(
+    check.type,
+    check.scope,
+    passed ? "met" : "not_met",
+    `${contributing.length} contributing CI configuration file(s) contain enabled integration-triggered recognized commands; ${matchSummary} across ${files.length} candidate file(s); threshold ${check.min_tools}`,
+    contributing.map(({ path }) => path)
+  );
+}
+async function repositoryCommandBindings(context, tools) {
+  const commandPaths = [
+    ...new Set(
+      tools.flatMap(
+        ({ commands }) => commands.flatMap(({ argument_groups, repository_executables }) => [
+          ...repository_executables.map(normalizeCommandPath),
+          ...argument_groups.flatMap(
+            (arguments_) => arguments_.filter(isRepositoryCommandPath).map(normalizeCommandPath)
+          )
+        ])
+      )
+    )
+  ];
+  const commandSources = new Map(
+    (await readSearchableFiles(context, commandPaths, void 0, true)).map(({ path, text }) => [
+      normalizeCommandPath(path),
+      text
+    ])
+  );
+  const availableCommandPaths = new Set(commandSources.keys());
+  const packageFile = (await readSearchableFiles(context, ["package.json"], void 0, true)).find(
+    ({ path }) => path === "package.json"
+  );
+  if (!packageFile) return { availableCommandPaths, commandSources, packageScripts: /* @__PURE__ */ new Map() };
+  try {
+    const document = asRecord(JSON.parse(packageFile.text));
+    const scripts = asRecord(document?.scripts);
+    return {
+      availableCommandPaths,
+      commandSources,
+      packageScripts: new Map(
+        Object.entries(scripts ?? {}).filter((entry) => typeof entry[1] === "string").map(([name, command]) => [name, command])
+      )
+    };
+  } catch {
+    return { availableCommandPaths, commandSources, packageScripts: /* @__PURE__ */ new Map() };
+  }
+}
+function isRepositoryCommandPath(value) {
+  return /(?:^|\/)scripts?\/|^\.{1,2}\/.+/i.test(value);
+}
+function normalizeCommandPath(value) {
+  return value.replace(/^\.\//, "");
+}
+function ciIntegrationInvocations(provider, text) {
+  try {
+    const document = asRecord(parse2(text, { maxAliasCount: 50 }));
+    if (!document) return [];
+    if (provider === "github-actions") return githubIntegrationInvocations(document);
+    if (provider === "gitlab-ci") return gitlabIntegrationInvocations(document);
+    return azureIntegrationInvocations(document);
+  } catch {
+    return [];
+  }
+}
+function githubIntegrationInvocations(document) {
+  const events = githubIntegrationTriggers(document.on);
+  if (events.size === 0) return [];
+  const jobs = asRecord(document.jobs);
+  if (!jobs) return [];
+  const workflowDefaults = githubRunDefaults(document.defaults);
+  if (!workflowDefaults.valid) return [];
+  return Object.entries(jobs).flatMap(
+    ([name, job]) => githubJobInvocations(job, events, workflowDefaults, `github:${name}`)
+  );
+}
+function githubJobInvocations(value, parentEvents, workflowDefaults, executionGroup) {
+  const job = asRecord(value);
+  if (!job || isDisabledCiNode(job)) return [];
+  const jobCondition = githubConditionEvents(job.if, parentEvents);
+  if (!jobCondition.certain || jobCondition.events.size === 0) return [];
+  const events = jobCondition.events;
+  const steps = asArray(job.steps);
+  if (steps.length === 0 || !hasGithubRunner(job["runs-on"])) return [];
+  const jobDefaults = githubRunDefaults(job.defaults);
+  if (!jobDefaults.valid) return [];
+  const runDefaults = mergeGithubRunDefaults(workflowDefaults, jobDefaults);
+  const checkoutEvents = /* @__PURE__ */ new Set();
+  return steps.flatMap((stepValue) => {
+    const step = asRecord(stepValue);
+    if (!step) return [];
+    const condition = githubConditionEvents(step.if, events);
+    const checkout = githubCheckoutDisposition(step);
+    if (checkout) {
+      if (checkout === "preserve") return [];
+      const affectedEvents = condition.certain ? condition.events : events;
+      affectedEvents.forEach((event) => {
+        if (condition.certain && !isDisabledCiNode(step) && checkout === "target") {
+          checkoutEvents.add(event);
+        } else checkoutEvents.delete(event);
+      });
+      return [];
+    }
+    if (!condition.certain || isDisabledCiNode(step)) return [];
+    const stepEvents = condition.events;
+    if (stepEvents.size === 0) return [];
+    const executableEvents = new Set([...stepEvents].filter((event) => checkoutEvents.has(event)));
+    if (executableEvents.size === 0) return [];
+    return githubStepInvocations(
+      step,
+      runDefaults.workingDirectory,
+      runDefaults.shell,
+      job["runs-on"],
+      executionGroup,
+      executableEvents
+    );
+  });
+}
+function hasGithubRunner(value) {
+  if (typeof value === "string") return value.trim().length > 0;
+  return Array.isArray(value) && value.some((entry) => typeof entry === "string" && entry.length > 0);
+}
+function githubCheckoutDisposition(step) {
+  if (typeof step.uses !== "string") return null;
+  if (!/^actions\/checkout@[^@\s]+$/i.test(step.uses.trim())) return null;
+  if (step.run !== void 0) return "replace";
+  if (step.with === void 0) return "target";
+  const inputs = asRecord(step.with);
+  if (!inputs) return "replace";
+  if (Object.hasOwn(inputs, "path")) {
+    return githubCheckoutPathIsSeparate(inputs.path) ? "preserve" : "replace";
+  }
+  return ["filter", "path", "ref", "repository", "sparse-checkout"].some(
+    (field) => Object.hasOwn(inputs, field)
+  ) ? "replace" : "target";
+}
+function githubCheckoutPathIsSeparate(value) {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
+  if (normalized.length === 0 || githubWorkingDirectoryIsRoot(normalized) || normalized.includes("${{") || normalized.startsWith("/") || /^[a-z]:[\\/]/i.test(normalized)) {
+    return false;
+  }
+  return !normalized.split(/[\\/]+/).includes("..");
+}
+function githubRunDefaults(value) {
+  if (value === void 0) return { shell: void 0, valid: true, workingDirectory: void 0 };
+  const defaults = asRecord(value);
+  if (!defaults) return { shell: void 0, valid: false, workingDirectory: void 0 };
+  if (defaults.run === void 0) {
+    return { shell: void 0, valid: true, workingDirectory: void 0 };
+  }
+  const run = asRecord(defaults.run);
+  return run ? { shell: run.shell, valid: true, workingDirectory: run["working-directory"] } : { shell: void 0, valid: false, workingDirectory: void 0 };
+}
+function mergeGithubRunDefaults(workflow, job) {
+  return {
+    valid: workflow.valid && job.valid,
+    shell: job.shell ?? workflow.shell,
+    workingDirectory: job.workingDirectory ?? workflow.workingDirectory
+  };
+}
+function githubStepInvocations(value, defaultWorkingDirectory, defaultShell, runner, executionGroup, events) {
+  const step = asRecord(value);
+  if (!step || isDisabledCiNode(step)) return [];
+  if (step.uses !== void 0 && step.run !== void 0) return [];
+  const action = invocationFromField(step, "uses", "action", executionGroup);
+  const shell = githubShellSemantics(step.shell ?? defaultShell, runner);
+  const command = githubWorkingDirectoryIsRoot(step["working-directory"] ?? defaultWorkingDirectory) && shell.supported ? invocationFromField(step, "run", "command", executionGroup, shell.failFast) : null;
+  const invocations = [action, command].filter(
+    (invocation) => invocation !== null
+  );
+  return [...events].flatMap(
+    (event) => invocations.map((invocation) => ({
+      ...invocation,
+      executionGroup: `${executionGroup}:event-${event}`
+    }))
+  );
+}
+function githubShellSemantics(value, runner) {
+  if (value === void 0) {
+    return githubRunnerUsesFailFastDefaultShell(runner) ? { failFast: true, supported: true } : { failFast: false, supported: false };
+  }
+  if (typeof value !== "string") return { failFast: false, supported: false };
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  if (["bash", "sh"].includes(normalized)) return { failFast: true, supported: true };
+  if (["bash {0}", "sh {0}"].includes(normalized)) {
+    return { failFast: false, supported: true };
+  }
+  return { failFast: false, supported: false };
+}
+function githubRunnerUsesFailFastDefaultShell(value) {
+  const labels = (Array.isArray(value) ? value : [value]).filter(
+    (label) => typeof label === "string"
+  );
+  if (labels.length === 0 || labels.some((label) => label.includes("${{"))) return false;
+  const normalized = labels.map((label) => label.trim().toLowerCase());
+  if (normalized.some((label) => label.includes("windows"))) return false;
+  return normalized.some(
+    (label) => ["ubuntu", "linux", "macos"].some((operatingSystem) => label.includes(operatingSystem))
+  );
+}
+function githubWorkingDirectoryIsRoot(value) {
+  if (value === void 0) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  return [".", "./", "${{github.workspace}}", "$github_workspace", "${github_workspace}"].includes(
+    normalized
+  );
+}
+function invocationFromField(node, field, kind, executionGroup, failFast) {
+  const value = node[field];
+  return typeof value === "string" ? {
+    kind,
+    value,
+    executionGroup,
+    ...kind === "command" && failFast !== void 0 ? { failFast } : {}
+  } : null;
+}
+function gitlabIntegrationInvocations(document) {
+  if (document.include !== void 0) return [];
+  if (document.before_script !== void 0) return [];
+  if (!validGitlabWorkflowShape(document.workflow)) return [];
+  const workflow = asRecord(document.workflow);
+  const hasWorkflowRules = asArray(workflow?.rules).length > 0;
+  const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
+  if (hasWorkflowRules && !workflowAllowsMergeRequests) return [];
+  if (hasRiskyGitlabDefaults(document.default)) return [];
+  return Object.entries(document).flatMap(
+    ([name, value]) => gitlabJobInvocations(name, value, workflowAllowsMergeRequests, document.variables)
+  );
+}
+function validGitlabWorkflowShape(value) {
+  if (value === void 0) return true;
+  const workflow = asRecord(value);
+  return workflow !== null && (workflow.rules === void 0 || Array.isArray(workflow.rules));
+}
+function gitlabJobInvocations(name, value, workflowAllowsMergeRequests, globalVariables) {
+  if (name.startsWith(".") || gitlabReservedKeys.has(name)) return [];
+  const job = asRecord(value);
+  if (!job || isDisabledCiNode(job)) return [];
+  if (job.rules !== void 0 && !Array.isArray(job.rules)) return [];
+  if (job.before_script !== void 0 || job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0) {
+    return [];
+  }
+  if (!isSupportedBlockingGitlabWhen(job.when)) return [];
+  if (!gitlabRepositoryAvailable(globalVariables, job.variables)) return [];
+  const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
+  const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasUnconditionallyNamedTrigger(job.only, ["merge_requests"]);
+  if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) return [];
+  return stringValues(job.script).map((command) => ({
+    executionGroup: `gitlab:${name}`,
+    kind: "command",
+    value: command
+  }));
+}
+function isSupportedBlockingGitlabWhen(value) {
+  return value === void 0 || typeof value === "string" && ["always", "on_success"].includes(value.toLowerCase());
+}
+function gitlabRepositoryAvailable(globalValue, jobValue) {
+  const globalVariables = asRecord(globalValue);
+  const jobVariables = asRecord(jobValue);
+  const strategy = effectiveCiVariable(jobVariables, globalVariables, "GIT_STRATEGY");
+  const checkout = effectiveCiVariable(jobVariables, globalVariables, "GIT_CHECKOUT");
+  if (checkout === false || typeof checkout === "string" && checkout.toLowerCase() === "false") {
+    return false;
+  }
+  return strategy === void 0 || typeof strategy === "string" && ["clone", "fetch"].includes(strategy.toLowerCase());
+}
+function effectiveCiVariable(primary, fallback, name) {
+  const keys = [name, name.toLowerCase()];
+  for (const source of [primary, fallback]) {
+    if (!source) continue;
+    for (const key of keys) {
+      if (Object.hasOwn(source, key)) return source[key];
+    }
+  }
+  return void 0;
+}
+function hasRiskyGitlabDefaults(value) {
+  if (value === void 0) return false;
+  const defaults = asRecord(value);
+  if (!defaults) return true;
+  if (Object.hasOwn(defaults, "allow_failure") && defaults.allow_failure !== false) return true;
+  return ["before_script", "except", "only", "rules", "script", "when"].some(
+    (key) => Object.hasOwn(defaults, key)
+  );
+}
+function azureIntegrationInvocations(document) {
+  if (!hasAzurePullRequestTrigger(document.pr)) return [];
+  return collectAzureInvocations(document, "root", "azure:root");
+}
+function collectAzureInvocations(node, kind, executionGroup) {
+  if (isDisabledCiNode(node) || azurePullRequestCondition(node.condition) !== "allow") return [];
+  if (kind === "step") return azureStepInvocations(node, executionGroup);
+  if (kind === "stage") return azureChildInvocations(node.jobs, "job", executionGroup);
+  if (kind === "job") return azureStepsInvocations(node.steps, executionGroup);
+  const rootCollections = [
+    { kind: "stage", value: node.stages },
+    { kind: "job", value: node.jobs },
+    { kind: "step", value: node.steps }
+  ].filter((collection2) => collection2.value !== void 0);
+  if (rootCollections.length !== 1) return [];
+  const collection = rootCollections[0];
+  if (!collection) return [];
+  return collection.kind === "step" ? azureStepsInvocations(collection.value, executionGroup) : azureChildInvocations(collection.value, collection.kind, executionGroup);
+}
+function azureChildInvocations(value, kind, parentGroup) {
+  return asArray(value).flatMap((childValue, index) => {
+    const child = asRecord(childValue);
+    return child ? collectAzureInvocations(child, kind, `${parentGroup}:${kind}-${index}`) : [];
+  });
+}
+function azureStepInvocations(node, executionGroup) {
+  const commandFields = ["script", "bash", "pwsh", "powershell"].filter(
+    (field) => typeof node[field] === "string"
+  );
+  if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
+  const commandField = commandFields[0] ?? "";
+  const value = node[commandField];
+  return [
+    {
+      executionGroup,
+      kind: "command",
+      value,
+      failFast: azureScriptIsFailFast(value, commandField)
+    }
+  ];
+}
+function azureScriptIsFailFast(value, commandField) {
+  if (["pwsh", "powershell"].includes(commandField)) {
+    return value.split(/\r?\n/).some((line) => /^\s*\$erroractionpreference\s*=\s*['"]stop['"]\s*$/i.test(line));
+  }
+  return value.split(/\r?\n/).some((line) => /^\s*set\s+(?:-e(?:o\s+pipefail)?|-o\s+errexit)\s*$/i.test(line));
+}
+function azureWorkingDirectoryIsRoot(value) {
+  if (value === void 0) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  return [
+    ".",
+    "./",
+    "$(build.repository.localpath)",
+    "$(build.sourcesdirectory)",
+    "$(pipeline.workspace)/s",
+    "$(system.defaultworkingdirectory)"
+  ].includes(normalized);
+}
+function azureStepsInvocations(value, executionGroup) {
+  const steps = asArray(value);
+  let repositoryAvailable = !steps.some((stepValue) => {
+    const step = asRecord(stepValue);
+    return step !== null && Object.hasOwn(step, "checkout");
+  });
+  return steps.flatMap((stepValue) => {
+    const step = asRecord(stepValue);
+    if (!step) return [];
+    const condition = azurePullRequestCondition(step.condition);
+    if (Object.hasOwn(step, "checkout")) {
+      if (condition === "unknown") repositoryAvailable = false;
+      else if (condition === "allow") {
+        repositoryAvailable = !isDisabledCiNode(step) && typeof step.checkout === "string" && step.checkout.toLowerCase() === "self";
+      }
+      return [];
+    }
+    if (condition !== "allow" || isDisabledCiNode(step)) return [];
+    return repositoryAvailable ? azureStepInvocations(step, executionGroup) : [];
+  });
+}
+function hasNamedTrigger(value, names) {
+  if (typeof value === "string") return names.includes(value.toLowerCase());
+  if (Array.isArray(value)) {
+    return value.some((entry) => typeof entry === "string" && names.includes(entry.toLowerCase()));
+  }
+  const record = asRecord(value);
+  if (!record) return false;
+  if (names.some((name) => Object.hasOwn(record, name))) return true;
+  return Object.hasOwn(record, "refs") && hasNamedTrigger(record.refs, names);
+}
+function hasUnconditionallyNamedTrigger(value, names) {
+  if (typeof value === "string" || Array.isArray(value)) return hasNamedTrigger(value, names);
+  const record = asRecord(value);
+  if (!record || Object.keys(record).some((key) => key !== "refs")) return false;
+  return hasNamedTrigger(record.refs, names);
+}
+function githubIntegrationTriggers(value) {
+  return new Set(
+    ["pull_request", "merge_group"].filter((name) => githubTriggerAllowsIntegration(value, name))
+  );
+}
+function githubTriggerAllowsIntegration(value, name) {
+  if (typeof value === "string" || Array.isArray(value)) return hasNamedTrigger(value, [name]);
+  const triggers = asRecord(value);
+  if (!triggers || !Object.hasOwn(triggers, name)) return false;
+  const configuration = triggers[name];
+  if (configuration === null || configuration === void 0) return true;
+  const trigger = asRecord(configuration);
+  if (!trigger) return false;
+  if (["paths", "paths-ignore"].some((key) => Object.hasOwn(trigger, key))) return false;
+  if (trigger.types === void 0) return true;
+  const types = new Set(stringValues(trigger.types).map((type) => type.toLowerCase()));
+  const requiredTypes = name === "pull_request" ? ["opened", "reopened", "synchronize"] : ["checks_requested"];
+  return requiredTypes.every((type) => types.has(type));
+}
+function githubConditionEvents(value, parentEvents) {
+  if (value === void 0 || value === true) {
+    return { certain: true, events: new Set(parentEvents) };
+  }
+  if (value === false) return { certain: true, events: /* @__PURE__ */ new Set() };
+  if (typeof value !== "string") return { certain: false, events: /* @__PURE__ */ new Set() };
+  return githubStringConditionEvents(value, parentEvents);
+}
+function githubStringConditionEvents(value, parentEvents) {
+  const condition = value.toLowerCase();
+  const normalized = condition.replace(/[\s${}]/g, "");
+  if (!condition.includes("github.event_name")) {
+    return githubStatusConditionEvents(normalized, parentEvents);
+  }
+  const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? ""
+  );
+  const excludes = [...condition.matchAll(/github\.event_name\s*!=\s*['"]([^'"]+)['"]/g)].map(
+    (match) => match[1] ?? ""
+  );
+  if (equals.length === 0 && excludes.length === 0) {
+    return { certain: false, events: /* @__PURE__ */ new Set() };
+  }
+  const unsupported = condition.replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, "").replaceAll("!cancelled()", "").replace(/\b(?:always|success)\(\)/g, "").replace(/[\s${}()&|]/g, "");
+  if (unsupported.length > 0) return { certain: false, events: /* @__PURE__ */ new Set() };
+  const hasConjunction = condition.includes("&&");
+  const hasDisjunction = condition.includes("||");
+  if (hasConjunction && hasDisjunction) return { certain: false, events: /* @__PURE__ */ new Set() };
+  if (new Set(equals).size > 1 && !hasDisjunction) {
+    return { certain: true, events: /* @__PURE__ */ new Set() };
+  }
+  const candidates = equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
+  return {
+    certain: true,
+    events: new Set(candidates.filter((event) => !excludes.includes(event)))
+  };
+}
+function githubStatusConditionEvents(normalized, parentEvents) {
+  if (["true", "always()", "success()", "!cancelled()"].includes(normalized)) {
+    return { certain: true, events: new Set(parentEvents) };
+  }
+  if (["false", "never"].includes(normalized)) return { certain: true, events: /* @__PURE__ */ new Set() };
+  return { certain: false, events: /* @__PURE__ */ new Set() };
+}
+function hasGitlabMergeRequestRule(value) {
+  for (const ruleValue of asArray(value)) {
+    const disposition = gitlabMergeRequestRuleDisposition(ruleValue);
+    if (disposition === "unsupported") return false;
+    if (disposition === "skip") continue;
+    return disposition === "allow";
+  }
+  return false;
+}
+function gitlabMergeRequestRuleDisposition(value) {
+  const rule = asRecord(value);
+  if (!rule || Object.keys(rule).some((key) => !supportedGitlabRuleKeys.has(key))) {
+    return "unsupported";
+  }
+  const applies = gitlabRuleAppliesToMergeRequest(rule.if);
+  if (applies === null) return "unsupported";
+  if (!applies) return "skip";
+  if (!isSupportedBlockingGitlabRule(rule)) return "deny";
+  return "allow";
+}
+function gitlabRuleAppliesToMergeRequest(value) {
+  if (value === void 0) return true;
+  if (typeof value !== "string") return null;
+  const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(value);
+  if (!comparison) return null;
+  const event = comparison[2]?.toLowerCase();
+  return comparison[1] === "==" ? event === "merge_request_event" : event !== "merge_request_event";
+}
+function isSupportedBlockingGitlabRule(rule) {
+  if (isDisabledCiNode(rule)) return false;
+  if (rule.when === void 0) return true;
+  return typeof rule.when === "string" && ["always", "on_success"].includes(rule.when.toLowerCase());
+}
+function hasAzurePullRequestTrigger(value) {
+  if (value === false || value === null || value === void 0) return false;
+  if (typeof value === "string") return !["none", "false"].includes(value.toLowerCase());
+  if (Array.isArray(value)) return value.length > 0;
+  const trigger = asRecord(value);
+  if (!trigger) return false;
+  if (Object.hasOwn(trigger, "paths")) return false;
+  const branches = asRecord(trigger.branches);
+  if (!branches) return true;
+  const include = stringValues(branches.include).map((branch) => branch.toLowerCase());
+  const exclude = stringValues(branches.exclude).map((branch) => branch.toLowerCase());
+  if (exclude.includes("*")) return false;
+  if (include.length > 0) return include.some((branch) => !["none", "false"].includes(branch));
+  return true;
+}
+function azurePullRequestCondition(value) {
+  if (value === void 0 || value === true) return "allow";
+  if (value === false) return "deny";
+  if (typeof value !== "string") return "unknown";
+  const condition = value.toLowerCase().replace(/\s+/g, "");
+  if (["always()", "succeeded()", "succeededorfailed()"].includes(condition)) return "allow";
+  const direct = azureReasonComparison(condition);
+  if (direct !== null) return direct ? "allow" : "deny";
+  const conjunction = /^and\((?:always|succeeded|succeededorfailed)\(\),(.+)\)$/.exec(condition);
+  if (!conjunction) return "unknown";
+  const nested = azureReasonComparison(conjunction[1] ?? "");
+  if (nested === null) return "unknown";
+  return nested ? "allow" : "deny";
+}
+function azureReasonComparison(condition) {
+  const comparison = /^(eq|ne)\(variables\[['"]build\.reason['"]\],['"]([^'"]+)['"]\)$/.exec(
+    condition
+  );
+  if (!comparison) return null;
+  const equalsPullRequest = comparison[2] === "pullrequest";
+  return comparison[1] === "eq" ? equalsPullRequest : !equalsPullRequest;
+}
+function isDisabledCiNode(node) {
+  if (node.enabled === false || configuredNonBlocking(node, ["allow_failure"]) || configuredNonBlocking(node, ["continue-on-error", "continueonerror", "continueOnError"])) {
+    return true;
+  }
+  if (typeof node.when === "string" && ["never", "manual"].includes(node.when.toLowerCase())) {
+    return true;
+  }
+  return [node.if, node.condition].some((condition) => {
+    if (condition === false) return true;
+    if (typeof condition !== "string") return false;
+    const normalized = condition.toLowerCase().replace(/[\s${}]/g, "");
+    return normalized === "false" || normalized === "0" || normalized === "never";
+  });
+}
+function configuredNonBlocking(node, fields) {
+  return fields.some((field) => Object.hasOwn(node, field) && node[field] !== false);
+}
+function invocationMatchesTool(invocation, tool, bindings, grammar) {
+  if (invocation.kind === "action") {
+    const action = /^([^@\s]+)@([^@\s]+)$/.exec(invocation.value.trim());
+    if (!action) return false;
+    const identity = action[1]?.toLowerCase() ?? "";
+    return tool.actions.some((action2) => action2.toLowerCase() === identity);
+  }
+  return commandTextMatchesTool(
+    invocation.value,
+    tool,
+    bindings,
+    /* @__PURE__ */ new Set(),
+    grammar,
+    invocation.failFast ?? false
+  );
+}
+function commandTextMatchesTool(value, tool, bindings, visitedScripts, grammar, failFast = false) {
+  return shellStatements(value, tool.requires_final_exit_status, failFast).some((statement) => {
+    if (statement.includes("||") || /(^|[^|])\|(?!\|)/.test(statement) || /(^|[^&])&(?!&)/.test(statement)) {
+      return false;
+    }
+    const commands = statement.split("&&").map((command) => command.trim());
+    for (const rawCommand of commands) {
+      const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, "").trim();
+      if (/^(?:false|exit)(?:\s|$)/i.test(command)) return false;
+      if (/^(?:cd|chdir|pushd|popd|set-location)\b/i.test(command)) return false;
+      if (missingPackageTaskPreventsContinuation(command, bindings, grammar)) return false;
+      if (commandMatchesTool(command, tool, bindings, visitedScripts, grammar)) return true;
+    }
+    return false;
+  });
+}
+function missingPackageTaskPreventsContinuation(command, bindings, grammar) {
+  const tokens = command.split(/\s+/).filter(Boolean);
+  return tokens.some((token, executableIndex) => {
+    if (!["bun", "npm", "pnpm", "yarn"].includes(executableIdentity(token))) return false;
+    if (!isSupportedExecutablePosition(tokens, executableIndex, grammar)) return false;
+    const invocation = packageScriptInvocation(tokens.slice(executableIndex));
+    return invocation !== null && !bindings.packageScripts.has(invocation.task);
+  });
+}
+function commandMatchesTool(command, tool, bindings, visitedScripts, grammar) {
+  if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
+    return false;
+  }
+  const tokens = command.split(/\s+/).filter(Boolean);
+  if (tokens.some(isNonExecutingCommandArgument)) return false;
+  const packageMatch = packageScriptMatchesTool(tokens, tool, bindings, visitedScripts, grammar);
+  if (packageMatch !== null) return packageMatch;
+  return tokens.some(
+    (token, executableIndex) => (tool.standalone_executables.some(
+      (executable) => unqualifiedExecutableTokenMatches(token, executable)
+    ) || tool.commands.some(
+      (signature) => commandExecutableTokenMatches(token, signature, bindings)
+    )) && executablePositionMatchesTool(
+      tokens,
+      executableIndex,
+      tool,
+      bindings,
+      visitedScripts,
+      grammar
+    )
+  );
+}
+function commandExecutableTokenMatches(token, signature, bindings) {
+  if (!/[\\/]/.test(token) && !token.startsWith(".")) {
+    return signature.executables.some(
+      (executable) => unqualifiedExecutableTokenMatches(token, executable)
+    );
+  }
+  const path = normalizeCommandPath(token);
+  if (!bindings.availableCommandPaths.has(path)) return false;
+  return signature.repository_executables.some(
+    (candidate) => normalizeCommandPath(candidate) === path
+  );
+}
+function unqualifiedExecutableTokenMatches(token, executable) {
+  if (/[\\/]/.test(token) || token.startsWith(".")) return false;
+  return executableIdentity(token) === executable.toLowerCase();
+}
+function executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts, grammar) {
+  if (!isSupportedExecutablePosition(tokens, executableIndex, grammar)) return false;
+  const wrappedPackageMatch = packageScriptMatchesTool(
+    tokens.slice(executableIndex),
+    tool,
+    bindings,
+    visitedScripts,
+    grammar
+  );
+  if (wrappedPackageMatch !== null) return wrappedPackageMatch;
+  const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
+  const executableToken = tokens[executableIndex] ?? "";
+  if (hasProhibitedArguments(tool, arguments_)) return false;
+  if (tool.standalone_executables.some(
+    (standalone) => unqualifiedExecutableTokenMatches(executableToken, standalone)
+  ))
+    return true;
+  return tool.commands.filter((signature) => commandExecutableTokenMatches(executableToken, signature, bindings)).some((signature) => commandSignatureMatches(signature, arguments_, bindings));
+}
+function isNonExecutingCommandArgument(value) {
+  const normalized = value.toLowerCase();
+  return nonExecutingCommandArguments.has(normalized) || normalized.startsWith("--help=") || normalized.startsWith("--version=");
+}
+function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts, grammar) {
+  const managerToken = tokens[0] ?? "";
+  if (/[\\/]/.test(managerToken) || managerToken.startsWith(".")) return null;
+  const manager = executableIdentity(managerToken);
+  if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
+  if (tokens.slice(1).some(isPackageContextOption)) return false;
+  const invocation = packageScriptInvocation(tokens);
+  if (!invocation) {
+    if (manager !== "npm" || isPackageExecutionWrapper(tokens)) return null;
+    const arguments_ = tokens.slice(1);
+    const subcommand = arguments_[skipPackageOptions(arguments_, 0)]?.toLowerCase() ?? "";
+    return packageManagerDirectToolCommands.get(manager)?.has(subcommand) ? null : false;
+  }
+  if (invocation.manager === "bun" && invocation.task === "test") return null;
+  if (invocation.hasForwardedArguments) return false;
+  if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
+  const script = bindings.packageScripts.get(invocation.task);
+  if (!script) return false;
+  return commandTextMatchesTool(
+    script,
+    tool,
+    bindings,
+    new Set(visitedScripts).add(invocation.task),
+    grammar
+  );
+}
+function isPackageExecutionWrapper(tokens) {
+  const arguments_ = tokens.slice(1);
+  const index = skipPackageOptions(arguments_, 0);
+  return ["dlx", "exec", "x"].includes(arguments_[index]?.toLowerCase() ?? "");
+}
+function isPackageContextOption(value) {
+  return packageContextOptions.has(value.toLowerCase().split("=")[0] ?? "");
+}
+function isSupportedExecutablePosition(tokens, executableIndex, grammar) {
+  if (executableIndex === 0) return true;
+  const wrapper = tokens[0] ?? "";
+  const definition = grammar.wrappers.find(
+    ({ executable_patterns }) => executable_patterns.some((pattern) => new RegExp(pattern, "iu").test(wrapper))
+  );
+  if (!definition) return false;
+  const prefixIndex = wrapperCommandPrefixIndex(tokens, grammar.wrapper_options_with_values);
+  return definition.command_prefixes.some(
+    (prefix) => executableIndex === prefixIndex + prefix.length && prefix.every(
+      (argument, offset) => normalizeCommandArgument(tokens[prefixIndex + offset] ?? "") === argument.toLowerCase()
+    )
+  );
+}
+function wrapperCommandPrefixIndex(tokens, optionsWithValues) {
+  const valueOptions = new Set(optionsWithValues.map((option) => option.toLowerCase()));
+  let index = 1;
+  while (index < tokens.length) {
+    const argument = tokens[index]?.toLowerCase() ?? "";
+    if (argument === "--") return index + 1;
+    if (!argument.startsWith("-")) return index;
+    const option = argument.split("=")[0] ?? "";
+    index += 1;
+    if (!argument.includes("=") && valueOptions.has(option)) index += 1;
+  }
+  return index;
+}
+function commandSignatureMatches(signature, arguments_, bindings) {
+  if (hasProhibitedArguments(signature, arguments_)) return false;
+  if (signature.max_arguments !== void 0 && arguments_.length > signature.max_arguments) {
+    return false;
+  }
+  if (signature.required_argument_prefixes.length > 0 && !signature.required_argument_prefixes.some(
+    (prefix) => startsWithArgumentSequence(
+      arguments_,
+      prefix.map((argument) => argument.toLowerCase())
+    )
+  )) {
+    return false;
+  }
+  const argumentsMatch = signature.argument_groups.every(
+    (group) => group.some((argument) => commandArgumentMatches(argument, arguments_, bindings))
+  );
+  return argumentsMatch && commandSourceMatches(signature, arguments_, bindings);
+}
+function hasProhibitedArguments(configuration, arguments_) {
+  return configuration.prohibited_arguments.some((argument) => {
+    const prohibited = argument.toLowerCase();
+    return arguments_.some(
+      (actual) => actual === prohibited || actual.startsWith(`${prohibited}=`)
+    );
+  }) || configuration.prohibited_argument_sequences.some(
+    (sequence) => containsArgumentSequence(
+      arguments_,
+      sequence.map((argument) => argument.toLowerCase())
+    )
+  );
+}
+function commandSourceMatches(signature, arguments_, bindings) {
+  if (signature.source_content_groups.length === 0 && signature.source_pattern_groups.length === 0) {
+    return true;
+  }
+  const sourcePaths = signature.argument_groups.flat().filter(isRepositoryCommandPath).map(normalizeCommandPath).filter((path) => arguments_.some((argument) => normalizeCommandPath(argument) === path));
+  return sourcePaths.some((path) => {
+    const source = bindings.commandSources.get(path);
+    if (source === void 0) return false;
+    const uncommented = stripSourceComments(source, path);
+    if (hasUnresolvedJavascriptCallable(uncommented, path)) return false;
+    if (hasObviouslyUnreachableBranch(uncommented, path)) return false;
+    const executableSource = executableValidationSource(uncommented, path);
+    return sourceGroupsAreCoLocated(
+      executableSource,
+      signature.source_content_groups,
+      signature.source_max_span_lines
+    ) && sourcePatternGroupsAreCoLocated(
+      executableSource,
+      signature.source_pattern_groups,
+      signature.source_max_span_lines
+    );
+  });
+}
+function executableValidationSource(source, path) {
+  const lines = source.split(/\r?\n/);
+  const blocks = sourceFunctionBlocks(lines, path);
+  const reachable = reachableSourceFunctionNames(lines, blocks, path);
+  return lines.filter((_, index) => sourceLineIsExecutable(index, blocks, reachable)).join("\n");
+}
+function sourceLineIsExecutable(index, blocks, reachable) {
+  const containingBlocks = blocks.filter((block) => index >= block.start && index <= block.end);
+  return containingBlocks.every((block) => reachable.has(block.name));
+}
+function reachableSourceFunctionNames(lines, blocks, path) {
+  const topLevelLines = topLevelSourceLines(lines, blocks);
+  const reachable = new Set(
+    blocks.filter((block) => sourceFunctionIsCalled(topLevelLines, block.name, path)).map(({ name }) => name)
+  );
+  const pending = [...reachable];
+  while (pending.length > 0) {
+    const callerName = pending.shift();
+    const caller = blocks.find(({ name }) => name === callerName);
+    if (!caller) continue;
+    const body = sourceFunctionExecutionLines(lines, caller, blocks);
+    for (const candidate of blocks) {
+      if (reachable.has(candidate.name)) continue;
+      if (!sourceFunctionIsCalled(body, candidate.name, path)) continue;
+      reachable.add(candidate.name);
+      pending.push(candidate.name);
+    }
+  }
+  return reachable;
+}
+function sourceFunctionExecutionLines(lines, caller, blocks) {
+  return lines.filter(
+    (_, index) => index >= caller.start && index <= caller.end && blocks.every(
+      (block) => block === caller || index < block.start || index > block.end || block.start < caller.start || block.end > caller.end
+    )
+  );
+}
+function topLevelSourceLines(lines, blocks) {
+  return lines.filter(
+    (_, index) => blocks.every((block) => index < block.start || index > block.end)
+  );
+}
+function sourceFunctionBlocks(lines, path) {
+  if (/\.py$/i.test(path)) return pythonFunctionBlocks(lines);
+  return braceDelimitedFunctionBlocks(lines, /\.[cm]?[jt]sx?$/i.test(path));
+}
+function hasUnresolvedJavascriptCallable(source, path) {
+  if (!/\.[cm]?[jt]sx?$/i.test(path)) return false;
+  const method = String.raw`(?:^|[;{}])\s*(?:(?:abstract|async|get|override|private|protected|public|set|static)\s+)*(?!(?:catch|for|if|switch|while|with)\b)#?[a-z_$][a-z0-9_$]*\s*\([^)]*\)\s*\{`;
+  const propertyArrow = String.raw`(?:^|[,;{}])\s*[a-z_$][a-z0-9_$]*\s*:\s*(?:async\s*)?(?:\([^)]*\)|[a-z_$][a-z0-9_$]*)\s*=>`;
+  return source.split(/\r?\n/).some(
+    (line) => executableSourcePatternMatches(line, method) || executableSourcePatternMatches(line, propertyArrow)
+  );
+}
+function braceDelimitedFunctionBlocks(lines, javascript) {
+  const blocks = [];
+  for (let start = 0; start < lines.length; start += 1) {
+    const name = sourceFunctionName(lines[start] ?? "", javascript);
+    if (!name) continue;
+    let depth = unquotedBraceDelta(lines[start] ?? "");
+    if (depth <= 0) {
+      blocks.push({ end: start, name, start });
+      continue;
+    }
+    for (let end = start + 1; end < lines.length; end += 1) {
+      depth += unquotedBraceDelta(lines[end] ?? "");
+      if (depth > 0) continue;
+      blocks.push({ end, name, start });
+      break;
+    }
+  }
+  return blocks.filter(({ name }) => name.length > 0);
+}
+function sourceFunctionName(line, javascript) {
+  if (!javascript) return line.includes("{") ? shellFunctionName(line) : null;
+  const declaration = /\bfunction\s+([a-z_$][a-z0-9_$]*)\s*\(/i.exec(line);
+  if (declaration && line.includes("{")) return declaration[1] ?? null;
+  const assignment = /\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=/i.exec(line);
+  if (!assignment) return null;
+  const remainder = line.slice(assignment.index + assignment[0].length);
+  return remainder.includes("=>") ? assignment[1] ?? null : null;
+}
+function shellFunctionName(line) {
+  let declaration = line.trim();
+  if (declaration.startsWith("function ")) declaration = declaration.slice("function ".length);
+  const parentheses = declaration.indexOf("()");
+  if (parentheses < 1 || !declaration.slice(parentheses + 2).trimStart().startsWith("{")) {
+    return null;
+  }
+  const name = declaration.slice(0, parentheses).trim();
+  return /^[a-z_][a-z0-9_]*$/i.test(name) ? name : null;
+}
+function unquotedBraceDelta(line) {
+  const quoted = sourceQuotedIndices(line);
+  let delta = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    if (quoted[index] === 1) continue;
+    if (line[index] === "{") delta += 1;
+    else if (line[index] === "}") delta -= 1;
+  }
+  return delta;
+}
+function pythonFunctionBlocks(lines) {
+  const blocks = [];
+  for (let start = 0; start < lines.length; start += 1) {
+    const declaration = /^(\s*)def\s+([a-z_]\w*)\s*\(/i.exec(lines[start] ?? "");
+    if (!declaration) continue;
+    const indentation = (declaration[1] ?? "").length;
+    let end = start;
+    while (end + 1 < lines.length) {
+      const next = lines[end + 1] ?? "";
+      if (next.trim().length > 0 && leadingWhitespace(next) <= indentation) break;
+      end += 1;
+    }
+    blocks.push({ end, name: declaration[2] ?? "", start });
+  }
+  return blocks.filter(({ name }) => name.length > 0);
+}
+function leadingWhitespace(value) {
+  return /^\s*/.exec(value)?.[0].length ?? 0;
+}
+function sourceFunctionIsCalled(lines, functionName, path) {
+  const name = functionName.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  const callPattern = /\.py$|\.[cm]?[jt]sx?$/i.test(path) ? String.raw`(?:^|[^\w$])${name}\s*\(` : String.raw`^\s*${name}(?:\s|$)`;
+  return lines.some((line) => executableSourcePatternMatches(line, callPattern));
+}
+function hasObviouslyUnreachableBranch(source, path) {
+  let pattern = String.raw`^\s*if\s+(?:false|\[\s+(?:false|0)\s+\])\s*;?\s*then\b`;
+  if (/\.[cm]?[jt]sx?$/i.test(path)) pattern = String.raw`\bif\s*\(\s*(?:false|0)\s*\)`;
+  else if (/\.py$/i.test(path)) pattern = String.raw`^\s*if\s+(?:false|0)\s*:`;
+  return source.split(/\r?\n/).some((line) => executableSourcePatternMatches(line, pattern));
+}
+function stripSourceComments(source, path) {
+  return /\.[cm]?[jt]sx?$/i.test(path) ? stripCStyleComments(source) : stripHashComments(source);
+}
+function stripCStyleComments(source) {
+  let output = "";
+  let quote = "";
+  let lineComment = false;
+  let blockComment = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    if (lineComment) {
+      const update2 = cLineCommentUpdate(character);
+      lineComment = update2.active;
+      output += update2.output;
+      continue;
+    }
+    if (blockComment) {
+      const update2 = cBlockCommentUpdate(character, next);
+      blockComment = update2.active;
+      output += update2.output;
+      index += update2.advance;
+      continue;
+    }
+    if (quote) {
+      const update2 = quotedSourceUpdate(character, quote, escaped);
+      output += quote === "`" && character !== "\n" && update2.quote !== "" ? " " : character;
+      quote = update2.quote;
+      escaped = update2.escaped;
+      continue;
+    }
+    const update = cCodeUpdate(character, next);
+    lineComment = update.lineComment;
+    blockComment = update.blockComment;
+    quote = update.quote;
+    output += update.output;
+    index += update.advance;
+  }
+  return output;
+}
+function cCodeUpdate(character, next) {
+  if (character === "/" && next === "/") {
+    return { advance: 1, blockComment: false, lineComment: true, output: "", quote: "" };
+  }
+  if (character === "/" && next === "*") {
+    return { advance: 1, blockComment: true, lineComment: false, output: "", quote: "" };
+  }
+  return {
+    advance: 0,
+    blockComment: false,
+    lineComment: false,
+    output: character,
+    quote: ['"', "'", "`"].includes(character) ? character : ""
+  };
+}
+function cLineCommentUpdate(character) {
+  return character === "\n" ? { active: false, advance: 0, output: character } : { active: true, advance: 0, output: "" };
+}
+function cBlockCommentUpdate(character, next) {
+  if (character === "*" && next === "/") return { active: false, advance: 1, output: "" };
+  return { active: true, advance: 0, output: character === "\n" ? character : "" };
+}
+function quotedSourceUpdate(character, quote, escaped) {
+  if (escaped) return { escaped: false, quote };
+  if (character === "\\") return { escaped: true, quote };
+  return { escaped: false, quote: character === quote ? "" : quote };
+}
+function stripHashComments(source) {
+  return source.split(/\r?\n/).map(stripHashComment).join("\n");
+}
+function stripHashComment(line) {
+  let quote = "";
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index] ?? "";
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = "";
+      continue;
+    }
+    if (['"', "'", "`"].includes(character)) quote = character;
+    else if (character === "#") return line.slice(0, index);
+  }
+  return line;
+}
+function sourceGroupsAreCoLocated(source, groups, maxSpanLines) {
+  const counts = groups.map(() => 0);
+  const lines = source.split(/\r?\n/);
+  const update = (line, direction) => {
+    const normalizedLine = line.toLowerCase();
+    groups.forEach((terms, index) => {
+      if (terms.some((term) => normalizedLine.includes(term.toLowerCase()))) {
+        counts[index] = (counts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    if (counts.every((count) => count > 0)) return true;
+  }
+  return false;
+}
+function sourcePatternGroupsAreCoLocated(source, groups, maxSpanLines) {
+  if (groups.length === 0) return true;
+  const counts = groups.map(() => 0);
+  const lines = source.split(/\r?\n/);
+  const update = (line, direction) => {
+    groups.forEach((patterns, index) => {
+      if (patterns.some((pattern) => executableSourcePatternMatches(line, pattern))) {
+        counts[index] = (counts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    if (counts.every((count) => count > 0)) return true;
+  }
+  return false;
+}
+function executableSourcePatternMatches(line, pattern) {
+  const expression = new RegExp(pattern, "giu");
+  const quoted = sourceQuotedIndices(line);
+  for (const match of line.matchAll(expression)) {
+    if (quoted[match.index] !== 1) return true;
+  }
+  return false;
+}
+function sourceQuotedIndices(line) {
+  const quoted = new Uint8Array(line.length);
+  let quote = "";
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index] ?? "";
+    if (quote) quoted[index] = 1;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = "";
+    } else if (['"', "'", "`"].includes(character)) {
+      quote = character;
+      quoted[index] = 1;
+    }
+  }
+  return quoted;
+}
+function commandArgumentMatches(argument, actualArguments, bindings) {
+  const normalizedArgument = argument.toLowerCase();
+  const matchesArgument = isRepositoryCommandPath(argument) ? actualArguments.some(
+    (candidate) => normalizeCommandPath(candidate) === normalizeCommandPath(normalizedArgument)
+  ) : actualArguments.includes(normalizedArgument);
+  if (!matchesArgument) return false;
+  return !isRepositoryCommandPath(argument) || bindings.availableCommandPaths.has(normalizeCommandPath(argument));
+}
+function containsArgumentSequence(arguments_, sequence) {
+  return arguments_.some(
+    (_, index) => sequence.every((argument, offset) => arguments_[index + offset] === argument)
+  );
+}
+function startsWithArgumentSequence(arguments_, sequence) {
+  return sequence.every((argument, index) => arguments_[index] === argument);
+}
+function normalizeCommandArgument(value) {
+  let normalized = value.toLowerCase();
+  const enclosingQuote = normalized[0];
+  if (normalized.length >= 2 && (enclosingQuote === '"' || enclosingQuote === "'") && normalized.at(-1) === enclosingQuote) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized.replace(/=(["'])([^"']*)\1$/, "=$2");
+}
+function packageScriptInvocation(tokens) {
+  const manager = executableIdentity(tokens[0] ?? "");
+  if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
+  const arguments_ = tokens.slice(1);
+  let index = skipPackageOptions(arguments_, 0);
+  const subcommand = arguments_[index]?.toLowerCase() ?? "";
+  if (["dlx", "exec", "x"].includes(subcommand)) return null;
+  if (packageManagerDirectToolCommands.get(manager)?.has(subcommand)) return null;
+  if (["run", "run-script"].includes(subcommand)) {
+    index = skipPackageOptions(arguments_, index + 1);
+  } else if (manager === "npm") {
+    const implicitTask = npmImplicitScripts.get(subcommand);
+    return implicitTask ? {
+      hasForwardedArguments: hasForwardedPackageArguments(arguments_, index),
+      manager,
+      task: implicitTask
+    } : null;
+  }
+  const task = packageTaskName(arguments_[index]);
+  return task ? { hasForwardedArguments: hasForwardedPackageArguments(arguments_, index), manager, task } : null;
+}
+function packageTaskName(value) {
+  if (!value) return null;
+  const quote = value[0];
+  if (value.length >= 2 && ['"', "'"].includes(quote ?? "") && value.at(-1) === quote) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+function hasForwardedPackageArguments(arguments_, taskIndex) {
+  return arguments_.slice(taskIndex + 1).some((argument) => argument !== "--");
+}
+function skipPackageOptions(arguments_, start) {
+  let index = start;
+  while (index < arguments_.length) {
+    const argument = arguments_[index]?.toLowerCase() ?? "";
+    if (argument === "--") {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith("-")) break;
+    const option = argument.split("=")[0] ?? "";
+    index += 1;
+    if (!argument.includes("=") && packageGlobalOptionsWithValues.has(option)) index += 1;
+  }
+  return index;
+}
+function executableIdentity(value) {
+  return value.split("/").at(-1)?.replace(/\.exe$/i, "").toLowerCase() ?? "";
+}
+function shellStatements(value, requiresFinalExitStatus, failFast = false) {
+  if (value.includes(";") || hasUnsupportedShellStructure(value)) return [];
+  const statements = value.split(/\r?\n/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
+  const terminatingIndex = statements.findIndex(hasUnconditionalShellTermination);
+  const reachable = terminatingIndex < 0 ? statements : statements.slice(0, terminatingIndex + 1);
+  if (failFast) return reachable;
+  if (!requiresFinalExitStatus && reachable.length <= 1) return reachable;
+  return reachable.length > 0 ? [reachable.at(-1) ?? ""] : [];
+}
+function hasUnconditionalShellTermination(value) {
+  return value.split("&&").some(
+    (command) => /^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*(?:exit|return)(?:\s|$)/i.test(command.trim())
+  );
+}
+function hasUnsupportedShellStructure(value) {
+  if (value.includes("<<")) return true;
+  return value.split(/\r?\n/).some((line) => {
+    const trimmed = line.trimEnd();
+    return trimmed.endsWith("\\") || trimmed.endsWith("`");
+  });
+}
+function stringValues(value) {
+  if (typeof value === "string") return [value];
+  return asArray(value).filter((entry) => typeof entry === "string");
+}
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
 function strongestContentMatch(text, terms, requiredTerms, minTerms, maxSpanLines) {
   if (!maxSpanLines) {
     const matched = terms.filter((term) => containsTerm(text, term)).length;
@@ -919,8 +2798,108 @@ function strongestContentMatch(text, terms, requiredTerms, minTerms, maxSpanLine
   return { matched: strongest, requiredMatched: strongestRequired, qualifies };
 }
 function containsTerm(text, term) {
-  const pattern = term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");
+  const pattern = termPattern(term);
   return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, "i").test(text);
+}
+function containsPositiveTerm(text, term) {
+  const pattern = termPattern(term);
+  const expression = new RegExp(`(^|[^a-z0-9])(${pattern})(?=$|[^a-z0-9])`, "gi");
+  for (const match of text.matchAll(expression)) {
+    const termStart = match.index + (match[1]?.length ?? 0);
+    const prefix = containingClausePrefix(text, termStart);
+    const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
+    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix) && !hasExplicitlyUnboundedQualifier(prefix, suffix) && !hasPlaceholderQualifier(prefix, suffix) && !hasNonHumanAuthorityPrefix(prefix, term)) {
+      return true;
+    }
+  }
+  return false;
+}
+function hasExplicitlyUnboundedQualifier(prefix, suffix) {
+  const precedingQualifier = /\b(?:unbounded|unlimited)(?:\s+[a-z0-9_-]+){0,2}\s*$/i.test(prefix);
+  const followingQualifier = /^\s*(?:(?:is|are|remains?|stays?|=|:)\s*)?(?:explicitly\s+)?(?:unbounded|unlimited)\b/i.test(
+    suffix
+  );
+  return precedingQualifier || followingQualifier;
+}
+function hasPlaceholderQualifier(prefix, suffix) {
+  return hasPrecedingPlaceholder(prefix) || hasFollowingPlaceholder(suffix);
+}
+function normalizedQualifierPhrase(value) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ").replaceAll(" / ", "/").replaceAll("/ ", "/").replaceAll(" /", "/");
+}
+function hasPrecedingPlaceholder(prefix) {
+  const normalized = normalizedQualifierPhrase(prefix);
+  for (const placeholder of semanticPlaceholderQualifiers) {
+    const index = normalized.lastIndexOf(placeholder);
+    if (index < 0) continue;
+    const preceding = normalized[index - 1] ?? "";
+    if (/[a-z0-9_]/i.test(preceding)) continue;
+    const trailingWords = normalized.slice(index + placeholder.length).trim().split(/\s+/);
+    if (trailingWords.length <= 2 && trailingWords.every(isQualifierBridgeWord)) return true;
+  }
+  return false;
+}
+function isQualifierBridgeWord(value) {
+  return value.length === 0 || /^[a-z0-9_-]+$/i.test(value);
+}
+function hasFollowingPlaceholder(suffix) {
+  let normalized = normalizedQualifierPhrase(suffix);
+  for (const link of [
+    "remains ",
+    "remain ",
+    "stays ",
+    "stay ",
+    "are ",
+    "is ",
+    "= ",
+    "=",
+    ": ",
+    ":"
+  ]) {
+    if (!normalized.startsWith(link)) continue;
+    normalized = normalized.slice(link.length).trimStart();
+    break;
+  }
+  if (normalized.startsWith("explicitly ")) normalized = normalized.slice("explicitly ".length);
+  return semanticPlaceholderQualifiers.some(
+    (placeholder) => normalized === placeholder || normalized.startsWith(`${placeholder} `)
+  );
+}
+function hasNonHumanAuthorityPrefix(prefix, term) {
+  if (!/\b(?:maintainers?|owners?|reviewers?)\b/i.test(term)) return false;
+  return /\b(?:ai|agents?|bots?|automated|automation)\s+$/i.test(prefix);
+}
+function hasNegativePrefix(value) {
+  const normalized = withoutRestrictiveUpperBound(value);
+  const negativeWord = /\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b/i.test(
+    normalized
+  );
+  const negativeModal = /\b(?:can|do|does|may|must)\s+not\b/i.test(normalized);
+  return negativeWord || negativeModal;
+}
+function hasNegativeSuffix(value) {
+  const normalized = withoutRestrictiveUpperBound(value);
+  const negativeWord = /\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b/i.test(
+    normalized
+  );
+  return negativeWord || /:\s*none\b/i.test(normalized);
+}
+function withoutRestrictiveUpperBound(value) {
+  return value.replace(/\b(?:cannot|may not|must not|shall not|should not)\s+exceed\b/gi, "");
+}
+function containingClausePrefix(text, end) {
+  const before = text.slice(0, end);
+  const boundaries = [...before.matchAll(/[.;\n]|\bbut\b/gi)];
+  const lastBoundary = boundaries.at(-1);
+  return before.slice(lastBoundary ? lastBoundary.index + lastBoundary[0].length : 0);
+}
+function containingClauseSuffix(text, start) {
+  const after = text.slice(start);
+  const boundary = /[.;\n]|\bbut\b/i.exec(after);
+  return after.slice(0, boundary?.index ?? after.length);
+}
+function termPattern(term) {
+  return term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");
 }
 async function evaluateMaxBytes(context, check) {
   const paths = await matches(context, check.patterns);
@@ -950,11 +2929,17 @@ async function evaluateCheck(context, check) {
       return evaluatePathAny(context, check);
     case "path_all":
       return evaluatePathAll(context, check);
+    case "ownership_map":
+      return evaluateOwnershipMap(context, check);
     case "content_any":
     case "content_all":
       return evaluateLegacyContent(context, check);
     case "content_terms":
       return evaluateContentTerms(context, check);
+    case "content_groups":
+      return evaluateContentGroups(context, check);
+    case "ci_command":
+      return evaluateCiCommand(context, check);
     case "max_bytes":
       return evaluateMaxBytes(context, check);
     case "manual":
@@ -974,40 +2959,127 @@ function activeAgentEvidence(control, claim, now) {
   if (new Date(claim.expires_at) < now) return null;
   return claim;
 }
+function evidenceChecksPass(control, evidence) {
+  return control.evidence_mode === "any" ? evidence.some(({ status }) => status === "met") : evidence.every(({ status }) => status === "met");
+}
+function repositoryEvidencePasses(control, evidence, checksPassed) {
+  const hasRepositoryMatch = evidence.some(
+    ({ scope, status }) => scope === "repository" && status === "met"
+  );
+  const hasManualCheck = control.evidence.some(({ type }) => type === "manual");
+  return checksPassed && hasRepositoryMatch && (!hasManualCheck || control.evidence_mode === "any");
+}
+function externalEvidenceConflicts(attestation, agentEvidence) {
+  const attestationStatus = attestation?.status === "unknown" ? null : attestation?.status ?? null;
+  return agentEvidence !== null && agentEvidence.status !== "unknown" && attestationStatus !== null && agentEvidence.status !== attestationStatus;
+}
+function supplementalResolution(attestation, agentEvidence) {
+  if (externalEvidenceConflicts(attestation, agentEvidence)) {
+    return { confidence: "none", status: "unknown" };
+  }
+  if (agentEvidence && agentEvidence.status !== "unknown") {
+    return { confidence: "agent-collected", status: agentEvidence.status };
+  }
+  if (attestation && attestation.status !== "unknown") {
+    return { confidence: "attested", status: attestation.status };
+  }
+  if (agentEvidence?.status === "unknown" || attestation?.status === "unknown") {
+    return { confidence: "none", status: "unknown" };
+  }
+  return null;
+}
+function alternativeSupplementalResolution(evidence, attestation, agentEvidence) {
+  if (attestation?.status === "not_applicable") {
+    return { confidence: "attested", status: "not_applicable" };
+  }
+  const statuses = evidence.map(({ status }) => status);
+  const sources = evidence.map(() => null);
+  const agentIndexes = matchingAlternativeIndexes(evidence, agentEvidence?.scope ?? null);
+  const attestationIndexes = manualAlternativeIndexes(evidence);
+  if (alternativeSupplementalEvidenceConflicts(
+    evidence,
+    attestationIndexes,
+    attestation,
+    agentEvidence
+  )) {
+    return { confidence: "none", status: "unknown" };
+  }
+  applyAlternativeStatus(
+    statuses,
+    sources,
+    agentIndexes,
+    agentEvidence?.status ?? null,
+    "agent-collected"
+  );
+  applyAlternativeStatus(
+    statuses,
+    sources,
+    attestationIndexes,
+    attestation?.status ?? null,
+    "attested"
+  );
+  if (statuses.includes("met")) {
+    return { confidence: decisiveAlternativeConfidence(statuses, sources, "met"), status: "met" };
+  }
+  if (statuses.every((status) => status === "not_met")) {
+    return {
+      confidence: decisiveAlternativeConfidence(statuses, sources, "not_met"),
+      status: "not_met"
+    };
+  }
+  return { confidence: "none", status: "unknown" };
+}
+function matchingAlternativeIndexes(evidence, scope) {
+  if (scope === null) return [];
+  return evidence.flatMap(({ scope: candidate }, index) => candidate === scope ? [index] : []);
+}
+function manualAlternativeIndexes(evidence) {
+  return evidence.flatMap(({ type }, index) => type === "manual" ? [index] : []);
+}
+function alternativeSupplementalEvidenceConflicts(evidence, attestationIndexes, attestation, agentEvidence) {
+  if (!agentEvidence || agentEvidence.status === "unknown") return false;
+  if (!attestation || ["not_applicable", "unknown"].includes(attestation.status)) return false;
+  const sameAlternative = attestationIndexes.some(
+    (index) => evidence[index]?.scope === agentEvidence.scope
+  );
+  return sameAlternative && agentEvidence.status !== attestation.status;
+}
+function applyAlternativeStatus(statuses, sources, indexes, status, source) {
+  if (status === null || status === "not_applicable") return;
+  for (const index of indexes) {
+    statuses[index] = status;
+    sources[index] = source;
+  }
+}
+function decisiveAlternativeConfidence(statuses, sources, decisiveStatus) {
+  const decisiveSources = sources.filter(
+    (source, index) => statuses[index] === decisiveStatus && source !== null
+  );
+  if (decisiveSources.includes("agent-collected")) return "agent-collected";
+  if (decisiveSources.includes("attested")) return "attested";
+  return "none";
+}
+function resolveControl(control, evidence, attestation, agentEvidence) {
+  const checksPassed = evidenceChecksPass(control, evidence);
+  if (repositoryEvidencePasses(control, evidence, checksPassed)) {
+    return { confidence: "repository-detected", status: "met" };
+  }
+  if (control.evidence_mode === "any") {
+    return alternativeSupplementalResolution(evidence, attestation, agentEvidence);
+  }
+  const supplemental = supplementalResolution(attestation, agentEvidence);
+  if (supplemental) return supplemental;
+  const hasUnknownCheck = evidence.some(({ status }) => status === "unknown");
+  if (hasUnknownCheck) return { confidence: "none", status: "unknown" };
+  return { confidence: "none", status: checksPassed ? "met" : "not_met" };
+}
 async function evaluateControl(context, control, attestations, agentClaim, now = /* @__PURE__ */ new Date()) {
   const evidence = await Promise.all(
     control.evidence.map(async (check) => evaluateCheck(context, check))
   );
   const attestation = activeAttestation(control, attestations, now);
   const agentEvidence = activeAgentEvidence(control, agentClaim, now);
-  const checksPassed = evidence.every(({ status: status2 }) => status2 === "met");
-  const hasManualCheck = control.evidence.some(({ type }) => type === "manual");
-  let status = checksPassed ? "met" : "not_met";
-  let confidence = checksPassed && !hasManualCheck ? "repository-detected" : "none";
-  const attestationStatus = attestation?.status === "unknown" ? null : attestation?.status ?? null;
-  const hasExternalConflict = agentEvidence !== null && agentEvidence.status !== "unknown" && attestationStatus !== null && agentEvidence.status !== attestationStatus;
-  if (checksPassed && !hasManualCheck) {
-  } else if (hasExternalConflict) {
-    status = "unknown";
-    confidence = "none";
-  } else if (agentEvidence && agentEvidence.status !== "unknown") {
-    status = agentEvidence.status;
-    confidence = "agent-collected";
-  } else if (attestation?.status === "not_applicable") {
-    status = "not_applicable";
-    confidence = "attested";
-  } else if (attestation?.status === "met") {
-    status = "met";
-    confidence = "attested";
-  } else if (attestation?.status === "not_met" || attestation?.status === "unknown") {
-    status = attestation.status;
-    confidence = "attested";
-  } else if (agentEvidence?.status === "unknown") {
-    status = "unknown";
-    confidence = "agent-collected";
-  } else if (evidence.some(({ status: checkStatus }) => checkStatus === "unknown")) {
-    status = "unknown";
-  }
+  const { confidence, status } = resolveControl(control, evidence, attestation, agentEvidence);
   return {
     id: control.id,
     dimension: control.dimension,
@@ -1017,6 +3089,7 @@ async function evaluateControl(context, control, attestations, agentClaim, now =
     risk: control.risk,
     status,
     confidence,
+    ...control.evidence_mode === "any" ? { evidence_mode: "any" } : {},
     evidence,
     agent_evidence: agentEvidence,
     attestation,
@@ -1028,6 +3101,15 @@ async function evaluateControl(context, control, attestations, agentClaim, now =
 function controlPasses(control) {
   return control.status === "met" || control.status === "not_applicable";
 }
+function usesModernEvidence(version) {
+  return version === "0.3.0" || version === "0.4.0";
+}
+function reportSchemaVersion(version) {
+  if (usesModernEvidence(version)) {
+    return version;
+  }
+  return "0.2.0";
+}
 function dimensionScore(controls, dimension) {
   let score = 0;
   for (const level of [1, 2, 3, 4]) {
@@ -1038,6 +3120,10 @@ function dimensionScore(controls, dimension) {
     score = level;
   }
   return score;
+}
+function isRepositoryDetectable(control) {
+  const repositoryChecks = control.evidence.filter(({ scope }) => scope === "repository");
+  return control.evidence_mode === "any" ? repositoryChecks.length > 0 : repositoryChecks.length === control.evidence.length;
 }
 function repositoryScore(catalog, results, dimensions) {
   let achieved = 0;
@@ -1052,9 +3138,7 @@ function repositoryScore(catalog, results, dimensions) {
       const controlsAtLevel = catalog.filter(
         (control) => control.dimension === dimension && control.level === level
       );
-      const repositoryDetectable = controlsAtLevel.every(
-        (control) => control.evidence.every((evidence) => evidence.scope === "repository")
-      );
+      const repositoryDetectable = controlsAtLevel.every(isRepositoryDetectable);
       if (ceilingOpen && repositoryDetectable) {
         dimensionCeiling = level;
       } else {
@@ -1104,7 +3188,7 @@ function assessProfiles(benchmark, dimensions, controls) {
       title: profile.title,
       passed: blockers.length === 0,
       blockers,
-      ...benchmark.version === "0.3.0" ? {
+      ...usesModernEvidence(benchmark.version) ? {
         evidence_dependencies: {
           agent_collected: requiredControls.filter(
             ({ confidence }) => confidence === "agent-collected"
@@ -1124,7 +3208,10 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   }
   const scope = options.scope ?? "tracked";
   const now = options.now ?? /* @__PURE__ */ new Date();
+  const modernEvidence = usesModernEvidence(benchmark.version);
+  const schemaVersion = reportSchemaVersion(benchmark.version);
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
+  validateAttestations(benchmark, catalog, context, options.attestations ?? null, now);
   await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
   const controls = await Promise.all(
     catalog.map(
@@ -1138,7 +3225,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     )
   );
   const warnings = [...options.warnings ?? []];
-  if (benchmark.version === "0.3.0") {
+  if (modernEvidence) {
     if (scope === "tracked" && context.metadata.tracked_tree_dirty) {
       warnings.push(
         "Tracked assessment includes uncommitted tracked-file contents, so the result is not reproducible from git_head alone. Use a clean worktree before comparing scores or collecting agent evidence."
@@ -1170,11 +3257,11 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   });
   const profiles = assessProfiles(benchmark, dimensions, controls);
   const total = dimensions.reduce((sum, { score }) => sum + score, 0);
-  const repository = benchmark.version === "0.3.0" ? repositoryScore(catalog, controls, benchmark.dimensions) : void 0;
+  const repository = modernEvidence ? repositoryScore(catalog, controls, benchmark.dimensions) : void 0;
   const highestProfile = [...profiles].reverse().find(({ passed }) => passed)?.id ?? null;
   const targetPassed = profiles.find(({ id }) => id === profileId)?.passed ?? false;
   return {
-    schema_version: benchmark.version === "0.3.0" ? "0.3.0" : "0.2.0",
+    schema_version: schemaVersion,
     benchmark: { id: benchmark.id, version: benchmark.version },
     target: {
       repository: repo,
@@ -1185,7 +3272,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       working_tree_dirty: context.metadata.working_tree_dirty
     },
     assessed_at: now.toISOString(),
-    ...benchmark.version === "0.3.0" ? { warnings } : {},
+    ...modernEvidence ? { warnings } : {},
     score: {
       total,
       maximum: 40,
@@ -1204,7 +3291,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       ).length,
       unmet: controls.filter(({ status }) => status === "not_met").length,
       unknown: controls.filter(({ status }) => status === "unknown").length,
-      ...benchmark.version === "0.3.0" ? {
+      ...modernEvidence ? {
         resolved: controls.filter(({ status }) => status !== "unknown").length,
         total: controls.length
       } : {}
@@ -1216,7 +3303,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     limitations: [
       scope === "tracked" ? "Tracked mode considers only Git-tracked paths, using current working-tree contents; uncommitted edits to tracked files can affect the result." : "Workspace mode includes untracked local files and is provisional; do not compare it directly with tracked-mode reports.",
       "Repository-detected evidence proves a qualifying artifact match, not consistent practice or external enforcement.",
-      ...benchmark.version === "0.3.0" ? [
+      ...modernEvidence ? [
         "Repository-detected progress uses only deterministic offline evidence and its attainable ceiling; it is explanatory and does not replace the normative score or readiness floors.",
         "Agent-collected repository evidence is semantic, target-bound, and source-backed but is not independently verified or relabelled as repository-detected."
       ] : [],
@@ -1224,6 +3311,38 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
       "This assessment does not grant production access, deployment authority, or certification."
     ]
   };
+}
+function validateAttestations(benchmark, catalog, context, attestations, now) {
+  if (!attestations || benchmark.version !== "0.4.0") return;
+  if (attestations.benchmark_version !== benchmark.version) {
+    throw new Error(
+      `Attestation benchmark ${attestations.benchmark_version} does not match ${benchmark.version}`
+    );
+  }
+  const expectedTarget = normalizeRepositoryTarget(
+    repositoryEvidenceTarget(context.metadata).repository
+  );
+  if (!attestations.target) {
+    throw new Error("ADRB v0.4 attestations require a repository target");
+  }
+  if (normalizeRepositoryTarget(attestations.target.repository) !== expectedTarget) {
+    throw new Error("Attestation target does not match the assessed repository");
+  }
+  const controlIds = new Set(catalog.map(({ id }) => id));
+  for (const [controlId, attestation] of Object.entries(attestations.attestations)) {
+    if (!/^ADRB-[A-Z]{3}-\d{3}$/.test(controlId)) {
+      throw new Error(`Attestation uses malformed control ID ${controlId}`);
+    }
+    if (!controlIds.has(controlId)) {
+      throw new Error(`Attestation references unknown control ${controlId}`);
+    }
+    if (/* @__PURE__ */ new Date(`${attestation.reviewed_at}T00:00:00.000Z`) > now) {
+      throw new Error(`${controlId} has a future review date`);
+    }
+    if (attestation.status !== "unknown" && [attestation.owner, attestation.evidence].some((value) => /^\s*TODO(?:\b|:)/i.test(value))) {
+      throw new Error(`${controlId} contains unresolved TODO attestation evidence`);
+    }
+  }
 }
 async function validateAgentEvidence(benchmark, catalog, context, evidence, now) {
   if (!evidence) return;
@@ -1234,17 +3353,17 @@ async function validateAgentEvidence(benchmark, catalog, context, evidence, now)
   }
   const expectedTarget = repositoryEvidenceTarget(context.metadata);
   if (evidence.target.repository !== expectedTarget.repository) {
-    throw new Error(
-      `Agent evidence target ${evidence.target.repository} does not match ${expectedTarget.repository}`
-    );
+    throw new Error("Agent evidence target does not match the assessed repository");
   }
   if (evidence.target.git_head !== expectedTarget.git_head) {
     throw new Error(
       `Agent evidence commit ${evidence.target.git_head ?? "unavailable"} does not match ${expectedTarget.git_head ?? "an unavailable Git commit"}`
     );
   }
-  if (benchmark.version === "0.3.0" && context.metadata.tracked_tree_dirty) {
-    throw new Error("ADRB v0.3 agent evidence requires tracked files to match the bound commit");
+  if (usesModernEvidence(benchmark.version) && context.metadata.tracked_tree_dirty) {
+    throw new Error(
+      `ADRB v${benchmark.version} agent evidence requires tracked files to match the bound commit`
+    );
   }
   const controls = new Map(catalog.map((control) => [control.id, control]));
   if (Object.keys(evidence.claims).length > 0 && (evidence.collector.name.startsWith("TODO") || evidence.collector.version.startsWith("TODO"))) {
@@ -1323,7 +3442,7 @@ function countLines(contents) {
 
 // src/cli.ts
 var program = new Command();
-program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.3.1");
+program.name("agentic-scorecard").description("Evidence-backed readiness assessment for agentic software development harnesses").version("0.4.0");
 program.command("validate").description("Validate the bundled benchmark catalog").action(async () => {
   const { benchmark, controls } = await loadBenchmark();
   process.stdout.write(
@@ -1360,11 +3479,17 @@ program.command("init").argument("[repository]", "repository to initialize", "."
     }
   }
   const { benchmark, controls } = await loadBenchmark();
+  const context = await createRepositoryContext(repo, "workspace");
+  const target = {
+    repository: normalizeRepositoryTarget(repositoryEvidenceTarget(context.metadata).repository)
+  };
   const reviewedAt = /* @__PURE__ */ new Date();
   const expiresAt = new Date(reviewedAt);
   expiresAt.setDate(expiresAt.getDate() + 90);
   const attestations = Object.fromEntries(
-    controls.filter((control) => control.evidence.some(({ type }) => type === "manual")).map((control) => {
+    controls.filter(
+      (control) => control.allow_attestation && control.evidence.some(({ type }) => type === "manual")
+    ).map((control) => {
       const manualCheck = control.evidence.find(
         (check) => check.type === "manual"
       );
@@ -1384,7 +3509,7 @@ program.command("init").argument("[repository]", "repository to initialize", "."
   await writeFile(
     path,
     `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.
-${stringify({ benchmark_version: benchmark.version, attestations })}`,
+${stringify({ benchmark_version: benchmark.version, target, attestations })}`,
     "utf8"
   );
   process.stdout.write(`Created ${path}
@@ -1456,7 +3581,7 @@ ${stringify(bundle)}`,
     await writeFile(
       requestPath,
       [
-        "# ADRB v0.3 evidence request",
+        `# ADRB v${benchmark.version} evidence request`,
         "",
         `- Repository: ${bundle.target.repository}`,
         `- Git commit: ${bundle.target.git_head ?? "unavailable"}`,

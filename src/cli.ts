@@ -6,7 +6,11 @@ import { stringify } from 'yaml';
 
 import { loadAgentEvidence, loadAttestations, loadBenchmark } from './load.js';
 import { toMarkdown } from './report.js';
-import { createRepositoryContext, repositoryEvidenceTarget } from './repository.js';
+import {
+  createRepositoryContext,
+  normalizeRepositoryTarget,
+  repositoryEvidenceTarget,
+} from './repository.js';
 import type { AssessmentScope, EvidenceCheck } from './schema.js';
 import { assess } from './score.js';
 
@@ -15,7 +19,7 @@ const program = new Command();
 program
   .name('agentic-scorecard')
   .description('Evidence-backed readiness assessment for agentic software development harnesses')
-  .version('0.3.1');
+  .version('0.4.0');
 
 program
   .command('validate')
@@ -57,12 +61,19 @@ program
       }
     }
     const { benchmark, controls } = await loadBenchmark();
+    const context = await createRepositoryContext(repo, 'workspace');
+    const target = {
+      repository: normalizeRepositoryTarget(repositoryEvidenceTarget(context.metadata).repository),
+    };
     const reviewedAt = new Date();
     const expiresAt = new Date(reviewedAt);
     expiresAt.setDate(expiresAt.getDate() + 90);
     const attestations = Object.fromEntries(
       controls
-        .filter((control) => control.evidence.some(({ type }) => type === 'manual'))
+        .filter(
+          (control) =>
+            control.allow_attestation && control.evidence.some(({ type }) => type === 'manual'),
+        )
         .map((control) => {
           const manualCheck = control.evidence.find(
             (check): check is Extract<EvidenceCheck, { type: 'manual' }> => check.type === 'manual',
@@ -82,7 +93,7 @@ program
     await mkdir(dirname(path), { recursive: true });
     await writeFile(
       path,
-      `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.\n${stringify({ benchmark_version: benchmark.version, attestations })}`,
+      `# Claims are visibly human-attested. Link durable evidence; do not paste secrets.\n${stringify({ benchmark_version: benchmark.version, target, attestations })}`,
       'utf8',
     );
     process.stdout.write(`Created ${path}\n`);
@@ -168,7 +179,7 @@ program
       await writeFile(
         requestPath,
         [
-          '# ADRB v0.3 evidence request',
+          `# ADRB v${benchmark.version} evidence request`,
           '',
           `- Repository: ${bundle.target.repository}`,
           `- Git commit: ${bundle.target.git_head ?? 'unavailable'}`,

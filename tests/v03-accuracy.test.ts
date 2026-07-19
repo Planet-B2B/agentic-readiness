@@ -11,6 +11,8 @@ import { repositoryEvidenceTarget } from '../src/repository.js';
 import { assess } from '../src/score.js';
 import type { AgentEvidenceFile } from '../src/schema.js';
 
+const v03Root = resolve(import.meta.dirname, '..', 'benchmark', 'v0.3');
+
 async function gitFixture(files: Record<string, string>): Promise<string> {
   const repository = await mkdtemp(join(tmpdir(), 'adrb-v03-'));
   execFileSync('git', ['-C', repository, 'init', '--quiet']);
@@ -56,25 +58,40 @@ function controlStatus(report: Awaited<ReturnType<typeof assess>>, id: string) {
 
 describe('v0.3 accuracy regressions', () => {
   it('retains the mature level-three conformance result', async () => {
-    const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
-    const { benchmark, controls } = await loadBenchmark();
-    const attestations = await loadAttestations(
-      join(repository, '.agentic', 'attestations-v0.3.yaml'),
-      benchmark.version,
+    const repository = await gitDirectoryFixture(
+      resolve(import.meta.dirname, 'fixtures', 'mature-v03'),
     );
-    const report = await assess(repository, benchmark, controls, 'limited-autonomous-maintenance', {
-      attestations,
-      now: new Date('2026-07-17T12:00:00.000Z'),
-    });
-    expect(report.score.total).toBe(30);
-    expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
-    expect(report.readiness.target_passed).toBe(true);
-    expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
-    const targetProfile = report.profiles.find(({ id }) => id === 'limited-autonomous-maintenance');
-    expect(targetProfile?.evidence_dependencies?.attested).toBeGreaterThan(0);
-    const markdown = toMarkdown(report);
-    expect(markdown).toContain('PASS (depends on');
-    expect(markdown).toContain('Assessment mode: **evidence-assisted assessment**');
+    try {
+      const { benchmark, controls } = await loadBenchmark(v03Root);
+      const attestations = await loadAttestations(
+        join(repository, '.agentic', 'attestations-v0.3.yaml'),
+        benchmark.version,
+      );
+      const report = await assess(
+        repository,
+        benchmark,
+        controls,
+        'limited-autonomous-maintenance',
+        {
+          attestations,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        },
+      );
+      expect(report.score.total).toBe(30);
+      expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
+      expect(report.readiness.target_passed).toBe(true);
+      expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
+      const targetProfile = report.profiles.find(
+        ({ id }) => id === 'limited-autonomous-maintenance',
+      );
+      expect(targetProfile?.evidence_dependencies?.attested).toBeGreaterThan(0);
+      const markdown = toMarkdown(report);
+      expect(markdown).toContain('PASS (depends on');
+      expect(markdown).toContain('Assessment mode: **evidence-assisted assessment**');
+      expect(markdown).not.toContain('Alternative evidence paths not established');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
   });
 
   it(
@@ -115,7 +132,7 @@ describe('v0.3 accuracy regressions', () => {
   it('labels a zero-supplemental-evidence result as a repository-only baseline', async () => {
     const repository = await gitFixture({ 'README.md': '# Minimal repository' });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
       const markdown = toMarkdown(report);
 
@@ -154,7 +171,7 @@ describe('v0.3 accuracy regressions', () => {
     const repository = await gitFixture({ 'README.md': '# Minimal repository' });
     try {
       await writeFile(join(repository, 'README.md'), '# Changed after commit', 'utf8');
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
 
       expect(report.warnings).toHaveLength(2);
@@ -189,7 +206,7 @@ describe('v0.3 accuracy regressions', () => {
       ].join('\n'),
     });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
       expect(controlStatus(report, 'ADRB-CTX-001')?.status).toBe('met');
       expect(controlStatus(report, 'ADRB-CTX-002')?.status).toBe('met');
@@ -208,7 +225,7 @@ describe('v0.3 accuracy regressions', () => {
       resolve(import.meta.dirname, 'fixtures', 'python-harness'),
     );
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'pr-creation');
 
       expect(report.score.total).toBe(7);
@@ -247,7 +264,7 @@ describe('v0.3 accuracy regressions', () => {
       'scripts/stale-cache.test.ts': 'it("detects stale duplicate cache records", () => {})',
     });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const report = await assess(repository, benchmark, controls, 'planning');
       expect(controlStatus(report, 'ADRB-TOL-001')?.status).toBe('met');
       expect(controlStatus(report, 'ADRB-GOV-002')?.status).toBe('met');
@@ -273,7 +290,7 @@ describe('v0.3 accuracy regressions', () => {
       ].join('\n'),
     });
     try {
-      const { benchmark, controls } = await loadBenchmark();
+      const { benchmark, controls } = await loadBenchmark(v03Root);
       const baseline = await assess(repository, benchmark, controls, 'planning');
       expect(baseline.score.repository?.ceiling).toBe(23);
       const repositoryTarget = repositoryEvidenceTarget({

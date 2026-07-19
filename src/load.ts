@@ -7,7 +7,9 @@ import { parse } from 'yaml';
 import {
   AgentEvidenceFileSchema,
   AgentEvidenceFileV03Schema,
+  AgentEvidenceFileV04Schema,
   AttestationFileSchema,
+  AttestationFileV04Schema,
   BenchmarkSchema,
   ControlFileSchema,
   DetectorAdapterSchema,
@@ -22,7 +24,7 @@ import {
 } from './schema.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.3');
+export const defaultBenchmarkRoot = join(packageRoot, 'benchmark', 'v0.4');
 
 export interface ArtifactLoadOptions {
   ignoreVersionMismatch?: boolean;
@@ -73,6 +75,28 @@ function applyDetectorAdapter(
       `Detector adapter ${adapter.id} targets ${adapter.benchmark_version}, not ${benchmark.version}`,
     );
   }
+  if (adapter.ci_invocation_grammar) {
+    for (const control of controls) {
+      for (const check of control.evidence) {
+        if (check.type !== 'ci_command') continue;
+        check.invocation_grammar = {
+          wrappers: [
+            ...new Map(
+              [...check.invocation_grammar.wrappers, ...adapter.ci_invocation_grammar.wrappers].map(
+                (wrapper) => [JSON.stringify(wrapper), wrapper],
+              ),
+            ).values(),
+          ],
+          wrapper_options_with_values: [
+            ...new Set([
+              ...check.invocation_grammar.wrapper_options_with_values,
+              ...adapter.ci_invocation_grammar.wrapper_options_with_values,
+            ]),
+          ],
+        };
+      }
+    }
+  }
   for (const extension of adapter.extensions) {
     const control = controls.find(({ id }) => id === extension.control_id);
     if (!control) {
@@ -118,6 +142,68 @@ function applyDetectorAdapter(
         ...new Set([...(check.required_any_terms ?? []), ...extension.required_any_terms]),
       ];
     }
+    if (extension.ci_providers) {
+      if (check.type !== 'ci_command') {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI providers to ${control.id} evidence ${extension.evidence_index}`,
+        );
+      }
+      const providers = new Map(check.providers.map((provider) => [provider.id, provider]));
+      for (const extensionProvider of extension.ci_providers) {
+        const provider = providers.get(extensionProvider.id);
+        providers.set(extensionProvider.id, {
+          id: extensionProvider.id,
+          files: [...new Set([...(provider?.files ?? []), ...extensionProvider.files])],
+        });
+      }
+      check.providers = [...providers.values()];
+    }
+    if (extension.ci_tools) {
+      if (check.type !== 'ci_command') {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI tools to ${control.id} evidence ${extension.evidence_index}`,
+        );
+      }
+      const tools = new Map(check.tools.map((tool) => [tool.id, tool]));
+      for (const extensionTool of extension.ci_tools) {
+        const tool = tools.get(extensionTool.id);
+        tools.set(extensionTool.id, {
+          id: extensionTool.id,
+          commands: [
+            ...new Map(
+              [...(tool?.commands ?? []), ...extensionTool.commands].map((command) => [
+                JSON.stringify(command),
+                command,
+              ]),
+            ).values(),
+          ],
+          standalone_executables: [
+            ...new Set([
+              ...(tool?.standalone_executables ?? []),
+              ...extensionTool.standalone_executables,
+            ]),
+          ],
+          actions: [...new Set([...(tool?.actions ?? []), ...extensionTool.actions])],
+          prohibited_arguments: [
+            ...new Set([
+              ...(tool?.prohibited_arguments ?? []),
+              ...extensionTool.prohibited_arguments,
+            ]),
+          ],
+          prohibited_argument_sequences: [
+            ...new Map(
+              [
+                ...(tool?.prohibited_argument_sequences ?? []),
+                ...extensionTool.prohibited_argument_sequences,
+              ].map((sequence) => [JSON.stringify(sequence), sequence]),
+            ).values(),
+          ],
+          requires_final_exit_status:
+            (tool?.requires_final_exit_status ?? false) || extensionTool.requires_final_exit_status,
+        });
+      }
+      check.tools = [...tools.values()];
+    }
   }
 }
 
@@ -145,7 +231,9 @@ export async function loadAttestations(
     const file =
       benchmarkVersion === '0.1.0'
         ? LegacyAttestationFileSchema.parse(rawFile)
-        : AttestationFileSchema.parse(rawFile);
+        : benchmarkVersion === '0.4.0'
+          ? AttestationFileV04Schema.parse(rawFile)
+          : AttestationFileSchema.parse(rawFile);
     if (file.benchmark_version !== benchmarkVersion) {
       throw new Error(
         `Attestation benchmark version ${file.benchmark_version} does not match ${benchmarkVersion}`,
@@ -186,6 +274,7 @@ export async function loadAgentEvidence(
     const file = (() => {
       if (benchmarkVersion === '0.2.0') return AgentEvidenceFileSchema.parse(rawFile);
       if (benchmarkVersion === '0.3.0') return AgentEvidenceFileV03Schema.parse(rawFile);
+      if (benchmarkVersion === '0.4.0') return AgentEvidenceFileV04Schema.parse(rawFile);
       throw new Error(`Agent evidence bundles are unsupported for benchmark ${benchmarkVersion}`);
     })();
     if (file.benchmark_version !== benchmarkVersion) {
@@ -233,7 +322,7 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
     if (ids.has(control.id)) throw new Error(`Duplicate control id: ${control.id}`);
     ids.add(control.id);
     if (
-      ['0.2.0', '0.3.0'].includes(benchmark.version) &&
+      ['0.2.0', '0.3.0', '0.4.0'].includes(benchmark.version) &&
       control.evidence.some(({ type }) => type === 'content_any' || type === 'content_all')
     ) {
       throw new Error(
@@ -258,15 +347,36 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
       throw new Error(`${control.id} changes immutable v0.2 repository evidence semantics`);
     }
     if (
-      ['0.2.0', '0.3.0'].includes(benchmark.version) &&
+      ['0.2.0', '0.3.0', '0.4.0'].includes(benchmark.version) &&
       control.allow_attestation &&
       !control.evidence.some(({ type }) => type === 'manual')
     ) {
       throw new Error(`${control.id} allows attestation for repository-detected evidence`);
     }
+    if (control.evidence_mode === 'any' && control.evidence.length < 2) {
+      throw new Error(`${control.id} uses alternative evidence without multiple evidence checks`);
+    }
     for (const check of control.evidence) {
       if (check.type === 'content_terms' && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more content terms than it defines`);
+      }
+      if (check.type === 'ci_command' && check.providers.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a provider adapter`);
+      }
+      if (check.type === 'ci_command' && check.tools.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a tool adapter`);
+      }
+      if (check.type === 'ci_command' && check.min_tools > check.tools.length) {
+        throw new Error(`${control.id} requires more CI tools than it defines`);
+      }
+      if (check.type === 'content_groups') {
+        const groupIds = check.groups.map(({ id }) => id);
+        if (new Set(groupIds).size !== groupIds.length) {
+          throw new Error(`${control.id} defines duplicate semantic evidence groups`);
+        }
+        if (check.min_groups > check.groups.length) {
+          throw new Error(`${control.id} requires more semantic groups than it defines`);
+        }
       }
     }
   }

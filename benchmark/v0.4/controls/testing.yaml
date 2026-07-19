@@ -1,0 +1,82 @@
+dimension: testing
+controls:
+  - id: ADRB-TST-001
+    level: 1
+    title: Automated tests exist
+    outcome: The tracked repository contains executable tests for at least one important behavior.
+    risk: Agent changes rely on plausibility or manual inspection alone.
+    evidence:
+      - type: path_any
+        scope: repository
+        patterns: ['**/*.test.*', '**/*.spec.*', tests/**, test/**]
+    remediation: Add a fast automated test for a critical behavior and document how to run it.
+  - id: ADRB-TST-002
+    level: 2
+    title: Verification layers and canonical commands are documented
+    outcome: Contributors can identify applicable test layers and the canonical verification path.
+    risk: Agents run a convenient subset and overstate confidence in the result.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            README.md,
+            CONTRIBUTING.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/testing/**,
+            package.json,
+            Makefile,
+          ]
+        terms: [unit test, integration test, end-to-end, e2e, typecheck, lint, test]
+        min_terms: 2
+        required_any_terms: [verify, verification, test, check, CI]
+        max_span_lines: 120
+        max_files_per_pattern: 50
+    remediation: Define the test taxonomy and one canonical command that matches CI.
+  - id: ADRB-TST-003
+    level: 3
+    title: CI executes the required verification layers
+    outcome: Repository automation runs appropriate tests and static checks from a clean state.
+    risk: Documented verification can be omitted from automation or run in an unrepresentative environment.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: ci_command
+        scope: repository
+        min_tools: 2
+    remediation: Configure CI to run the applicable verification layers from a clean environment.
+  - id: ADRB-TST-005
+    level: 3
+    title: Verification is enforced before merge
+    outcome: Merge policy requires the applicable CI checks and restricts bypasses.
+    risk: Healthy CI configuration remains optional under delivery pressure.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show required status checks or equivalent merge gates, covered branches, bypass actors, and exception controls.
+    remediation: Make appropriate CI checks required merge gates and restrict, record, and review bypasses.
+  - id: ADRB-TST-004
+    level: 4
+    title: Verification effectiveness drives improvement
+    outcome: Escaped defects, flakiness, and other signal-quality outcomes are trended and improve testing.
+    risk: Test count and coverage rise while meaningful defects still escape.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide verification outcome trends by task class and a recent test-strategy improvement driven by them.
+    remediation: Trend escaped defects and signal quality, then invest in the weakest verification layers.

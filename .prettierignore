@@ -1,5 +1,6 @@
 dist
 coverage
 node_modules
-fixtures/mature-repo/package-lock.json
+tests/fixtures/**/package-lock.json
 .claude/settings.local.json
+.sonarcloud.properties

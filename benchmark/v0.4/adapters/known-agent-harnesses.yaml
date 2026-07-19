@@ -1,0 +1,266 @@
+id: known-agent-harnesses
+benchmark_version: 0.4.0
+extensions:
+  - control_id: ADRB-CTX-001
+    evidence_index: 0
+    patterns:
+      [
+        CLAUDE.md,
+        .github/copilot-instructions.md,
+        .claude/**,
+        .codex/**,
+        .cursor/rules/**,
+        .cursor/agents/**,
+        .cursor/skills/**,
+        .opencode/**,
+      ]
+  - control_id: ADRB-CTX-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .github/copilot-instructions.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/agents/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-CTX-003
+    evidence_index: 0
+    ci_tools:
+      - id: agent-guidance-validation
+        commands:
+          - executables: [node, tsx]
+            argument_groups:
+              - [
+                  scripts/check-agent-docs.js,
+                  scripts/check-agent-docs.ts,
+                  scripts/validate-agent-docs.js,
+                  scripts/validate-agent-docs.ts,
+                ]
+            source_pattern_groups:
+              - [
+                  '\b(?:readfilesync|readfile)\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
+                ]
+              - [
+                  '\bthrow\s+new\s+error\s*\(',
+                  '\bprocess\.exit\s*\(\s*[1-9]',
+                  '\bprocess\.exitcode\s*=\s*[1-9]',
+                ]
+          - executables: [bash, sh]
+            argument_groups:
+              - [scripts/check-agent-docs.sh, scripts/validate-agent-docs.sh]
+            source_pattern_groups:
+              - ['\b(?:grep|test)\b[^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))']
+              - ['\b(?:exit|return)\s+[1-9]']
+          - executables: [python, python3]
+            argument_groups:
+              - [scripts/check_agent_docs.py, scripts/validate_agent_docs.py]
+            source_pattern_groups:
+              - [
+                  '\bopen\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
+                  '\bpath\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))[^\n]*\)\s*\.\s*read_text\s*\(',
+                  '\bread_text\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
+                ]
+              - ['\braise\b', '\bsys\.exit\s*\(\s*[1-9]']
+  - control_id: ADRB-SPC-003
+    evidence_index: 0
+    ci_tools:
+      - id: specification-traceability
+        commands:
+          - executables: [node, tsx]
+            argument_groups:
+              - [
+                  scripts/check-specs.js,
+                  scripts/check-specs.ts,
+                  scripts/validate-specs.js,
+                  scripts/validate-specs.ts,
+                  scripts/check-traceability.js,
+                  scripts/check-traceability.ts,
+                ]
+            source_pattern_groups:
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:specs?/|requirements?/|\.ai/specs?)']
+              - ['\b(?:task|work\s*item|issue)[^\n]*\.(?:exec|match)\s*\(']
+              - ['\b(?:implementation|change|source|code)[^\n]*\.(?:exec|match)\s*\(']
+              - ['\b(?:verification|tests?)[^\n]*\.(?:exec|match)\s*\(']
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:implementation|change|source|code)\w*']
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:verification|tests?)\w*']
+              - [
+                  '\b(?:implementation|change|source|code)\w*\.includes\s*\([^\n]*(?:work|task|issue)',
+                ]
+              - ['\b(?:verification|tests?)\w*\.includes\s*\([^\n]*(?:work|task|issue)']
+              - [
+                  '\bthrow\s+new\s+error\s*\(',
+                  '\bprocess\.exit\s*\(\s*[1-9]',
+                  '\bprocess\.exitcode\s*=\s*[1-9]',
+                ]
+  - control_id: ADRB-LRN-003
+    evidence_index: 0
+    ci_tools:
+      - id: knowledge-curation
+        commands:
+          - executables: [node, tsx]
+            argument_groups:
+              - [
+                  scripts/check-knowledge.js,
+                  scripts/check-knowledge.ts,
+                  scripts/validate-knowledge.js,
+                  scripts/validate-knowledge.ts,
+                  scripts/curate-knowledge.js,
+                  scripts/curate-knowledge.ts,
+                ]
+            source_pattern_groups:
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:lessons|memory|agents\.md|knowledge)']
+              - ['\bif\s*\([^\n]*(?:duplicate|stale|contradict|unpromoted)']
+              - [
+                  '\bthrow\s+new\s+error\s*\(',
+                  '\bprocess\.exit\s*\(\s*[1-9]',
+                  '\bprocess\.exitcode\s*=\s*[1-9]',
+                ]
+  - control_id: ADRB-ENV-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-SPC-001
+    evidence_index: 0
+    patterns: [.kiro/specs/**, .cursor/plans/**, .codex/plans/**]
+  - control_id: ADRB-SPC-002
+    evidence_index: 0
+    files: [.kiro/specs/**, .cursor/plans/**, .codex/plans/**]
+  - control_id: ADRB-TOL-001
+    evidence_index: 0
+    patterns:
+      [
+        .claude/**,
+        .codex/**,
+        .cursor/**,
+        .opencode/**,
+        .github/copilot-instructions.md,
+        opencode.json,
+      ]
+  - control_id: ADRB-TOL-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-SEC-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-SEC-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-TST-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-GOV-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-GOV-002
+    evidence_index: 1
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-LRN-001
+    evidence_index: 0
+    patterns: [.claude/memory/**, .codex/memory/**, .cursor/memory/**, .opencode/memory/**]
+  - control_id: ADRB-LRN-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-OBS-001
+    evidence_index: 0
+    files: [.cursor/runs/README*, .codex/runs/README*, .claude/runs/README*]
+  - control_id: ADRB-OBS-002
+    evidence_index: 0
+    files: [.cursor/runs/README*, .codex/runs/README*, .claude/runs/README*]
+  - control_id: ADRB-RES-001
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]
+  - control_id: ADRB-RES-002
+    evidence_index: 0
+    files:
+      [
+        CLAUDE.md,
+        .claude/**/*.md,
+        .codex/**/*.md,
+        .cursor/agents/**/*.md,
+        .cursor/rules/**/*.md,
+        .cursor/skills/**/*.md,
+        .opencode/**/*.md,
+      ]

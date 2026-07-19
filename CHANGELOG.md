@@ -1,6 +1,49 @@
 # Changelog
 
-## 0.3.1 - Unreleased
+## 0.4.0 - Unreleased
+
+- Add semantic component evidence for `ADRB-RES-002`, including matched and missing containment
+  components and partial references without partial scoring.
+- Recognize conventional ownership files and structurally explicit ownership mappings for
+  `ADRB-GOV-002` without allowing placeholders, vague ownership prose, or authority-free mappings;
+  require approval and merge authority independently.
+- Require an enabled integration-triggered CI scanner invocation for secret scanning, and split
+  untrusted-input enforcement into the separate Level 3 `ADRB-SEC-007` control.
+- Replace keyword inference for `ADRB-CTX-003` and `ADRB-TST-003` with enabled
+  integration-triggered command classes, requiring both tests and static analysis for verification.
+- Replace keyword inference for `ADRB-ENV-003`, `ADRB-SPC-003`, and `ADRB-LRN-003` with
+  repository-bound locked-install, verification, traceability, and curation commands.
+- Move repository-host, CI-provider, and environment-tool aliases out of portable controls and into
+  versioned adapters.
+- Resolve package-manager tasks, wrappers, and polyglot verification commands to tracked runnable
+  implementations while rejecting display-only, discovery-only, dry-run, spoofed, or unresolved
+  commands.
+- Model GitHub, GitLab, and Azure integration gates conservatively, including checkout state,
+  inherited working directories, supported fail-fast multiline scripts, failure propagation, and
+  path, condition, or allow-failure exclusions.
+- Require `ADRB-ENV-003` install, test, and static-analysis classes in one CI execution group, while
+  preserving effective GitHub event partitions and aggregate verification where the benchmark
+  outcome permits independent workflows.
+- Validate ownership tables, mappings, contacts, CODEOWNERS targets and inline comments, while
+  excluding retired, placeholder, bot-qualified, negated, or structurally ambiguous assignments.
+- Validate guidance, specification, and knowledge-maintenance scripts by reachable executable
+  behavior instead of filenames, inert source strings, or uncalled method bodies; make this
+  repository's guidance check part of `npm run check`.
+- Permit dated platform attestation for host-native secret scanning; bind v0.4 attestation files to
+  one repository, reject unknown fields and malformed or unknown IDs, and keep platform scanning
+  distinct from untrusted-input safeguards; reject future review dates and unresolved placeholders
+  on active claims.
+- Report required-check progress, stable blocker labels, actual mixed-evidence scope, and unresolved
+  alternative controls separately from control-level confidence; attribute mixed-alternative
+  results to the source that supplies the decisive status, and bind partial semantic summaries to
+  the selected reference; serialize unresolved control confidence consistently as `none`.
+- Keep repository reads canonical, bounded, generated-output-safe, and linear for long source lines;
+  constrain agent-document links to the checkout and align the published evidence schemas with
+  runtime validation without echoing untrusted target values in diagnostics.
+- Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB
+  v0.4.0 with independently runnable historical and mature conformance fixtures.
+
+## 0.3.1 - 2026-07-18
 
 - Make the complete agent-assisted workflow the recommended copy-and-paste path while retaining a
   clearly labelled fast repository-only baseline.

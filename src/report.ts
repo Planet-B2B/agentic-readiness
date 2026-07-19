@@ -8,6 +8,12 @@ const statusIcon: Record<ControlResult['status'], string> = {
 };
 
 function controlScope(control: ControlResult): EvidenceScope {
+  if (control.confidence === 'repository-detected') return 'repository';
+  if (control.confidence === 'agent-collected' && control.agent_evidence?.status === 'met') {
+    return control.agent_evidence.scope;
+  }
+  const establishedEvidence = control.evidence.find(({ status }) => status === 'met');
+  if (establishedEvidence) return establishedEvidence.scope;
   return control.evidence.find(({ scope }) => scope !== 'repository')?.scope ?? 'repository';
 }
 
@@ -54,13 +60,41 @@ function evidenceLines(control: ControlResult): string[] {
   return lines;
 }
 
-function appendControlDetails(lines: string[], heading: string, controls: ControlResult[]): void {
+function confidenceRule(control: ControlResult): string {
+  if (controlLevelConfidence(control) !== 'none') return '';
+  return control.evidence_mode === 'any'
+    ? ' — one evidence alternative must pass'
+    : ' — all required evidence checks must pass';
+}
+
+function controlLevelConfidence(control: ControlResult): ControlResult['confidence'] {
+  return control.status === 'unknown' ? 'none' : control.confidence;
+}
+
+function appendControlDetails(
+  lines: string[],
+  heading: string,
+  controls: ControlResult[],
+  showCheckSummary: boolean,
+): void {
   lines.push('', `## ${heading}`, '');
   if (controls.length === 0) {
     lines.push('None.');
     return;
   }
   for (const control of controls) {
+    const establishedChecks = control.evidence.filter(({ status }) => status === 'met').length;
+    const blockingChecks = control.evidence.flatMap(({ scope, status, type }, index) =>
+      status === 'met' ? [] : [`#${index + 1} ${scope}/${type}`],
+    );
+    const blockingSummary = blockingChecks.map((check) => `\`${check}\``).join(', ');
+    const checkSummary =
+      control.evidence_mode === 'any'
+        ? `Alternative evidence checks established: ${establishedChecks}/${control.evidence.length}; one required.`
+        : `Required evidence checks established: ${establishedChecks}/${control.evidence.length}.`;
+    const blockingLabel =
+      control.evidence_mode === 'any' ? 'Unresolved alternatives' : 'Blocking checks';
+    const confidenceExplanation = confidenceRule(control);
     lines.push(
       `### ${statusIcon[control.status]} ${control.id} — ${control.title}`,
       '',
@@ -68,7 +102,13 @@ function appendControlDetails(lines: string[], heading: string, controls: Contro
       '',
       `**Improve:** ${control.remediation}`,
       '',
-      `Evidence confidence: ${control.confidence}.`,
+      ...(showCheckSummary
+        ? [
+            checkSummary,
+            ...(blockingChecks.length > 0 ? [`${blockingLabel}: ${blockingSummary}.`] : []),
+            `Control confidence: ${controlLevelConfidence(control)}${confidenceExplanation}.`,
+          ]
+        : [`Evidence confidence: ${control.confidence}.`]),
       '',
       ...evidenceLines(control),
       '',
@@ -77,6 +117,7 @@ function appendControlDetails(lines: string[], heading: string, controls: Contro
 }
 
 export function toMarkdown(report: AssessmentReport): string {
+  const showCheckSummary = report.benchmark.version === '0.4.0';
   const target = report.profiles.find(({ id }) => id === report.target.profile);
   const targetDependencies = target?.evidence_dependencies;
   const dependencyCount =
@@ -98,11 +139,15 @@ export function toMarkdown(report: AssessmentReport): string {
   const unresolved = report.controls.filter(
     ({ status }) => status === 'not_met' || status === 'unknown',
   );
-  const repositoryGaps = unresolved.filter((control) => controlScope(control) === 'repository');
-  const externalControls = unresolved.filter((control) =>
+  const alternativeControls = unresolved.filter(({ evidence_mode: mode }) => mode === 'any');
+  const requiredControls = unresolved.filter(({ evidence_mode: mode }) => mode !== 'any');
+  const repositoryGaps = requiredControls.filter(
+    (control) => controlScope(control) === 'repository',
+  );
+  const externalControls = requiredControls.filter((control) =>
     ['platform', 'organization'].includes(controlScope(control)),
   );
-  const outcomeControls = unresolved.filter((control) => controlScope(control) === 'outcome');
+  const outcomeControls = requiredControls.filter((control) => controlScope(control) === 'outcome');
   const repositoryOnlyBaseline = !report.controls.some(
     ({ agent_evidence: agentEvidence, attestation }) =>
       agentEvidence !== null || attestation !== null,
@@ -180,9 +225,27 @@ export function toMarkdown(report: AssessmentReport): string {
     }
   }
 
-  appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps);
-  appendControlDetails(lines, 'External controls not established', externalControls);
-  appendControlDetails(lines, 'Outcome evidence not established', outcomeControls);
+  appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps, showCheckSummary);
+  if (alternativeControls.length > 0) {
+    appendControlDetails(
+      lines,
+      'Alternative evidence paths not established',
+      alternativeControls,
+      showCheckSummary,
+    );
+  }
+  appendControlDetails(
+    lines,
+    'External controls not established',
+    externalControls,
+    showCheckSummary,
+  );
+  appendControlDetails(
+    lines,
+    'Outcome evidence not established',
+    outcomeControls,
+    showCheckSummary,
+  );
 
   lines.push(
     '',

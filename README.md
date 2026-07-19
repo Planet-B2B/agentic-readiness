@@ -16,8 +16,8 @@ The benchmark measures the harness, not the model brand. It assesses ten dimensi
 maturity levels and applies non-compensating floors to five autonomy profiles. A high total score
 cannot hide a critical security, testing, governance, or recovery gap.
 
-This repository is a **v0.3 reference implementation** intended for public review and piloting. It
-is not a certification standard. The immutable v0.1 and v0.2 benchmarks remain available for
+This repository is a **v0.4 reference implementation** intended for public review and piloting. It
+is not a certification standard. The immutable v0.1, v0.2, and v0.3 benchmarks remain available for
 historical reproduction; scores from different benchmark versions are not directly comparable.
 
 ## Ask your coding agent
@@ -25,8 +25,8 @@ historical reproduction; scores from different benchmark versions are not direct
 You do not need to install or learn the CLI yourself. Paste this instruction into Codex, Claude Code,
 GitHub Copilot, Cursor, or another coding agent that has terminal access to your repository:
 
-> Perform the complete ADRB v0.3 assessment of this repository for AI-agent pull-request work using
-> `agentic-scorecard@0.3.1`. First select and state the commit without modifying my checkout; preserve
+> Perform the complete ADRB v0.4 assessment of this repository for AI-agent pull-request work using
+> `agentic-scorecard@0.4.0`. First select and state the commit without modifying my checkout; preserve
 > HEAD when the checkout is dirty, and use upstream only if I requested the latest upstream state.
 > Assess it from a clean worktree and keep all generated artifacts in a durable directory outside any
 > temporary worktree. Run the tracked repository baseline, then run `init-evidence`, read its evidence
@@ -41,8 +41,8 @@ The complete copy-and-paste prompt, including privacy limits and exact commands,
 fast filesystem scan remains available, but it is explicitly a **repository-only baseline** and
 cannot establish platform, organization, or outcome controls by itself.
 
-The reference CLI/package is version 0.3.1. Generated report names use benchmark version 0.3.0
-because the patch release changed workflow guidance, not the immutable scoring benchmark.
+The reference CLI/package and immutable benchmark are both version 0.4.0. Generated report and
+evidence filenames use the benchmark version.
 
 ## Feedback and community
 
@@ -77,7 +77,7 @@ A supported Node.js LTS release (20.19+, 22.13+, or 24+) is required. Assessment
 read-only, and offline by default.
 
 ```bash
-npx agentic-scorecard@0.3.1 assess /path/to/repository \
+npx agentic-scorecard@0.4.0 assess /path/to/repository \
   --profile pr-creation \
   --scope tracked \
   --format markdown \
@@ -87,7 +87,7 @@ npx agentic-scorecard@0.3.1 assess /path/to/repository \
 To record controls that repository inspection cannot prove:
 
 ```bash
-npx agentic-scorecard@0.3.1 init /path/to/repository
+npx agentic-scorecard@0.4.0 init /path/to/repository
 ```
 
 Complete `.agentic/attestations.yaml` with owners and durable evidence links, then assess again.
@@ -98,7 +98,7 @@ external systems, first generate a target-bound template. The repository must be
 with at least one commit so the bundle can bind to the exact assessed state:
 
 ```bash
-npx agentic-scorecard@0.3.1 init-evidence /path/to/repository
+npx agentic-scorecard@0.4.0 init-evidence /path/to/repository
 ```
 
 Ask the agent to review `.agentic/evidence-request.md`, obtain approval before using
@@ -106,17 +106,19 @@ least-privileged read-only connectors, add attempted claims to `.agentic/agent-e
 rerun with `--agent-evidence`. The default bundle path is loaded automatically. See
 [AGENT_PROMPT.md](AGENT_PROMPT.md) for the complete copy-and-paste workflow.
 
-### Migrating from v0.1 or v0.2
+### Migrating from v0.1, v0.2, or v0.3
 
 Run a new tracked-scope baseline and retain the old report as historical evidence. Do not present the
-score change as improvement or regression because v0.3 changes evidence and control semantics.
-Re-review prior attestations and agent evidence before recreating them for v0.3. All claims must
-expire, and repository-scoped semantic claims require tracked files to match the commit-bound target
-plus `repo:<path>[#Lx-Ly]` references whose optional line ranges exist in the cited tracked file.
-Untracked generated reports do not block this workflow.
+score change as improvement or regression because v0.4 changes evidence and control semantics.
+Re-review prior attestations and agent evidence before recreating them for v0.4. All claims must
+expire. Human-attestation files created by `init` are bound to the assessed repository; they are not
+commit-bound because accountable platform, organization, and outcome facts may span commits.
+Repository-scoped semantic agent claims require tracked files to match the commit-bound target plus
+`repo:<path>[#Lx-Ly]` references whose optional line ranges exist in the cited tracked file. Untracked
+generated reports do not block this workflow.
 
 The default `.agentic/attestations.yaml` and `.agentic/agent-evidence.yaml` paths are migration-safe:
-if either contains an older benchmark version, v0.3 ignores that auto-loaded file and places a
+if either contains an older benchmark version, v0.4 ignores that auto-loaded file and places a
 prominent warning in the report. Regenerate it with `init --force` or `init-evidence --force` before
 relying on those claims. An explicitly supplied `--attestations` or `--agent-evidence` file still
 fails closed on a version mismatch.
@@ -126,7 +128,7 @@ For development from this checkout:
 ```bash
 npm ci
 npm run check
-npm run dev -- assess tests/fixtures/mature --profile pr-creation --attestations tests/fixtures/mature/.agentic/attestations-v0.3.yaml
+npx vitest run tests/v04-calibration.test.ts -t "retains the mature level-three conformance result"
 ```
 
 ## What it assesses
@@ -172,8 +174,8 @@ No profile grants production deployment authority. Organizations should evaluate
 through a separate, system-specific safety case.
 
 The exact floors live in
-[`benchmark/v0.3/benchmark.yaml`](benchmark/v0.3/benchmark.yaml) and their rationale in
-[`benchmark/v0.3/scoring-policy.md`](benchmark/v0.3/scoring-policy.md).
+[`benchmark/v0.4/benchmark.yaml`](benchmark/v0.4/benchmark.yaml) and their rationale in
+[`benchmark/v0.4/scoring-policy.md`](benchmark/v0.4/scoring-policy.md).
 
 ## Evidence scopes and trust labels
 
@@ -189,11 +191,11 @@ Controls also identify whether their evidence belongs in the repository, hosting
 organization, or outcome systems. This prevents expected external unknowns from masquerading as
 missing files. Declarative detector adapters recognize common harness layouts without changing
 portable control outcomes; future independently conformant external adapters require a separate
-protocol. v0.3 does not issue certification or independent-verification claims.
+protocol. v0.4 does not issue certification or independent-verification claims.
 
 ### Interpreting the two score views
 
-The normative score remains `N/40` and drives readiness profiles. v0.3 also reports
+The normative score remains `N/40` and drives readiness profiles. v0.4 also reports
 `repository-detected progress: A/C`, where `C` is the maximum consecutive maturity the offline
 collector can establish without platform, organization, outcome, agent-collected, or human-attested
 evidence. This second view explains how complete the visible repository harness is; it does not
@@ -225,7 +227,7 @@ The default collector:
 - reads only Git-tracked paths and records commit and dirty-worktree metadata;
 - ignores `.git`, dependencies, build output, coverage, generated reports, attestations, and imported
   evidence bundles;
-- caps content scanning at 512 KB per file, 5 MB total, and 250 candidates per check, with v0.3
+- caps content scanning at 512 KB per file, 5 MB total, and 250 candidates per check, with v0.4
   per-pattern balancing where configured;
 - reports file paths and match counts, never matching source snippets;
 - writes nothing unless `--output`, `init`, or `init-evidence` is explicitly requested.
@@ -238,7 +240,8 @@ access-controlled evidence instead. Report suspected vulnerabilities through [SE
 ```text
 benchmark/v0.1/       immutable historical v0.1 definition
 benchmark/v0.2/       immutable historical v0.2 definition
-benchmark/v0.3/       current normative benchmark, schemas, and controls
+benchmark/v0.3/       immutable historical v0.3 definition
+benchmark/v0.4/       current normative benchmark, schemas, and controls
   adapters/           declarative path/term aliases for recognized agent harness layouts
 benchmark/mappings/   informative mappings to external frameworks
 src/                  reference CLI and local evidence collectors
@@ -268,12 +271,15 @@ system, and keep exceptions narrow, owned, expiring, and visible.
 
 ## Status and roadmap
 
-v0.3 adds portable harness discovery with declarative detector adapters, proximity-bounded content evidence, prioritized candidate
-selection for large repositories, source-backed semantic repository claims, and an explanatory
-repository-only score and ceiling. Candidate next steps
-include conformant signed adapters, SARIF/HTML reports, organization-level aggregation,
-statistically designed benchmark tasks, and an independent-review protocol. These require public
-design review before becoming normative.
+v0.4 adds semantic component evidence for containment guidance, partial-check reporting, structural
+ownership maps, enabled integration-triggered CI command detection for guidance integrity,
+verification, and secret scanning, plus a separate Level 3 control for untrusted agent input. The
+public [v0.4 calibration matrix](benchmark/v0.4/calibration-matrix.md) records expected positive and
+adversarial outcomes. It retains portable harness adapters, source-backed
+semantic claims, and the explanatory repository score and ceiling. Candidate next steps include
+conformant signed adapters, broader structural CI provider coverage, SARIF/HTML reports,
+organization-level aggregation, statistically designed benchmark tasks, and an independent-review
+protocol. These require public design review before becoming normative.
 
 Apache-2.0 licensed. The benchmark is a community engineering tool, not legal, compliance, or
 security advice.

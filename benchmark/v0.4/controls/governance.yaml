@@ -1,0 +1,132 @@
+dimension: governance
+controls:
+  - id: ADRB-GOV-001
+    level: 1
+    title: Contribution and review expectations are documented
+    outcome: Contributors can find non-empty guidance describing how changes are proposed and reviewed.
+    risk: Agents submit changes without a shared review or accountability process.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: content_terms
+        scope: repository
+        files:
+          [
+            CONTRIBUTING.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/contributing/**,
+            docs/agentic/**,
+          ]
+        terms: [pull request, review, approval, testing, contribution, before merge]
+        min_terms: 2
+        required_any_terms: [pull request, review, approval, before merge]
+        max_span_lines: 100
+        max_files_per_pattern: 50
+    remediation: Publish contribution guidance covering change proposals, verification, reviewers, and approvals.
+  - id: ADRB-GOV-002
+    level: 2
+    title: Ownership, approval, and merge authority are declared
+    outcome: The tracked repository assigns review ownership and states which accountable human roles may approve and merge changes.
+    risk: Sensitive or cross-cutting changes reach reviewers without accountable ownership.
+    allow_agent_evidence: true
+    agent_evidence_scopes: [repository]
+    evidence:
+      - type: ownership_map
+        scope: repository
+        patterns:
+          [
+            CODEOWNERS,
+            OWNERS,
+            OWNERS.md,
+            MAINTAINERS,
+            MAINTAINERS.md,
+            GOVERNANCE.md,
+            docs/governance/**,
+            docs/ownership/**,
+            .ai/ownership/**,
+          ]
+      - type: content_groups
+        scope: repository
+        files:
+          [
+            CONTRIBUTING.md,
+            GOVERNANCE.md,
+            AGENTS.md,
+            Agents.md,
+            agents.md,
+            .ai/AGENTS.md,
+            .ai/Agents.md,
+            .ai/constitution.md,
+            .ai/instructions/**/*.md,
+            .ai/rules/**/*.md,
+            .ai/skills/**/*.md,
+            .agents/**/*.md,
+            docs/governance/**,
+            docs/agentic/**,
+          ]
+        groups:
+          - id: approval-authority
+            terms:
+              [
+                owner may approve,
+                owners may approve,
+                reviewer may approve,
+                reviewers may approve,
+                maintainer may approve,
+                maintainers may approve,
+                reviewer provides approval,
+                reviewer provides human approval,
+                reviewer approval,
+                maintainer approval is required,
+                maintainer approval required,
+              ]
+          - id: merge-authority
+            terms:
+              [
+                owner may merge,
+                owners may merge,
+                reviewer may merge,
+                reviewers may merge,
+                maintainer may merge,
+                maintainers may merge,
+                maintainer has merge authority,
+                maintainers have merge authority,
+                maintainers retain merge authority,
+              ]
+        min_groups: 2
+        max_span_lines: 100
+        max_files_per_pattern: 50
+    remediation: Commit ownership rules and document who reviews, who approves, who merges, and who controls exceptions.
+  - id: ADRB-GOV-003
+    level: 3
+    title: Protected merge governance is enforced
+    outcome: Platform rules enforce reviews, required checks, protected branches, and controlled exceptions.
+    risk: Repository-side declarations can be bypassed because platform enforcement is absent or too broad.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: platform
+        prompt: Show protected branch or ruleset coverage, required reviews and checks, merge authority, bypass actors, and exception records.
+    remediation: Enforce branch or merge rules for relevant branches and restrict, record, and review bypasses.
+  - id: ADRB-GOV-004
+    level: 4
+    title: Governance outcomes drive improvement
+    outcome: Review escapes, bypasses, rollback causes, and approval latency are trended and improve governance.
+    risk: Governance becomes ceremony without evidence that it catches risk efficiently.
+    allow_attestation: true
+    allow_agent_evidence: true
+    evidence:
+      - type: manual
+        scope: outcome
+        prompt: Provide governance outcome trends and a recent review or merge-policy improvement driven by them.
+    remediation: Trend governance outcomes by risk class and tune ownership, review depth, and exceptions.

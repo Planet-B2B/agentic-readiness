@@ -17,12 +17,24 @@ import type {
 import { evaluateControl } from './evidence.js';
 import {
   createRepositoryContext,
+  normalizeRepositoryTarget,
   repositoryEvidenceTarget,
   type RepositoryContext,
 } from './repository.js';
 
 function controlPasses(control: ControlResult): boolean {
   return control.status === 'met' || control.status === 'not_applicable';
+}
+
+function usesModernEvidence(version: string): version is '0.3.0' | '0.4.0' {
+  return version === '0.3.0' || version === '0.4.0';
+}
+
+function reportSchemaVersion(version: string): AssessmentReport['schema_version'] {
+  if (usesModernEvidence(version)) {
+    return version;
+  }
+  return '0.2.0';
 }
 
 function dimensionScore(controls: ControlResult[], dimension: DimensionId): Level {
@@ -35,6 +47,13 @@ function dimensionScore(controls: ControlResult[], dimension: DimensionId): Leve
     score = level;
   }
   return score;
+}
+
+function isRepositoryDetectable(control: Control): boolean {
+  const repositoryChecks = control.evidence.filter(({ scope }) => scope === 'repository');
+  return control.evidence_mode === 'any'
+    ? repositoryChecks.length > 0
+    : repositoryChecks.length === control.evidence.length;
 }
 
 function repositoryScore(
@@ -56,9 +75,7 @@ function repositoryScore(
       const controlsAtLevel = catalog.filter(
         (control) => control.dimension === dimension && control.level === level,
       );
-      const repositoryDetectable = controlsAtLevel.every((control) =>
-        control.evidence.every((evidence) => evidence.scope === 'repository'),
-      );
+      const repositoryDetectable = controlsAtLevel.every(isRepositoryDetectable);
       if (ceilingOpen && repositoryDetectable) {
         dimensionCeiling = level;
       } else {
@@ -119,7 +136,7 @@ function assessProfiles(
       title: profile.title,
       passed: blockers.length === 0,
       blockers,
-      ...(benchmark.version === '0.3.0'
+      ...(usesModernEvidence(benchmark.version)
         ? {
             evidence_dependencies: {
               agent_collected: requiredControls.filter(
@@ -157,7 +174,10 @@ export async function assess(
 
   const scope = options.scope ?? 'tracked';
   const now = options.now ?? new Date();
+  const modernEvidence = usesModernEvidence(benchmark.version);
+  const schemaVersion = reportSchemaVersion(benchmark.version);
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
+  validateAttestations(benchmark, catalog, context, options.attestations ?? null, now);
   await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
 
   const controls = await Promise.all(
@@ -172,7 +192,7 @@ export async function assess(
     ),
   );
   const warnings = [...(options.warnings ?? [])];
-  if (benchmark.version === '0.3.0') {
+  if (modernEvidence) {
     if (scope === 'tracked' && context.metadata.tracked_tree_dirty) {
       warnings.push(
         'Tracked assessment includes uncommitted tracked-file contents, so the result is not reproducible from git_head alone. Use a clean worktree before comparing scores or collecting agent evidence.',
@@ -207,15 +227,14 @@ export async function assess(
   });
   const profiles = assessProfiles(benchmark, dimensions, controls);
   const total = dimensions.reduce((sum, { score }) => sum + score, 0);
-  const repository =
-    benchmark.version === '0.3.0'
-      ? repositoryScore(catalog, controls, benchmark.dimensions)
-      : undefined;
+  const repository = modernEvidence
+    ? repositoryScore(catalog, controls, benchmark.dimensions)
+    : undefined;
   const highestProfile = [...profiles].reverse().find(({ passed }) => passed)?.id ?? null;
   const targetPassed = profiles.find(({ id }) => id === profileId)?.passed ?? false;
 
   return {
-    schema_version: benchmark.version === '0.3.0' ? '0.3.0' : '0.2.0',
+    schema_version: schemaVersion,
     benchmark: { id: benchmark.id, version: benchmark.version },
     target: {
       repository: repo,
@@ -226,7 +245,7 @@ export async function assess(
       working_tree_dirty: context.metadata.working_tree_dirty,
     },
     assessed_at: now.toISOString(),
-    ...(benchmark.version === '0.3.0' ? { warnings } : {}),
+    ...(modernEvidence ? { warnings } : {}),
     score: {
       total,
       maximum: 40,
@@ -245,7 +264,7 @@ export async function assess(
       ).length,
       unmet: controls.filter(({ status }) => status === 'not_met').length,
       unknown: controls.filter(({ status }) => status === 'unknown').length,
-      ...(benchmark.version === '0.3.0'
+      ...(modernEvidence
         ? {
             resolved: controls.filter(({ status }) => status !== 'unknown').length,
             total: controls.length,
@@ -261,7 +280,7 @@ export async function assess(
         ? 'Tracked mode considers only Git-tracked paths, using current working-tree contents; uncommitted edits to tracked files can affect the result.'
         : 'Workspace mode includes untracked local files and is provisional; do not compare it directly with tracked-mode reports.',
       'Repository-detected evidence proves a qualifying artifact match, not consistent practice or external enforcement.',
-      ...(benchmark.version === '0.3.0'
+      ...(modernEvidence
         ? [
             'Repository-detected progress uses only deterministic offline evidence and its attainable ceiling; it is explanatory and does not replace the normative score or readiness floors.',
             'Agent-collected repository evidence is semantic, target-bound, and source-backed but is not independently verified or relabelled as repository-detected.',
@@ -271,6 +290,48 @@ export async function assess(
       'This assessment does not grant production access, deployment authority, or certification.',
     ],
   };
+}
+
+function validateAttestations(
+  benchmark: Benchmark,
+  catalog: Control[],
+  context: RepositoryContext,
+  attestations: AttestationFile | null,
+  now: Date,
+): void {
+  if (!attestations || benchmark.version !== '0.4.0') return;
+  if (attestations.benchmark_version !== benchmark.version) {
+    throw new Error(
+      `Attestation benchmark ${attestations.benchmark_version} does not match ${benchmark.version}`,
+    );
+  }
+  const expectedTarget = normalizeRepositoryTarget(
+    repositoryEvidenceTarget(context.metadata).repository,
+  );
+  if (!attestations.target) {
+    throw new Error('ADRB v0.4 attestations require a repository target');
+  }
+  if (normalizeRepositoryTarget(attestations.target.repository) !== expectedTarget) {
+    throw new Error('Attestation target does not match the assessed repository');
+  }
+  const controlIds = new Set(catalog.map(({ id }) => id));
+  for (const [controlId, attestation] of Object.entries(attestations.attestations)) {
+    if (!/^ADRB-[A-Z]{3}-\d{3}$/.test(controlId)) {
+      throw new Error(`Attestation uses malformed control ID ${controlId}`);
+    }
+    if (!controlIds.has(controlId)) {
+      throw new Error(`Attestation references unknown control ${controlId}`);
+    }
+    if (new Date(`${attestation.reviewed_at}T00:00:00.000Z`) > now) {
+      throw new Error(`${controlId} has a future review date`);
+    }
+    if (
+      attestation.status !== 'unknown' &&
+      [attestation.owner, attestation.evidence].some((value) => /^\s*TODO(?:\b|:)/i.test(value))
+    ) {
+      throw new Error(`${controlId} contains unresolved TODO attestation evidence`);
+    }
+  }
 }
 
 async function validateAgentEvidence(
@@ -288,17 +349,17 @@ async function validateAgentEvidence(
   }
   const expectedTarget = repositoryEvidenceTarget(context.metadata);
   if (evidence.target.repository !== expectedTarget.repository) {
-    throw new Error(
-      `Agent evidence target ${evidence.target.repository} does not match ${expectedTarget.repository}`,
-    );
+    throw new Error('Agent evidence target does not match the assessed repository');
   }
   if (evidence.target.git_head !== expectedTarget.git_head) {
     throw new Error(
       `Agent evidence commit ${evidence.target.git_head ?? 'unavailable'} does not match ${expectedTarget.git_head ?? 'an unavailable Git commit'}`,
     );
   }
-  if (benchmark.version === '0.3.0' && context.metadata.tracked_tree_dirty) {
-    throw new Error('ADRB v0.3 agent evidence requires tracked files to match the bound commit');
+  if (usesModernEvidence(benchmark.version) && context.metadata.tracked_tree_dirty) {
+    throw new Error(
+      `ADRB v${benchmark.version} agent evidence requires tracked files to match the bound commit`,
+    );
   }
 
   const controls = new Map(catalog.map((control) => [control.id, control]));
