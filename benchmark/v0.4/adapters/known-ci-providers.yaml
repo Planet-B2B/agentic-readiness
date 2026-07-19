@@ -5,26 +5,26 @@ extensions:
     evidence_index: 0
     ci_providers:
       - id: github-actions
-        files: [.github/workflows/**]
+        files: [.github/workflows/*.yml, .github/workflows/*.yaml]
       - id: gitlab-ci
-        files: [.gitlab-ci.yml, .gitlab-ci/**]
+        files: [.gitlab-ci.yml]
       - id: azure-pipelines
-        files: [azure-pipelines.yml, azure-pipelines.yaml, .azure-pipelines/**]
+        files: [azure-pipelines.yml, azure-pipelines.yaml]
   - control_id: ADRB-SEC-003
     evidence_index: 0
     ci_providers:
       - id: github-actions
-        files: [.github/workflows/**]
+        files: [.github/workflows/*.yml, .github/workflows/*.yaml]
       - id: gitlab-ci
-        files: [.gitlab-ci.yml, .gitlab-ci/**]
+        files: [.gitlab-ci.yml]
       - id: azure-pipelines
-        files: [azure-pipelines.yml, azure-pipelines.yaml, .azure-pipelines/**]
+        files: [azure-pipelines.yml, azure-pipelines.yaml]
   - control_id: ADRB-TST-003
     evidence_index: 0
     ci_providers:
       - id: github-actions
-        files: [.github/workflows/**]
+        files: [.github/workflows/*.yml, .github/workflows/*.yaml]
       - id: gitlab-ci
-        files: [.gitlab-ci.yml, .gitlab-ci/**]
+        files: [.gitlab-ci.yml]
       - id: azure-pipelines
-        files: [azure-pipelines.yml, azure-pipelines.yaml, .azure-pipelines/**]
+        files: [azure-pipelines.yml, azure-pipelines.yaml]

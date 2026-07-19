@@ -29,6 +29,9 @@
   display-only bindings; require referenced validation scripts to exist and reject collection-only
   or configuration-display command modes.
 - Add the same agent-guidance integrity check to this repository's required `npm run check` path.
+- Restrict CI discovery to auto-loaded provider entry points, collect Azure commands only from step
+  nodes, and model valid executable/argument signatures without Cartesian alias combinations.
+- Reject bare nonexistent guidance commands and punctuation-only ownership scopes.
 - Reject impossible event conjunctions, display-mode commands, and absence phrasing as positive
   evidence while preserving valid GitLab first-match rule evaluation.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct

@@ -241,6 +241,9 @@ describe('v0.4 evidence calibration', () => {
         '| TBD | @platform-team |',
         '| - | @release-team |',
         '| component TBD | @component-team |',
+        '| / | @root-team |',
+        '| * | @wildcard-team |',
+        '| /** | @recursive-team |',
         'packages/**: no owner',
       ].join('\n'),
       'MAINTAINERS.md': '# Maintainers\n\n- Security team handbook\n',
@@ -616,6 +619,7 @@ describe('v0.4 evidence calibration', () => {
         '      - run: echo no-op',
         '      - run: pytest --collect-only',
         '      - run: mypy --help',
+        '      - run: node agent-doc-check',
       ].join('\n'),
     });
     const executed = await gitFixture({
@@ -740,6 +744,72 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not combine executable and argument aliases into nonexistent verification commands', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: go lint',
+        '      - run: cargo typecheck',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const testing = controlStatus(report, 'ADRB-TST-003');
+      expect(testing?.status).toBe('not_met');
+      expect(testing?.evidence[0]?.summary).toContain('strongest command-class match 0/2');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores nested and unreferenced CI fragments', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/fixtures/fake.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  fake:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: gitleaks detect',
+      ].join('\n'),
+      '.gitlab-ci/fragments/fake.yml': [
+        'fake:',
+        '  only: [merge_requests]',
+        '  script: gitleaks detect',
+      ].join('\n'),
+      '.azure-pipelines/fake.yml': ['pr: [main]', 'steps:', '  - script: gitleaks detect'].join(
+        '\n',
+      ),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.evidence[0]?.references).toEqual([]);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects command-shaped fields outside Azure step nodes', async () => {
+    const repository = await gitFixture({
+      'azure-pipelines.yml': ['pr: [main]', 'script: gitleaks detect'].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.evidence[0]?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('honors GitLab first-match rules after a non-merge rule', async () => {
     const repository = await gitFixture({
       '.gitlab-ci.yml': [
@@ -838,72 +908,10 @@ describe('v0.4 evidence calibration', () => {
         `    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'`,
         '  script: gitleaks detect',
       ].join('\n'),
-      '.gitlab-ci/blocked.yml': [
-        'workflow:',
-        '  rules:',
-        '    - when: never',
-        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
-        'secret-scan:',
-        '  script: gitleaks detect',
-      ].join('\n'),
-      '.gitlab-ci/rule-allow-failure.yml': [
-        'secret-scan:',
-        '  rules:',
-        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
-        '      allow_failure: true',
-        '  script: gitleaks detect',
-      ].join('\n'),
-      '.gitlab-ci/extra-predicate.yml': [
-        'secret-scan:',
-        '  rules:',
-        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $RUN_SECRET_SCAN == "true"'`,
-        '  script: gitleaks detect',
-      ].join('\n'),
-      '.gitlab-ci/changes-gate.yml': [
-        'secret-scan:',
-        '  rules:',
-        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
-        '      changes: [docs/**]',
-        '  script: gitleaks detect',
-      ].join('\n'),
-      '.gitlab-ci/exists-gate.yml': [
-        'secret-scan:',
-        '  rules:',
-        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
-        '      exists: [.enable-secret-scan]',
-        '  script: gitleaks detect',
-      ].join('\n'),
-      '.gitlab-ci/job-allow-failure.yml': [
-        'secret-scan:',
-        '  only: [merge_requests]',
-        '  allow_failure:',
-        '    exit_codes: [1]',
-        '  script: gitleaks detect',
-      ].join('\n'),
-      '.gitlab-ci/only-changes.yml': [
-        'secret-scan:',
-        '  only:',
-        '    refs: [merge_requests]',
-        '    changes: [docs/**]',
-        '  script: gitleaks detect',
-      ].join('\n'),
       'azure-pipelines.yml': [
         'pr:',
         '  branches:',
         '    exclude: ["*"]',
-        'steps:',
-        '  - script: gitleaks detect',
-      ].join('\n'),
-      '.azure-pipelines/condition.yml': [
-        'pr: [main]',
-        'steps:',
-        '  - script: gitleaks detect',
-        "    condition: ne(variables['Build.Reason'], 'PullRequest')",
-      ].join('\n'),
-      '.azure-pipelines/path-gated.yml': [
-        'pr:',
-        '  paths:',
-        '    include: [docs/**]',
         'steps:',
         '  - script: gitleaks detect',
       ].join('\n'),
@@ -916,6 +924,103 @@ describe('v0.4 evidence calibration', () => {
       expect(security?.evidence[0]?.status).toBe('not_met');
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on unsupported GitLab and Azure enforcement gates', async () => {
+    const configurations: Array<Record<string, string>> = [
+      {
+        '.gitlab-ci.yml': [
+          'workflow:',
+          '  rules:',
+          '    - when: never',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+          'secret-scan:',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  rules:',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+          '      allow_failure: true',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  rules:',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $RUN_SECRET_SCAN == "true"'`,
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  rules:',
+          `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+          '      changes: [docs/**]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  only:',
+          '    refs: [merge_requests]',
+          '    changes: [docs/**]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  allow_failure:',
+          '    exit_codes: [1]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'steps:',
+          '  - script: gitleaks detect',
+          "    condition: ne(variables['Build.Reason'], 'PullRequest')",
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'steps:',
+          '  - script: gitleaks detect',
+          '    continueOnError: true',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr:',
+          '  paths:',
+          '    include: [docs/**]',
+          'steps:',
+          '  - script: gitleaks detect',
+        ].join('\n'),
+      },
+    ];
+    const repositories = await Promise.all(configurations.map(gitFixture));
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      for (const repository of repositories) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('unknown');
+        expect(controlStatus(report, 'ADRB-SEC-003')?.evidence[0]?.status).toBe('not_met');
+      }
+    } finally {
+      await Promise.all(
+        repositories.map(async (repository) => rm(repository, { recursive: true, force: true })),
+      );
     }
   });
 

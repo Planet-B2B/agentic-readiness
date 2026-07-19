@@ -5,59 +5,25 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: tests
-        executables:
-          [
-            npm,
-            pnpm,
-            yarn,
-            bun,
-            cargo,
-            go,
-            dotnet,
-            mvn,
-            mvnw,
-            gradle,
-            gradlew,
-            make,
-            turbo,
-            nx,
-            bazel,
-          ]
-        required_arguments:
-          [test, test:unit, test:integration, test:e2e, unit-test, integration-test, e2e]
+        commands:
+          - executables: [npm, pnpm, yarn, bun, turbo, nx]
+            required_arguments:
+              [test, test:unit, test:integration, test:e2e, unit-test, integration-test, e2e]
+          - executables: [cargo, go, dotnet, mvn, mvnw, gradle, gradlew, bazel]
+            required_arguments: [test]
         standalone_executables: [pytest, pytest-cov, jest, vitest, tox, nox]
       - id: static-analysis
-        executables:
-          [
-            npm,
-            pnpm,
-            yarn,
-            bun,
-            cargo,
-            go,
-            dotnet,
-            mvn,
-            mvnw,
-            gradle,
-            gradlew,
-            make,
-            ruff,
-            turbo,
-            nx,
-            bazel,
-          ]
-        required_arguments:
-          [
-            lint,
-            typecheck,
-            type-check,
-            check:types,
-            check-types,
-            clippy,
-            vet,
-            checkstyle:check,
-            spotbugs:check,
-            pmd:check,
-            check,
-          ]
+        commands:
+          - executables: [npm, pnpm, yarn, bun, turbo, nx]
+            required_arguments: [lint, typecheck, type-check, check:types, check-types, check]
+          - executables: [cargo]
+            required_arguments: [clippy, check]
+          - executables: [go]
+            required_arguments: [vet]
+          - executables: [mvn, mvnw]
+            required_arguments: [checkstyle:check, spotbugs:check, pmd:check]
+          - executables: [gradle, gradlew]
+            required_arguments: [check]
+          - executables: [ruff]
+            required_arguments: [check]
         standalone_executables: [eslint, tsc, mypy, flake8, pyright, golangci-lint]

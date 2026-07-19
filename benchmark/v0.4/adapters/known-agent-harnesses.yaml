@@ -30,24 +30,19 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: agent-guidance-validation
-        executables: [npm, pnpm, yarn, bun, make, node, tsx]
-        required_arguments:
-          [
-            agent-doc-check,
-            agent-docs-check,
-            check-agent-docs,
-            check:agent-docs,
-            lint-agent-docs,
-            lint:agent-docs,
-            validate-agent-docs,
-            validate:agent-docs,
-            scripts/check-agent-docs.js,
-            scripts/check-agent-docs.ts,
-            scripts/validate-agent-docs.js,
-            scripts/validate-agent-docs.ts,
-          ]
-        standalone_executables:
-          [agent-doc-check, check-agent-docs, lint-agent-docs, validate-agent-docs]
+        commands:
+          - executables: [node, tsx]
+            required_arguments:
+              [
+                scripts/check-agent-docs.js,
+                scripts/check-agent-docs.ts,
+                scripts/validate-agent-docs.js,
+                scripts/validate-agent-docs.ts,
+              ]
+          - executables: [bash, sh]
+            required_arguments: [scripts/check-agent-docs.sh, scripts/validate-agent-docs.sh]
+          - executables: [python, python3]
+            required_arguments: [scripts/check_agent_docs.py, scripts/validate_agent_docs.py]
   - control_id: ADRB-ENV-001
     evidence_index: 0
     files:

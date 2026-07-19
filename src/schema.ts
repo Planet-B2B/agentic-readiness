@@ -93,23 +93,25 @@ const CiProviderSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
 });
 
+const CiCommandSignatureSchema = z.object({
+  executables: z.array(z.string().min(1)).min(1),
+  required_arguments: z.array(z.string().min(1)).min(1),
+});
+
 const CiToolSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/),
-    executables: z.array(z.string().min(1)).default([]),
-    required_arguments: z.array(z.string().min(1)).default([]),
+    commands: z.array(CiCommandSignatureSchema).default([]),
     standalone_executables: z.array(z.string().min(1)).default([]),
     actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([]),
   })
   .superRefine((tool, context) => {
-    const commandConfigured =
-      (tool.executables.length > 0 && tool.required_arguments.length > 0) ||
-      tool.standalone_executables.length > 0;
+    const commandConfigured = tool.commands.length > 0 || tool.standalone_executables.length > 0;
     if (!commandConfigured && tool.actions.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'A CI tool must define an executable with required arguments, a standalone executable, or a full action identity',
+          'A CI tool must define a command signature, a standalone executable, or a full action identity',
       });
     }
   });

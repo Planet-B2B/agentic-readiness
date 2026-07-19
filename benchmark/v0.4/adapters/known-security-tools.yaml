@@ -5,17 +5,21 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: gitleaks
-        executables: [gitleaks]
-        required_arguments: [detect, protect]
+        commands:
+          - executables: [gitleaks]
+            required_arguments: [detect, protect]
         actions: [gitleaks/gitleaks-action]
       - id: trufflehog
-        executables: [trufflehog]
-        required_arguments: [git, filesystem]
+        commands:
+          - executables: [trufflehog]
+            required_arguments: [git, filesystem]
         actions: [trufflesecurity/trufflehog]
       - id: detect-secrets
-        executables: [detect-secrets]
-        required_arguments: [scan]
+        commands:
+          - executables: [detect-secrets]
+            required_arguments: [scan]
         actions: [Yelp/detect-secrets-action]
       - id: git-secrets
-        executables: [git-secrets]
-        required_arguments: [--scan, --scan-history]
+        commands:
+          - executables: [git-secrets]
+            required_arguments: [--scan, --scan-history]

@@ -89,18 +89,21 @@ var CiProviderSchema = z.object({
   id: z.enum(["github-actions", "gitlab-ci", "azure-pipelines"]),
   files: z.array(z.string().min(1)).min(1)
 });
+var CiCommandSignatureSchema = z.object({
+  executables: z.array(z.string().min(1)).min(1),
+  required_arguments: z.array(z.string().min(1)).min(1)
+});
 var CiToolSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
-  executables: z.array(z.string().min(1)).default([]),
-  required_arguments: z.array(z.string().min(1)).default([]),
+  commands: z.array(CiCommandSignatureSchema).default([]),
   standalone_executables: z.array(z.string().min(1)).default([]),
   actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([])
 }).superRefine((tool, context) => {
-  const commandConfigured = tool.executables.length > 0 && tool.required_arguments.length > 0 || tool.standalone_executables.length > 0;
+  const commandConfigured = tool.commands.length > 0 || tool.standalone_executables.length > 0;
   if (!commandConfigured && tool.actions.length === 0) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "A CI tool must define an executable with required arguments, a standalone executable, or a full action identity"
+      message: "A CI tool must define a command signature, a standalone executable, or a full action identity"
     });
   }
 });
@@ -416,9 +419,13 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
         const tool = tools.get(extensionTool.id);
         tools.set(extensionTool.id, {
           id: extensionTool.id,
-          executables: [.../* @__PURE__ */ new Set([...tool?.executables ?? [], ...extensionTool.executables])],
-          required_arguments: [
-            .../* @__PURE__ */ new Set([...tool?.required_arguments ?? [], ...extensionTool.required_arguments])
+          commands: [
+            ...new Map(
+              [...tool?.commands ?? [], ...extensionTool.commands].map((command) => [
+                JSON.stringify(command),
+                command
+              ])
+            ).values()
           ],
           standalone_executables: [
             .../* @__PURE__ */ new Set([
@@ -1020,7 +1027,9 @@ function isOwnershipTarget(value) {
   }
   const namedTarget = /^(?:area|component|module|path|scope)\s+(.+)$/i.exec(target);
   if (namedTarget) return !isPlaceholderOwner(namedTarget[1] ?? "");
-  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) return true;
+  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) {
+    return /[a-z0-9_-]/i.test(target.replace(/^\.{0,2}\//, ""));
+  }
   return /^[a-z0-9_.-]+\.[a-z0-9]{1,10}$/i.test(target);
 }
 function parseOwnershipMapping(line) {
@@ -1251,7 +1260,9 @@ async function repositoryCommandBindings(context, tools) {
   const commandPaths = [
     ...new Set(
       tools.flatMap(
-        ({ required_arguments }) => required_arguments.filter(isRepositoryCommandPath).map(normalizeCommandPath)
+        ({ commands }) => commands.flatMap(
+          ({ required_arguments }) => required_arguments.filter(isRepositoryCommandPath).map(normalizeCommandPath)
+        )
       )
     )
   ];
@@ -1357,20 +1368,29 @@ function gitlabIntegrationInvocations(document) {
 }
 function azureIntegrationInvocations(document) {
   if (!hasAzurePullRequestTrigger(document.pr)) return [];
-  return collectAzureInvocations(document);
+  return collectAzureInvocations(document, false);
 }
-function collectAzureInvocations(node) {
+function collectAzureInvocations(node, isStep) {
   if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
   const invocations = [];
-  for (const field of ["script", "bash", "pwsh", "powershell", "command"]) {
-    if (typeof node[field] === "string") {
-      invocations.push({ kind: "command", value: node[field] });
+  if (isStep) {
+    const commandFields = ["script", "bash", "pwsh", "powershell"].filter(
+      (field) => typeof node[field] === "string"
+    );
+    if (commandFields.length === 1) {
+      invocations.push({ kind: "command", value: node[commandFields[0] ?? ""] });
     }
   }
-  for (const collection of ["stages", "jobs", "steps"]) {
+  for (const collection of ["stages", "jobs"]) {
     for (const childValue of asArray(node[collection])) {
       const child = asRecord(childValue);
-      if (child) invocations.push(...collectAzureInvocations(child));
+      if (child) invocations.push(...collectAzureInvocations(child, false));
+    }
+  }
+  for (const childValue of asArray(node.steps)) {
+    const child = asRecord(childValue);
+    if (child) {
+      invocations.push(...collectAzureInvocations(child, true));
     }
   }
   return invocations;
@@ -1562,7 +1582,10 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
     const nextVisited = new Set(visitedScripts).add(packageInvocation.task);
     return commandTextMatchesTool(script, tool, bindings, nextVisited);
   }
-  const recognizedExecutables = [...tool.executables, ...tool.standalone_executables];
+  const recognizedExecutables = [
+    ...tool.commands.flatMap(({ executables }) => executables),
+    ...tool.standalone_executables
+  ];
   const executableIndex = tokens.findIndex(
     (token) => recognizedExecutables.some(
       (executable2) => executableIdentity(token) === executable2.toLowerCase()
@@ -1588,14 +1611,18 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
   )) {
     return true;
   }
-  return tool.required_arguments.some((argument) => {
-    const normalizedArgument = argument.toLowerCase();
-    const matchesArgument = isRepositoryCommandPath(argument) ? arguments_.some(
-      (candidate) => normalizeCommandPath(candidate) === normalizeCommandPath(normalizedArgument)
-    ) : arguments_.includes(normalizedArgument);
-    if (!matchesArgument) return false;
-    return !isRepositoryCommandPath(argument) || bindings.availableCommandPaths.has(normalizeCommandPath(argument));
-  });
+  return tool.commands.filter(
+    ({ executables }) => executables.some((candidate) => candidate.toLowerCase() === executable.toLowerCase())
+  ).some(
+    ({ required_arguments }) => required_arguments.some((argument) => {
+      const normalizedArgument = argument.toLowerCase();
+      const matchesArgument = isRepositoryCommandPath(argument) ? arguments_.some(
+        (candidate) => normalizeCommandPath(candidate) === normalizeCommandPath(normalizedArgument)
+      ) : arguments_.includes(normalizedArgument);
+      if (!matchesArgument) return false;
+      return !isRepositoryCommandPath(argument) || bindings.availableCommandPaths.has(normalizeCommandPath(argument));
+    })
+  );
 }
 function packageScriptInvocation(tokens) {
   const manager = executableIdentity(tokens[0] ?? "");

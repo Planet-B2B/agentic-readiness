@@ -14,14 +14,15 @@ an attestation path, or execute code.
 Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors plus
 provider discovery rules and recognized command definitions to `ci_command`. A command class uses
-full owner/repository action identities, executable identities paired with required arguments, or
-semantically specific standalone executables. GitHub action invocations also require an explicit
+full owner/repository action identities, explicit valid executable/argument signatures, or
+semantically specific standalone executables. Executables and arguments from different signatures
+never combine. GitHub action invocations also require an explicit
 non-empty `@ref`. Names alone never turn comments, version/help commands, display commands, disabled or
 non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
 into enforced evidence. Push-only, post-close, or path-gated execution does not establish the
 repository-wide before-integration outcome; the external platform alternative remains available
-when enforcement lives outside
-pull-request CI. Unsupported provider conditions and any configured non-literal blocking override
+when enforcement lives outside pull-request CI. Unsupported provider conditions and any configured
+non-literal blocking override
 fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
 are not step actions, and invalid steps that combine `uses` with `run` are rejected. Provider path
 filters and GitLab rules with unparsed gating fields fail closed. Multi-statement shell forms qualify
@@ -33,6 +34,11 @@ inference. Package-manager task invocations are resolved through the tracked roo
 must bind to a recognized executable command; referenced repository validation scripts must exist as
 non-empty assessed files. A plausible task name, missing path, collection-only test mode, or
 configuration-display mode is insufficient.
+Deterministic provider discovery is limited to auto-loaded entry points: direct GitHub workflow
+YAML files, the root GitLab CI file, and conventional root Azure pipeline files. Include graphs and
+custom pipeline paths require eligible source-backed evidence until they are structurally resolved.
+Azure commands qualify only inside valid step collections, never from command-shaped root, stage, or
+job fields.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

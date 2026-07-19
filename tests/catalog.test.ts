@@ -67,17 +67,22 @@ describe('benchmark catalog', () => {
     expect(commandCheck?.type === 'ci_command' ? commandCheck.tools : []).toContainEqual(
       expect.objectContaining({
         id: 'gitleaks',
-        executables: ['gitleaks'],
-        required_arguments: ['detect', 'protect'],
+        commands: [{ executables: ['gitleaks'], required_arguments: ['detect', 'protect'] }],
         standalone_executables: [],
         actions: ['gitleaks/gitleaks-action'],
       }),
     );
     expect(commandCheck?.type === 'ci_command' ? commandCheck.providers : []).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'github-actions' }),
-        expect.objectContaining({ id: 'gitlab-ci' }),
-        expect.objectContaining({ id: 'azure-pipelines' }),
+        expect.objectContaining({
+          id: 'github-actions',
+          files: ['.github/workflows/*.yml', '.github/workflows/*.yaml'],
+        }),
+        expect.objectContaining({ id: 'gitlab-ci', files: ['.gitlab-ci.yml'] }),
+        expect.objectContaining({
+          id: 'azure-pipelines',
+          files: ['azure-pipelines.yml', 'azure-pipelines.yaml'],
+        }),
       ]),
     );
     expect(securityControlSource).not.toMatch(/\.github\/workflows|gitlab-ci|azure-pipelines/);
@@ -100,6 +105,15 @@ describe('benchmark catalog', () => {
     expect(ciTools.find(({ id }) => id === 'static-analysis')?.standalone_executables).toContain(
       'mypy',
     );
+    const staticCommands = ciTools.find(({ id }) => id === 'static-analysis')?.commands ?? [];
+    expect(staticCommands.find(({ executables }) => executables.includes('cargo'))).toEqual({
+      executables: ['cargo'],
+      required_arguments: ['clippy', 'check'],
+    });
+    expect(staticCommands.find(({ executables }) => executables.includes('go'))).toEqual({
+      executables: ['go'],
+      required_arguments: ['vet'],
+    });
     expect(controlSource).not.toMatch(/pytest|mypy|flake8|ruff|pyright/);
 
     const specification = controls.find(({ id }) => id === 'ADRB-SPC-001');

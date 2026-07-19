@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Structural evidence starts at an executable entry point
+
+**Context.** Automated re-review found that unreferenced CI fragments, command-shaped Azure root
+fields, nonexistent bare guidance commands, Cartesian command aliases, and punctuation-only scopes
+could still look structural without being executable or accountable.
+
+**Rule.** Start deterministic collection only from provider-loaded entry points; validate commands
+at executable step nodes against explicit executable/argument signatures and existing referenced
+paths; and require ownership targets to contain a substantive scope.
+
 ## 2026-07-18 — Mechanical outcomes need executed evidence
 
 **Context.** Automated re-review found that two Level 3 controls still inferred executed guidance

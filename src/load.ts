@@ -146,9 +146,13 @@ function applyDetectorAdapter(
         const tool = tools.get(extensionTool.id);
         tools.set(extensionTool.id, {
           id: extensionTool.id,
-          executables: [...new Set([...(tool?.executables ?? []), ...extensionTool.executables])],
-          required_arguments: [
-            ...new Set([...(tool?.required_arguments ?? []), ...extensionTool.required_arguments]),
+          commands: [
+            ...new Map(
+              [...(tool?.commands ?? []), ...extensionTool.commands].map((command) => [
+                JSON.stringify(command),
+                command,
+              ]),
+            ).values(),
           ],
           standalone_executables: [
             ...new Set([
