@@ -59,17 +59,20 @@ describe('benchmark catalog', () => {
     const { controls } = await loadBenchmark(root);
     const environmentCi = controls
       .find(({ id }) => id === 'ADRB-ENV-003')
-      ?.evidence.find(({ type }) => type === 'content_terms');
-    expect(environmentCi?.type === 'content_terms' ? environmentCi.files : []).toEqual(
+      ?.evidence.find(({ type }) => type === 'ci_command');
+    expect(environmentCi?.type === 'ci_command' ? environmentCi.providers : []).toEqual(
       expect.arrayContaining([
-        '.github/workflows/**',
-        '.gitlab-ci.yml',
-        'Jenkinsfile',
-        'azure-pipelines.yml',
+        expect.objectContaining({ id: 'github-actions' }),
+        expect.objectContaining({ id: 'gitlab-ci' }),
+        expect.objectContaining({ id: 'azure-pipelines' }),
       ]),
     );
-    expect(environmentCi?.type === 'content_terms' ? environmentCi.terms : []).toEqual(
-      expect.arrayContaining(['npm ci', 'frozen-lockfile', 'uv sync']),
+    expect(environmentCi?.type === 'ci_command' ? environmentCi.tools : []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'locked-install' }),
+        expect.objectContaining({ id: 'tests' }),
+        expect.objectContaining({ id: 'static-analysis' }),
+      ]),
     );
     const contextEntry = controls.find(({ id }) => id === 'ADRB-CTX-001');
     const pathCheck = contextEntry?.evidence.find(({ type }) => type === 'path_any');
@@ -126,6 +129,17 @@ describe('benchmark catalog', () => {
     expect(guidanceCheck?.type === 'ci_command' ? guidanceCheck.tools : []).toContainEqual(
       expect.objectContaining({ id: 'agent-guidance-validation' }),
     );
+    for (const [controlId, toolId] of [
+      ['ADRB-SPC-003', 'specification-traceability'],
+      ['ADRB-LRN-003', 'knowledge-curation'],
+    ]) {
+      const structuralCheck = controls
+        .find(({ id }) => id === controlId)
+        ?.evidence.find(({ type }) => type === 'ci_command');
+      expect(structuralCheck?.type === 'ci_command' ? structuralCheck.tools : []).toContainEqual(
+        expect.objectContaining({ id: toolId }),
+      );
+    }
     const ciVerification = controls.find(({ id }) => id === 'ADRB-TST-003');
     const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'ci_command');
     const ciTools = ciCheck?.type === 'ci_command' ? ciCheck.tools : [];

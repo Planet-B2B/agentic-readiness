@@ -3,4 +3,14 @@ benchmark_version: 0.4.0
 extensions:
   - control_id: ADRB-ENV-003
     evidence_index: 0
-    terms: [npm ci, frozen-lockfile, uv sync]
+    ci_tools:
+      - id: locked-install
+        commands:
+          - executables: [npm]
+            argument_groups: [[ci]]
+          - executables: [pnpm, yarn, bun]
+            argument_groups: [[install], [--frozen-lockfile, --immutable]]
+          - executables: [uv]
+            argument_groups: [[sync], [--frozen, --locked]]
+          - executables: [cargo]
+            argument_groups: [[fetch], [--locked]]

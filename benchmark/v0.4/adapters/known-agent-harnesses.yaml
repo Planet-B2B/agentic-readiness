@@ -64,6 +64,52 @@ extensions:
                   '\bread_text\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
                 ]
               - ['\braise\b', '\bsys\.exit\s*\(\s*[1-9]']
+  - control_id: ADRB-SPC-003
+    evidence_index: 0
+    ci_tools:
+      - id: specification-traceability
+        commands:
+          - executables: [node, tsx]
+            argument_groups:
+              - [
+                  scripts/check-specs.js,
+                  scripts/check-specs.ts,
+                  scripts/validate-specs.js,
+                  scripts/validate-specs.ts,
+                  scripts/check-traceability.js,
+                  scripts/check-traceability.ts,
+                ]
+            source_pattern_groups:
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:specs?/|requirements?/|\.ai/specs?)']
+              - ['\b(?:includes|match|test)\s*\([^\n]*(?:acceptance|requirement|task|trace)']
+              - [
+                  '\bthrow\s+new\s+error\s*\(',
+                  '\bprocess\.exit\s*\(\s*[1-9]',
+                  '\bprocess\.exitcode\s*=\s*[1-9]',
+                ]
+  - control_id: ADRB-LRN-003
+    evidence_index: 0
+    ci_tools:
+      - id: knowledge-curation
+        commands:
+          - executables: [node, tsx]
+            argument_groups:
+              - [
+                  scripts/check-knowledge.js,
+                  scripts/check-knowledge.ts,
+                  scripts/validate-knowledge.js,
+                  scripts/validate-knowledge.ts,
+                  scripts/curate-knowledge.js,
+                  scripts/curate-knowledge.ts,
+                ]
+            source_pattern_groups:
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:lessons|memory|agents\.md|knowledge)']
+              - ['\bif\s*\([^\n]*(?:duplicate|stale|contradict|unpromoted)']
+              - [
+                  '\bthrow\s+new\s+error\s*\(',
+                  '\bprocess\.exit\s*\(\s*[1-9]',
+                  '\bprocess\.exitcode\s*=\s*[1-9]',
+                ]
   - control_id: ADRB-ENV-001
     evidence_index: 0
     files:

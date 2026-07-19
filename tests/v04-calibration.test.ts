@@ -66,6 +66,9 @@ describe('v0.4 evidence calibration', () => {
     expect(report.evidence_summary.attested).toBe(8);
     expect(report.readiness.target_passed).toBe(true);
     expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
+    for (const id of ['ADRB-ENV-003', 'ADRB-SPC-003', 'ADRB-LRN-003']) {
+      expect(controlStatus(report, id)?.confidence).toBe('repository-detected');
+    }
   });
 
   it('reports semantic containment coverage without promoting a partial match', async () => {
@@ -152,7 +155,7 @@ describe('v0.4 evidence calibration', () => {
     const repository = await gitFixture({
       'CONTRIBUTING.md': [
         '# Review governance',
-        'The repository owner assigns a reviewer. Human approval is required.',
+        'The repository owner assigns a reviewer. The required reviewer provides approval.',
         'Only a maintainer has merge authority after the required review.',
       ].join('\n'),
     });
@@ -270,6 +273,7 @@ describe('v0.4 evidence calibration', () => {
         '| Component | Owner |',
         '| --- | --- |',
         '| packages/platform/** | @platform-team |',
+        '| Payments | @payments-team |',
       ].join('\n'),
     });
     const formerOnly = await gitFixture({
@@ -374,6 +378,10 @@ describe('v0.4 evidence calibration', () => {
     {
       name: 'does not drop negating labels before authority terms',
       guidance: 'Not allowed: reviewers may approve. Prohibited: maintainers may merge.\n',
+    },
+    {
+      name: 'requires accountable actors instead of generic authority labels',
+      guidance: 'Human approval is required. Human merge authority is documented.\n',
     },
   ])('$name', async ({ guidance }) => {
     const repository = await gitFixture({
@@ -737,6 +745,21 @@ describe('v0.4 evidence calibration', () => {
         ].join('\n'),
       },
       {
+        '.github/workflows/conditional-replacement.yml': [
+          'on: [pull_request]',
+          'jobs:',
+          '  scan:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          '      - if: github.ref == refs/heads/main',
+          '        uses: actions/checkout@v4',
+          '        with:',
+          '          repository: another/example',
+          '      - run: gitleaks detect',
+        ].join('\n'),
+      },
+      {
         '.gitlab-ci.yml': [
           'variables:',
           '  GIT_STRATEGY: none',
@@ -750,6 +773,16 @@ describe('v0.4 evidence calibration', () => {
           'pr: [main]',
           'steps:',
           '  - checkout: none',
+          '  - script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'steps:',
+          '  - checkout: self',
+          '  - checkout: another-repository',
+          "    condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')",
           '  - script: gitleaks detect',
         ].join('\n'),
       },
@@ -923,12 +956,55 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npm run agent-doc-check',
       ].join('\n'),
     });
+    const uncalled = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        'function validateGuidance() {',
+        "  const guidance = readFileSync('AGENTS.md', 'utf8');",
+        "  if (!guidance.includes('scope')) throw new Error('AGENTS.md is invalid');",
+        '}',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
+    const called = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        'function validateGuidance() {',
+        "  const guidance = readFileSync('AGENTS.md', 'utf8');",
+        "  if (!guidance.includes('scope')) throw new Error('AGENTS.md is invalid');",
+        '}',
+        'validateGuidance();',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const commentsReport = await assess(commentsOnly, benchmark, controls, 'pr-creation');
       const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
       const noOpReport = await assess(noOp, benchmark, controls, 'pr-creation');
       const unreachableReport = await assess(unreachable, benchmark, controls, 'pr-creation');
+      const uncalledReport = await assess(uncalled, benchmark, controls, 'pr-creation');
+      const calledReport = await assess(called, benchmark, controls, 'pr-creation');
 
       expect(controlStatus(commentsReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(commentsReport, 'ADRB-TST-003')?.status).toBe('not_met');
@@ -936,11 +1012,56 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(executedReport, 'ADRB-TST-003')?.status).toBe('met');
       expect(controlStatus(noOpReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(unreachableReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(uncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(calledReport, 'ADRB-CTX-003')?.status).toBe('met');
     } finally {
       await rm(commentsOnly, { recursive: true, force: true });
       await rm(executed, { recursive: true, force: true });
       await rm(noOp, { recursive: true, force: true });
       await rm(unreachable, { recursive: true, force: true });
+      await rm(uncalled, { recursive: true, force: true });
+      await rm(called, { recursive: true, force: true });
+    }
+  });
+
+  it('does not award enforced maturity from keyword-bearing no-op files', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: {
+          'knowledge-curator': 'tsx scripts/check-knowledge.ts',
+          'spec-check': 'tsx scripts/check-specs.ts',
+        },
+      }),
+      'scripts/no-op.ts': [
+        '// clean checkout, locked dependencies, test, and typecheck',
+        '// acceptance criteria, traceability, spec check, and task id',
+        '// curator, stale, contradiction, and duplicate knowledge',
+        "export const description = 'documentation only';",
+      ].join('\n'),
+      'scripts/check-specs.ts':
+        "export const description = \"readFileSync('specs/example.md'); includes('acceptance criteria'); throw new Error\";\n",
+      'scripts/check-knowledge.ts':
+        'export const description = "readFileSync(\'.ai/lessons.md\'); if (stale) throw new Error";\n',
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: echo no-op',
+        '      - run: npm run spec-check',
+        '      - run: npm run knowledge-curator',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-ENV-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-SPC-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-LRN-003')?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
     }
   });
 
@@ -1025,6 +1146,31 @@ describe('v0.4 evidence calibration', () => {
     } finally {
       await rm(wrongCase, { recursive: true, force: true });
       await rm(exactCase, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves package tasks after supported value-taking global options', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { lint: 'eslint .', test: 'vitest run' },
+      }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm --loglevel warn test',
+        '      - run: npm --loglevel=warn run lint',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
     }
   });
 
@@ -1439,6 +1585,8 @@ describe('v0.4 evidence calibration', () => {
         '        run: gitleaks detect',
         '      - run: set +e; gitleaks detect; exit 0',
         '      - run: gitleaks detect & echo done',
+        '      - run: exit 0 && gitleaks detect',
+        '      - run: npm run missing && gitleaks detect',
         '      - run: cd /tmp/unrelated && gitleaks detect',
         '      - run: cd /tmp/unrelated && pytest && mypy .',
         '      - run: |',
@@ -1722,7 +1870,7 @@ describe('v0.4 evidence calibration', () => {
         repositories.map(async (repository) => rm(repository, { recursive: true, force: true })),
       );
     }
-  });
+  }, 30_000);
 
   it('recognizes case-insensitive ownership structures and GitLab refs mappings', async () => {
     const repository = await gitFixture({

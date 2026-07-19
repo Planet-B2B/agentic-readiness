@@ -33,13 +33,11 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: content_terms
+      - type: ci_command
         scope: repository
-        files: [scripts/**, package.json, Makefile]
-        terms: [acceptance criteria, traceability, requirements coverage, spec check, task id]
-        min_terms: 2
-        required_any_terms: [traceability, requirements coverage, spec check, task id]
-        max_span_lines: 40
+        providers: []
+        tools: []
+        min_tools: 1
     remediation: Add a deterministic traceability check from change to work artifact and verification record.
   - id: ADRB-SPC-005
     level: 3

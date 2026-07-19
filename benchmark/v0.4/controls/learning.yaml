@@ -58,13 +58,11 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: content_terms
+      - type: ci_command
         scope: repository
-        files: [scripts/**, package.json, Makefile]
-        terms: [curator, curation, knowledge lint, stale, contradiction, duplicate]
-        min_terms: 2
-        required_any_terms: [curator, curation, knowledge lint, contradiction]
-        max_span_lines: 30
+        providers: []
+        tools: []
+        min_tools: 1
     remediation: Automate mechanical checks and require periodic judgement over knowledge quality.
   - id: ADRB-LRN-004
     level: 4

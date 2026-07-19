@@ -83,11 +83,6 @@ controls:
                 reviewers may approve,
                 maintainer may approve,
                 maintainers may approve,
-                human may approve,
-                humans may approve,
-                human approval is required,
-                human approval required,
-                requires human approval,
                 reviewer provides approval,
                 reviewer provides human approval,
                 reviewer approval,
@@ -103,13 +98,9 @@ controls:
                 reviewers may merge,
                 maintainer may merge,
                 maintainers may merge,
-                human may merge,
-                humans may merge,
-                documented merge authority may merge,
                 maintainer has merge authority,
                 maintainers have merge authority,
                 maintainers retain merge authority,
-                human merge authority,
               ]
         min_groups: 2
         max_span_lines: 100

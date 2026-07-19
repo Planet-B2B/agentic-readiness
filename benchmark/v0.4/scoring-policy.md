@@ -70,8 +70,10 @@ explicit mappings require a recognized repository-wide target or path/component 
 arbitrary or punctuation-only syntax.
 `ADRB-RES-002` requires resource budgets and retry bounds as independent co-located components;
 neither substitutes for the other.
-Mechanical Level 3 context and testing controls require structurally recognized CI commands;
-comments, documentation, and command-name keywords do not establish execution. `ADRB-TST-003`
+Mechanical Level 3 context, environment, specification, testing, and learning controls require
+structurally recognized CI commands; comments, documentation, and command-name keywords do not
+establish execution. `ADRB-ENV-003` requires a locked installation plus independent test and
+static-analysis command classes. `ADRB-TST-003`
 requires independent test and static-analysis command classes aggregated across the assessed CI
 entry points. Root package-manager tasks must
 resolve to tracked script definitions whose command bodies establish the applicable command class,
@@ -80,7 +82,9 @@ Context-changing package/workspace options require resolution of the selected ma
 closed; nested package-exec tools may qualify only at a supported executable position.
 Custom guidance validators additionally require adapter-declared validation structures in the
 executed tracked source after language comments are excluded; file presence or comment text alone
-does not establish behavior. Tool-specific discovery or
+does not establish behavior. Specification-traceability and knowledge-curation checks use the same
+source-bound standard. Constant-false branches and uncalled validation functions fail closed.
+Tool-specific discovery or
 listing modes do not count as execution. Fail-fast multiline verification steps may contribute each
 command, while scanners configured to require final exit-status propagation contribute only from the
 final effective command.

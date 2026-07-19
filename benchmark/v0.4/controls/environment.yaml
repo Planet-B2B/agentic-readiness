@@ -72,12 +72,11 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: content_terms
+      - type: ci_command
         scope: repository
-        files: [scripts/**, Makefile]
-        terms: [lockfile, locked dependencies, clean environment, clean checkout, test, typecheck]
-        min_terms: 2
-        max_span_lines: 160
+        providers: []
+        tools: []
+        min_tools: 3
     remediation: Make CI install locked dependencies from a clean checkout and run the documented verification path.
   - id: ADRB-ENV-004
     level: 4

@@ -33,12 +33,14 @@ made the assessed repository available: GitHub requires a preceding `actions/che
 GitLab must retain its clone/fetch checkout, and Azure must retain its default checkout or execute
 `checkout: self` before the command. GitHub checkout inputs that select another repository, ref,
 path, sparse subset, or object filter cannot establish this state, and a later non-target checkout
-clears earlier target proof for the affected event. GitHub run working directories and explicit
+clears earlier target proof for the affected event. A checkout with an unsupported condition also
+clears prior proof because its effect cannot be excluded. GitHub run working directories and explicit
 directory-changing shell commands must remain at the assessed checkout root. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
 step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
 failure path; comments, inert string literals, and non-empty no-op scripts are insufficient.
+Constant-false branches and uncalled validation functions also fail closed.
 Scanner modes that require a source target must bind that target to the assessed checkout rather
 than an arbitrary path; explicit source overrides fail closed unless the adapter can prove that
 binding. Repository-relative executables do not inherit a trusted tool identity from their basename.

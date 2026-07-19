@@ -25,6 +25,8 @@
   and conditionally gated GitLab rules, and treat explicit no-owner assignments as placeholders.
 - Replace keyword inference for `ADRB-CTX-003` and `ADRB-TST-003` with enabled
   integration-triggered command classes, requiring both tests and static analysis for verification.
+- Replace keyword inference for `ADRB-ENV-003`, `ADRB-SPC-003`, and `ADRB-LRN-003` with
+  repository-bound locked-install, verification, traceability, and curation commands.
 - Resolve root package-manager task invocations to tracked script definitions and reject missing or
   display-only bindings; require referenced validation scripts to exist and reject collection-only
   or configuration-display command modes.
@@ -69,6 +71,11 @@
 - Fail closed on unresolved GitLab include graphs and make the mature conformance fixture independently
   runnable with locked verification dependencies, an ESM-safe guidance check, and mechanical
   duplicate/stale knowledge-quality validation.
+- Clear checkout proof on unsupported conditional replacements, honor Azure step working directories,
+  reject unresolved setup hooks and mixed root forms, and stop command-chain analysis after explicit
+  exits or missing package tasks.
+- Accept substantive component names in typed ownership tables while requiring identifiable actors
+  for approval and merge authority, and parse supported value-taking package-manager options.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

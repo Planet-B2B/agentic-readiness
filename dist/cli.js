@@ -1002,6 +1002,22 @@ var packageContextOptions = /* @__PURE__ */ new Set([
   "-c",
   "-w"
 ]);
+var packageGlobalOptionsWithValues = /* @__PURE__ */ new Set([
+  "--cache",
+  "--cafile",
+  "--color",
+  "--config",
+  "--https-proxy",
+  "--key",
+  "--location",
+  "--loglevel",
+  "--otp",
+  "--proxy",
+  "--registry",
+  "--scope",
+  "--tag",
+  "--userconfig"
+]);
 var npmImplicitScripts = /* @__PURE__ */ new Map([
   ["restart", "restart"],
   ["start", "start"],
@@ -1010,6 +1026,7 @@ var npmImplicitScripts = /* @__PURE__ */ new Map([
   ["test", "test"],
   ["tst", "test"]
 ]);
+var npmDirectToolCommands = /* @__PURE__ */ new Set(["ci"]);
 async function matches(context, patterns) {
   const found = await fg2(patterns, {
     cwd: context.metadata.root,
@@ -1148,9 +1165,18 @@ function countOwnershipTableRows(lines, start, columns) {
     if (row.length !== columns.count) break;
     const scope = row[columns.scope] ?? "";
     const owner = row[columns.owner] ?? "";
-    if (isOwnershipTarget(scope) && isOwnerReference(owner)) entries += 1;
+    if (isOwnershipTableTarget(scope) && isOwnerReference(owner)) entries += 1;
   }
   return entries;
+}
+function isOwnershipTableTarget(value) {
+  const target = value.trim();
+  if (isOwnershipTarget(target)) return true;
+  const firstSpace = target.indexOf(" ");
+  const prefix = firstSpace > 0 ? target.slice(0, firstSpace).toLowerCase() : "";
+  if (namedOwnershipTargetPrefixes.has(prefix)) return false;
+  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) return false;
+  return !isPlaceholderOwner(target) && target.length >= 2 && target.length <= 100 && /^[a-z0-9][a-z0-9 _-]*$/i.test(target);
 }
 function markdownCells(line) {
   if (!line.includes("|")) return [];
@@ -1493,8 +1519,9 @@ function githubIntegrationInvocations(document) {
 function githubJobInvocations(value, parentEvents) {
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
-  const events = githubConditionEvents(job.if, parentEvents);
-  if (events.size === 0) return [];
+  const jobCondition = githubConditionEvents(job.if, parentEvents);
+  if (!jobCondition.certain || jobCondition.events.size === 0) return [];
+  const events = jobCondition.events;
   const steps = asArray(job.steps);
   if (steps.length === 0 || !hasGithubRunner(job["runs-on"])) return [];
   const runDefaults = githubRunDefaults(job.defaults);
@@ -1502,19 +1529,23 @@ function githubJobInvocations(value, parentEvents) {
   const checkoutEvents = /* @__PURE__ */ new Set();
   return steps.flatMap((stepValue) => {
     const step = asRecord(stepValue);
-    if (!step || isDisabledCiNode(step)) return [];
-    const stepEvents = githubConditionEvents(step.if, events);
-    if (stepEvents.size === 0) return [];
+    if (!step) return [];
+    const condition = githubConditionEvents(step.if, events);
     const checkout = githubCheckoutDisposition(step);
     if (checkout) {
-      stepEvents.forEach((event) => {
-        if (checkout === "target") checkoutEvents.add(event);
-        else checkoutEvents.delete(event);
+      const affectedEvents = condition.certain ? condition.events : events;
+      affectedEvents.forEach((event) => {
+        if (condition.certain && !isDisabledCiNode(step) && checkout === "target") {
+          checkoutEvents.add(event);
+        } else checkoutEvents.delete(event);
       });
       return [];
     }
+    if (!condition.certain || isDisabledCiNode(step)) return [];
+    const stepEvents = condition.events;
+    if (stepEvents.size === 0) return [];
     if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
-    return githubStepInvocations(step, stepEvents, runDefaults.workingDirectory);
+    return githubStepInvocations(step, runDefaults.workingDirectory);
   });
 }
 function hasGithubRunner(value) {
@@ -1540,10 +1571,9 @@ function githubRunDefaults(value) {
   const run = asRecord(defaults.run);
   return run ? { valid: true, workingDirectory: run["working-directory"] } : { valid: false, workingDirectory: void 0 };
 }
-function githubStepInvocations(value, parentEvents, defaultWorkingDirectory) {
+function githubStepInvocations(value, defaultWorkingDirectory) {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
-  if (githubConditionEvents(step.if, parentEvents).size === 0) return [];
   if (step.uses !== void 0 && step.run !== void 0) return [];
   const action = invocationFromField(step, "uses", "action");
   const command = githubWorkingDirectoryIsRoot(step["working-directory"] ?? defaultWorkingDirectory) ? invocationFromField(step, "run", "command") : null;
@@ -1624,7 +1654,7 @@ function azureIntegrationInvocations(document) {
   return collectAzureInvocations(document, "root");
 }
 function collectAzureInvocations(node, kind) {
-  if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
+  if (isDisabledCiNode(node) || azurePullRequestCondition(node.condition) !== "allow") return [];
   if (kind === "step") return azureStepInvocations(node);
   if (kind === "stage") return azureChildInvocations(node.jobs, "job");
   if (kind === "job") return azureStepsInvocations(node.steps);
@@ -1672,13 +1702,16 @@ function azureStepsInvocations(value) {
   });
   return steps.flatMap((stepValue) => {
     const step = asRecord(stepValue);
-    if (!step || isDisabledCiNode(step) || !azureConditionAllowsPullRequest(step.condition)) {
-      return [];
-    }
+    if (!step) return [];
+    const condition = azurePullRequestCondition(step.condition);
     if (Object.hasOwn(step, "checkout")) {
-      repositoryAvailable = typeof step.checkout === "string" && step.checkout.toLowerCase() === "self";
+      if (condition === "unknown") repositoryAvailable = false;
+      else if (condition === "allow") {
+        repositoryAvailable = !isDisabledCiNode(step) && typeof step.checkout === "string" && step.checkout.toLowerCase() === "self";
+      }
       return [];
     }
+    if (condition !== "allow" || isDisabledCiNode(step)) return [];
     return repositoryAvailable ? azureStepInvocations(step) : [];
   });
 }
@@ -1718,12 +1751,19 @@ function githubTriggerAllowsIntegration(value, name) {
   return requiredTypes.every((type) => types.has(type));
 }
 function githubConditionEvents(value, parentEvents) {
-  if (value === void 0 || value === true) return new Set(parentEvents);
-  if (typeof value !== "string") return /* @__PURE__ */ new Set();
+  if (value === void 0 || value === true) {
+    return { certain: true, events: new Set(parentEvents) };
+  }
+  if (value === false) return { certain: true, events: /* @__PURE__ */ new Set() };
+  if (typeof value !== "string") return { certain: false, events: /* @__PURE__ */ new Set() };
   const condition = value.toLowerCase();
   const normalized = condition.replace(/[\s${}]/g, "");
   if (!condition.includes("github.event_name")) {
-    return ["true", "always()", "success()", "!cancelled()"].includes(normalized) ? new Set(parentEvents) : /* @__PURE__ */ new Set();
+    if (["true", "always()", "success()", "!cancelled()"].includes(normalized)) {
+      return { certain: true, events: new Set(parentEvents) };
+    }
+    if (["false", "never"].includes(normalized)) return { certain: true, events: /* @__PURE__ */ new Set() };
+    return { certain: false, events: /* @__PURE__ */ new Set() };
   }
   const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
     (match) => match[1] ?? ""
@@ -1731,12 +1771,17 @@ function githubConditionEvents(value, parentEvents) {
   const excludes = [...condition.matchAll(/github\.event_name\s*!=\s*['"]([^'"]+)['"]/g)].map(
     (match) => match[1] ?? ""
   );
-  if (equals.length === 0 && excludes.length === 0) return /* @__PURE__ */ new Set();
+  if (equals.length === 0 && excludes.length === 0) {
+    return { certain: false, events: /* @__PURE__ */ new Set() };
+  }
   const unsupported = condition.replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, "").replace(/\b(?:always|success|cancelled)\(\)/g, "").replace(/[\s${}()!&|]/g, "");
-  if (unsupported.length > 0) return /* @__PURE__ */ new Set();
-  if (new Set(equals).size > 1) return /* @__PURE__ */ new Set();
+  if (unsupported.length > 0) return { certain: false, events: /* @__PURE__ */ new Set() };
+  if (new Set(equals).size > 1) return { certain: true, events: /* @__PURE__ */ new Set() };
   const candidates = equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
-  return new Set(candidates.filter((event) => !excludes.includes(event)));
+  return {
+    certain: true,
+    events: new Set(candidates.filter((event) => !excludes.includes(event)))
+  };
 }
 function hasGitlabMergeRequestRule(value) {
   for (const ruleValue of asArray(value)) {
@@ -1786,16 +1831,18 @@ function hasAzurePullRequestTrigger(value) {
   if (include.length > 0) return include.some((branch) => !["none", "false"].includes(branch));
   return true;
 }
-function azureConditionAllowsPullRequest(value) {
-  if (value === void 0) return true;
-  if (typeof value === "boolean") return value;
-  if (typeof value !== "string") return false;
+function azurePullRequestCondition(value) {
+  if (value === void 0 || value === true) return "allow";
+  if (value === false) return "deny";
+  if (typeof value !== "string") return "unknown";
   const condition = value.toLowerCase().replace(/\s+/g, "");
-  if (["always()", "succeeded()", "succeededorfailed()"].includes(condition)) return true;
+  if (["always()", "succeeded()", "succeededorfailed()"].includes(condition)) return "allow";
   const direct = azureReasonComparison(condition);
-  if (direct !== null) return direct;
+  if (direct !== null) return direct ? "allow" : "deny";
   const conjunction = /^and\((?:always|succeeded|succeededorfailed)\(\),(.+)\)$/.exec(condition);
-  return conjunction ? azureReasonComparison(conjunction[1] ?? "") === true : false;
+  if (!conjunction) return "unknown";
+  const nested = azureReasonComparison(conjunction[1] ?? "");
+  return nested === null ? "unknown" : nested ? "allow" : "deny";
 }
 function azureReasonComparison(condition) {
   const comparison = /^(eq|ne)\(variables\[['"]build\.reason['"]\],['"]([^'"]+)['"]\)$/.exec(
@@ -1839,11 +1886,21 @@ function commandTextMatchesTool(value, tool, bindings, visitedScripts) {
     const commands = statement.split("&&").map((command) => command.trim());
     for (const rawCommand of commands) {
       const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, "").trim();
-      if (/^(?:false|exit\s+[1-9]\d*)$/i.test(command)) return false;
+      if (/^(?:false|exit)(?:\s|$)/i.test(command)) return false;
       if (/^(?:cd|chdir|pushd|popd|set-location)\b/i.test(command)) return false;
+      if (missingPackageTaskPreventsContinuation(command, bindings)) return false;
       if (commandMatchesTool(command, tool, bindings, visitedScripts)) return true;
     }
     return false;
+  });
+}
+function missingPackageTaskPreventsContinuation(command, bindings) {
+  const tokens = command.split(/\s+/).filter(Boolean);
+  return tokens.some((token, executableIndex) => {
+    if (!["bun", "npm", "pnpm", "yarn"].includes(executableIdentity(token))) return false;
+    if (!isSupportedExecutablePosition(tokens, executableIndex)) return false;
+    const invocation = packageScriptInvocation(tokens.slice(executableIndex));
+    return invocation !== null && !bindings.packageScripts.has(invocation.task);
   });
 }
 function commandMatchesTool(command, tool, bindings, visitedScripts) {
@@ -1893,7 +1950,12 @@ function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
   if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
   if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
-  if (!invocation) return manager === "npm" && !isPackageExecutionWrapper(tokens) ? false : null;
+  if (!invocation) {
+    if (manager !== "npm" || isPackageExecutionWrapper(tokens)) return null;
+    const arguments_ = tokens.slice(1);
+    const subcommand = arguments_[skipPackageOptions(arguments_, 0)]?.toLowerCase() ?? "";
+    return npmDirectToolCommands.has(subcommand) ? null : false;
+  }
   if (invocation.manager === "bun" && invocation.task === "test") return null;
   if (invocation.hasForwardedArguments) return false;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
@@ -1964,6 +2026,14 @@ function commandSourceMatches(signature, arguments_, bindings) {
     if (source === void 0) return false;
     const uncommented = stripSourceComments(source, path);
     if (hasObviouslyUnreachableBranch(uncommented, path)) return false;
+    if (hasUncalledValidationFunction(
+      uncommented,
+      path,
+      signature.source_pattern_groups,
+      signature.source_max_span_lines
+    )) {
+      return false;
+    }
     return sourceGroupsAreCoLocated(
       uncommented,
       signature.source_content_groups,
@@ -1974,6 +2044,77 @@ function commandSourceMatches(signature, arguments_, bindings) {
       signature.source_max_span_lines
     );
   });
+}
+function hasUncalledValidationFunction(source, path, groups, maxSpanLines) {
+  if (groups.length === 0) return false;
+  const lines = source.split(/\r?\n/);
+  const blocks = sourceFunctionBlocks(lines, path);
+  return blocks.some((block) => {
+    const body = lines.slice(block.start, block.end + 1).join("\n");
+    if (!sourcePatternGroupsAreCoLocated(body, groups, maxSpanLines)) return false;
+    return !sourceFunctionIsCalled(lines, block, path);
+  });
+}
+function sourceFunctionBlocks(lines, path) {
+  if (/\.py$/i.test(path)) return pythonFunctionBlocks(lines);
+  return braceDelimitedFunctionBlocks(lines, /\.[cm]?[jt]sx?$/i.test(path));
+}
+function braceDelimitedFunctionBlocks(lines, javascript) {
+  const blocks = [];
+  const declaration = javascript ? /(?:\bfunction\s+|\b(?:const|let|var)\s+)([a-z_$][\w$]*)[^\n{]*\{/i : /^\s*(?:function\s+)?([a-z_][\w]*)\s*(?:\(\s*\))?\s*\{/i;
+  for (let start = 0; start < lines.length; start += 1) {
+    const match = declaration.exec(lines[start] ?? "");
+    if (!match) continue;
+    let depth = unquotedBraceDelta(lines[start] ?? "");
+    if (depth <= 0) {
+      blocks.push({ end: start, name: match[1] ?? "", start });
+      continue;
+    }
+    for (let end = start + 1; end < lines.length; end += 1) {
+      depth += unquotedBraceDelta(lines[end] ?? "");
+      if (depth > 0) continue;
+      blocks.push({ end, name: match[1] ?? "", start });
+      start = end;
+      break;
+    }
+  }
+  return blocks.filter(({ name }) => name.length > 0);
+}
+function unquotedBraceDelta(line) {
+  let delta = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    if (sourceIndexIsQuoted(line, index)) continue;
+    if (line[index] === "{") delta += 1;
+    else if (line[index] === "}") delta -= 1;
+  }
+  return delta;
+}
+function pythonFunctionBlocks(lines) {
+  const blocks = [];
+  for (let start = 0; start < lines.length; start += 1) {
+    const declaration = /^(\s*)def\s+([a-z_]\w*)\s*\(/i.exec(lines[start] ?? "");
+    if (!declaration) continue;
+    const indentation = (declaration[1] ?? "").length;
+    let end = start;
+    while (end + 1 < lines.length) {
+      const next = lines[end + 1] ?? "";
+      if (next.trim().length > 0 && leadingWhitespace(next) <= indentation) break;
+      end += 1;
+    }
+    blocks.push({ end, name: declaration[2] ?? "", start });
+    start = end;
+  }
+  return blocks.filter(({ name }) => name.length > 0);
+}
+function leadingWhitespace(value) {
+  return /^\s*/.exec(value)?.[0].length ?? 0;
+}
+function sourceFunctionIsCalled(lines, block, path) {
+  const name = block.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const callPattern = /\.py$|\.[cm]?[jt]sx?$/i.test(path) ? String.raw`(?:^|[^\w$])${name}\s*\(` : String.raw`^\s*${name}(?:\s|$)`;
+  return lines.some(
+    (line, index) => (index < block.start || index > block.end) && executableSourcePatternMatches(line, callPattern)
+  );
 }
 function hasObviouslyUnreachableBranch(source, path) {
   let pattern = String.raw`^\s*if\s+(?:false|\[\s+(?:false|0)\s+\])\s*;?\s*then\b`;
@@ -2196,7 +2337,9 @@ function skipPackageOptions(arguments_, start) {
       break;
     }
     if (!argument.startsWith("-")) break;
+    const option = argument.split("=")[0] ?? "";
     index += 1;
+    if (!argument.includes("=") && packageGlobalOptionsWithValues.has(option)) index += 1;
   }
   return index;
 }

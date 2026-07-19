@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Enforced maturity requires execution, inputs, and accountable actors
+
+**Context.** Automated re-review found Level 3 environment, specification, and learning controls
+still passing from keywords; uncertain checkout transitions, early exits, missing package tasks,
+generic authority labels, and overly strict table targets also distorted deterministic evidence.
+
+**Rule.** Bind enforced outcomes to repository-root CI execution and source-backed behavior, carry
+unknown state changes forward by failing closed, stop at statically terminating commands, and keep
+typed ownership scopes flexible while requiring explicit accountable authority.
+
 ## 2026-07-18 — Provider setup and source reachability are enforcement inputs
 
 **Context.** Automated re-review found that inherited setup hooks or step working directories could
