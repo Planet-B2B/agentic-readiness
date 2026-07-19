@@ -64,7 +64,14 @@ describe('benchmark catalog', () => {
     );
     const securityAutomation = controls.find(({ id }) => id === 'ADRB-SEC-003');
     const commandCheck = securityAutomation?.evidence.find(({ type }) => type === 'ci_command');
-    expect(commandCheck?.type === 'ci_command' ? commandCheck.terms : []).toContain('gitleaks');
+    expect(commandCheck?.type === 'ci_command' ? commandCheck.tools : []).toContainEqual(
+      expect.objectContaining({
+        id: 'gitleaks',
+        executables: ['gitleaks'],
+        scan_arguments: ['detect', 'protect'],
+        actions: ['gitleaks/gitleaks-action'],
+      }),
+    );
     expect(commandCheck?.type === 'ci_command' ? commandCheck.providers : []).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'github-actions' }),

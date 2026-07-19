@@ -93,12 +93,30 @@ const CiProviderSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
 });
 
+const CiToolSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9-]+$/),
+    executables: z.array(z.string().min(1)).default([]),
+    scan_arguments: z.array(z.string().min(1)).default([]),
+    actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([]),
+  })
+  .superRefine((tool, context) => {
+    const commandConfigured = tool.executables.length > 0 && tool.scan_arguments.length > 0;
+    if (!commandConfigured && tool.actions.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'A CI tool must define an executable with scan arguments or a full action identity',
+      });
+    }
+  });
+
 const CiCommandSchema = z.object({
   type: z.literal('ci_command'),
   scope: z.literal('repository').default('repository'),
   providers: z.array(CiProviderSchema).default([]),
-  terms: z.array(z.string().min(1)).min(1),
-  min_terms: z.number().int().positive().default(1),
+  tools: z.array(CiToolSchema).default([]),
+  min_tools: z.number().int().positive().default(1),
   max_files_per_pattern: z.number().int().positive().max(250).optional(),
 });
 
@@ -170,6 +188,7 @@ const DetectorAdapterExtensionSchema = z
     terms: z.array(z.string().min(1)).min(1).optional(),
     required_any_terms: z.array(z.string().min(1)).min(1).optional(),
     ci_providers: z.array(CiProviderSchema).min(1).optional(),
+    ci_tools: z.array(CiToolSchema).min(1).optional(),
   })
   .strict()
   .superRefine((extension, context) => {
@@ -179,12 +198,13 @@ const DetectorAdapterExtensionSchema = z
       extension.terms,
       extension.required_any_terms,
       extension.ci_providers,
+      extension.ci_tools,
     ].filter(Boolean).length;
     if (extensionKinds !== 1) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'A detector extension must declare exactly one of patterns, files, terms, required_any_terms, or ci_providers',
+          'A detector extension must declare exactly one of patterns, files, terms, required_any_terms, ci_providers, or ci_tools',
       });
     }
   });

@@ -178,7 +178,7 @@ function countOwnershipTableRows(
     if (row.length !== columns.count) break;
     const scope = row[columns.scope] ?? '';
     const owner = row[columns.owner] ?? '';
-    if (scope.length > 0 && isOwnerReference(owner)) entries += 1;
+    if (isOwnershipTarget(scope) && isOwnerReference(owner)) entries += 1;
   }
   return entries;
 }
@@ -504,22 +504,22 @@ async function evaluateCiCommand(
     const invocations = providerPaths.flatMap(({ id, paths }) =>
       paths.has(path) ? ciIntegrationInvocations(id, text) : [],
     );
-    const matchedTerms = check.terms.filter((term) =>
-      invocations.some((invocation) => invocationMatchesTerm(invocation, term)),
+    const matchedTools = check.tools.filter((tool) =>
+      invocations.some((invocation) => invocationMatchesTool(invocation, tool)),
     );
-    return { path, matchedTerms };
+    return { path, matchedTools };
   });
-  const qualifying = inspected.filter(({ matchedTerms }) => matchedTerms.length >= check.min_terms);
+  const qualifying = inspected.filter(({ matchedTools }) => matchedTools.length >= check.min_tools);
   const strongest = inspected.reduce(
     (maximum, candidate) =>
-      candidate.matchedTerms.length > maximum.matchedTerms.length ? candidate : maximum,
-    { path: '', matchedTerms: [] as string[] },
+      candidate.matchedTools.length > maximum.matchedTools.length ? candidate : maximum,
+    { path: '', matchedTools: [] as typeof check.tools },
   );
   return result(
     check.type,
     check.scope,
     qualifying.length > 0 ? 'met' : 'not_met',
-    `${qualifying.length} CI configuration file(s) contain an enabled integration-triggered scanner invocation; strongest executable match ${strongest.matchedTerms.length}/${check.terms.length} term(s) across ${files.length} candidate file(s); threshold ${check.min_terms}`,
+    `${qualifying.length} CI configuration file(s) contain an enabled integration-triggered scanner invocation; strongest scanner match ${strongest.matchedTools.length}/${check.tools.length} recognized tool(s) across ${files.length} candidate file(s); threshold ${check.min_tools}`,
     qualifying.map(({ path }) => path),
   );
 }
@@ -530,6 +530,7 @@ interface CiInvocation {
 }
 
 type CiProviderId = Extract<EvidenceCheck, { type: 'ci_command' }>['providers'][number]['id'];
+type CiTool = Extract<EvidenceCheck, { type: 'ci_command' }>['tools'][number];
 
 function ciIntegrationInvocations(provider: CiProviderId, text: string): CiInvocation[] {
   try {
@@ -544,7 +545,7 @@ function ciIntegrationInvocations(provider: CiProviderId, text: string): CiInvoc
 }
 
 function githubIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
-  const events = namedTriggers(document.on, ['pull_request', 'merge_group']);
+  const events = githubIntegrationTriggers(document.on);
   if (events.size === 0) return [];
   const jobs = asRecord(document.jobs);
   if (!jobs) return [];
@@ -646,14 +647,36 @@ function hasNamedTrigger(value: unknown, names: string[]): boolean {
   return Object.hasOwn(record, 'refs') && hasNamedTrigger(record.refs, names);
 }
 
-function namedTriggers(value: unknown, names: string[]): Set<string> {
-  return new Set(names.filter((name) => hasNamedTrigger(value, [name])));
+function githubIntegrationTriggers(value: unknown): Set<string> {
+  return new Set(
+    ['pull_request', 'merge_group'].filter((name) => githubTriggerAllowsIntegration(value, name)),
+  );
+}
+
+function githubTriggerAllowsIntegration(value: unknown, name: string): boolean {
+  if (typeof value === 'string' || Array.isArray(value)) return hasNamedTrigger(value, [name]);
+  const triggers = asRecord(value);
+  if (!triggers || !Object.hasOwn(triggers, name)) return false;
+  const configuration = triggers[name];
+  if (configuration === null || configuration === undefined) return true;
+  const trigger = asRecord(configuration);
+  if (!trigger || trigger.types === undefined) return trigger !== null;
+  const types = stringValues(trigger.types).map((type) => type.toLowerCase());
+  const requiredTypes =
+    name === 'pull_request' ? ['opened', 'reopened', 'synchronize'] : ['checks_requested'];
+  return requiredTypes.every((type) => types.includes(type));
 }
 
 function githubConditionEvents(value: unknown, parentEvents: Set<string>): Set<string> {
-  if (typeof value !== 'string') return new Set(parentEvents);
+  if (value === undefined || value === true) return new Set(parentEvents);
+  if (typeof value !== 'string') return new Set();
   const condition = value.toLowerCase();
-  if (!condition.includes('github.event_name')) return new Set(parentEvents);
+  const normalized = condition.replace(/[\s${}]/g, '');
+  if (!condition.includes('github.event_name')) {
+    return ['true', 'always()', 'success()', '!cancelled()'].includes(normalized)
+      ? new Set(parentEvents)
+      : new Set();
+  }
   const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
     (match) => match[1] ?? '',
   );
@@ -661,6 +684,11 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): Set<s
     (match) => match[1] ?? '',
   );
   if (equals.length === 0 && excludes.length === 0) return new Set();
+  const unsupported = condition
+    .replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, '')
+    .replace(/\b(?:always|success|cancelled)\(\)/g, '')
+    .replace(/[\s${}()!&|]/g, '');
+  if (unsupported.length > 0) return new Set();
   const candidates =
     equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
   return new Set(candidates.filter((event) => !excludes.includes(event)));
@@ -721,11 +749,8 @@ function azureReasonComparison(condition: string): boolean | null {
 function isDisabledCiNode(node: Record<string, unknown>): boolean {
   if (
     node.enabled === false ||
-    node.allow_failure === true ||
-    asRecord(node.allow_failure) !== null ||
-    node['continue-on-error'] === true ||
-    node.continueonerror === true ||
-    node.continueOnError === true
+    configuredNonBlocking(node, ['allow_failure']) ||
+    configuredNonBlocking(node, ['continue-on-error', 'continueonerror', 'continueOnError'])
   ) {
     return true;
   }
@@ -740,10 +765,14 @@ function isDisabledCiNode(node: Record<string, unknown>): boolean {
   });
 }
 
-function invocationMatchesTerm(invocation: CiInvocation, term: string): boolean {
+function configuredNonBlocking(node: Record<string, unknown>, fields: string[]): boolean {
+  return fields.some((field) => Object.hasOwn(node, field) && node[field] !== false);
+}
+
+function invocationMatchesTool(invocation: CiInvocation, tool: CiTool): boolean {
   if (invocation.kind === 'action') {
-    const identity = invocation.value.split('@', 1)[0] ?? '';
-    return actionIdentityMatchesTerm(identity, term);
+    const identity = invocation.value.split('@', 1)[0]?.toLowerCase() ?? '';
+    return tool.actions.some((action) => action.toLowerCase() === identity);
   }
   return shellStatements(invocation.value).some((statement) => {
     if (statement.includes('||') || /(^|[^|])\|(?!\|)/.test(statement)) return false;
@@ -751,46 +780,41 @@ function invocationMatchesTerm(invocation: CiInvocation, term: string): boolean 
     for (const rawCommand of commands) {
       const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, '').trim();
       if (/^(?:false|exit\s+[1-9]\d*)$/i.test(command)) return false;
-      if (commandMatchesTerm(command, term)) return true;
+      if (commandMatchesTool(command, tool)) return true;
     }
     return false;
   });
 }
 
-function commandMatchesTerm(command: string, term: string): boolean {
+function commandMatchesTool(command: string, tool: CiTool): boolean {
   if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
     return false;
   }
-  const executable = command.split(/\s+/, 1)[0] ?? '';
-  if (executableMatchesTerm(executable, term)) return true;
-  if (!/^(?:npx|pipx|sudo|uvx)\b/i.test(executable)) return false;
-  const delegatedExecutable = command.split(/\s+/)[1] ?? '';
-  return executableMatchesTerm(delegatedExecutable, term);
+  const tokens = command.split(/\s+/).filter(Boolean);
+  const executableIndex = tokens.findIndex((token) =>
+    tool.executables.some((executable) => executableIdentity(token) === executable.toLowerCase()),
+  );
+  if (executableIndex < 0) return false;
+  if (executableIndex > 0) {
+    const wrapper = tokens[0] ?? '';
+    const supportedWrapper = /^(?:npx|pipx|sudo|uvx)$/i.test(wrapper);
+    const wrapperArgumentsAreOptions = tokens
+      .slice(1, executableIndex)
+      .every((token) => token.startsWith('-'));
+    if (!supportedWrapper || !wrapperArgumentsAreOptions) return false;
+  }
+  const arguments_ = tokens.slice(executableIndex + 1).map((token) => token.toLowerCase());
+  return tool.scan_arguments.some((argument) => arguments_.includes(argument.toLowerCase()));
 }
 
-function actionIdentityMatchesTerm(identity: string, term: string): boolean {
-  const alias = normalizedExecutableAlias(term);
-  return identity
-    .toLowerCase()
-    .split('/')
-    .some((segment) => segment === alias || segment === `${alias}-action`);
-}
-
-function executableMatchesTerm(executable: string, term: string): boolean {
-  const name =
-    executable
+function executableIdentity(value: string): string {
+  return (
+    value
       .split('/')
       .at(-1)
       ?.replace(/\.exe$/i, '')
-      .toLowerCase() ?? '';
-  return name === normalizedExecutableAlias(term);
-}
-
-function normalizedExecutableAlias(term: string): string {
-  return term
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-');
+      .toLowerCase() ?? ''
+  );
 }
 
 function shellStatements(value: string): string[] {

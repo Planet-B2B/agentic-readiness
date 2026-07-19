@@ -102,7 +102,7 @@ function applyDetectorAdapter(
       check.files = [...new Set([...check.files, ...extension.files])];
     }
     if (extension.terms) {
-      if (check.type !== 'content_terms' && check.type !== 'ci_command') {
+      if (check.type !== 'content_terms') {
         throw new Error(
           `Detector adapter ${adapter.id} cannot add terms to ${control.id} evidence ${extension.evidence_index}`,
         );
@@ -134,6 +134,26 @@ function applyDetectorAdapter(
         });
       }
       check.providers = [...providers.values()];
+    }
+    if (extension.ci_tools) {
+      if (check.type !== 'ci_command') {
+        throw new Error(
+          `Detector adapter ${adapter.id} cannot add CI tools to ${control.id} evidence ${extension.evidence_index}`,
+        );
+      }
+      const tools = new Map(check.tools.map((tool) => [tool.id, tool]));
+      for (const extensionTool of extension.ci_tools) {
+        const tool = tools.get(extensionTool.id);
+        tools.set(extensionTool.id, {
+          id: extensionTool.id,
+          executables: [...new Set([...(tool?.executables ?? []), ...extensionTool.executables])],
+          scan_arguments: [
+            ...new Set([...(tool?.scan_arguments ?? []), ...extensionTool.scan_arguments]),
+          ],
+          actions: [...new Set([...(tool?.actions ?? []), ...extensionTool.actions])],
+        });
+      }
+      check.tools = [...tools.values()];
     }
   }
 }
@@ -289,11 +309,14 @@ export function validateCatalog(benchmark: Benchmark, controls: Control[]): void
       if (check.type === 'content_terms' && check.min_terms > check.terms.length) {
         throw new Error(`${control.id} requires more content terms than it defines`);
       }
-      if (check.type === 'ci_command' && check.min_terms > check.terms.length) {
-        throw new Error(`${control.id} requires more CI command terms than it defines`);
-      }
       if (check.type === 'ci_command' && check.providers.length === 0) {
         throw new Error(`${control.id} defines a CI command collector without a provider adapter`);
+      }
+      if (check.type === 'ci_command' && check.tools.length === 0) {
+        throw new Error(`${control.id} defines a CI command collector without a tool adapter`);
+      }
+      if (check.type === 'ci_command' && check.min_tools > check.tools.length) {
+        throw new Error(`${control.id} requires more CI tools than it defines`);
       }
       if (check.type === 'content_groups') {
         const groupIds = check.groups.map(({ id }) => id);

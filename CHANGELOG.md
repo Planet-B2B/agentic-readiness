@@ -15,6 +15,9 @@
 - Reject negated authority, punctuation-only ownership targets, Azure conditions that exclude pull
   requests, and GitLab rule- or job-level allow-failure configuration; keep host-specific ownership
   paths in adapters and v0.4-only report sections out of historical rendering.
+- Require pre-integration GitHub activity types, supported event-admitting conditions, literal
+  blocking configuration, scan-bearing command arguments, and adapter-declared full action
+  identities; validate Markdown ownership scope cells structurally.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

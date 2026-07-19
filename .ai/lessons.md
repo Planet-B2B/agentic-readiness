@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — A scanner name is not a scan
+
+**Context.** Automated re-review found that post-close triggers, unsupported conditions, quoted
+allow-failure settings, version/help commands, and arbitrary actions containing a scanner-shaped
+path segment could still look like enforced secret scanning.
+
+**Rule.** CI enforcement must cover pre-integration activity, admit the integration event under any
+condition, propagate failure, and invoke either a versioned adapter's full action identity or one of
+its executable plus scan-bearing argument forms; names and substrings alone are not evidence.
+
 ## 2026-07-18 — Fail closed on negation, punctuation, and conditional enforcement
 
 **Context.** A later PR review found that negated human authority could satisfy a positive semantic

@@ -99,8 +99,7 @@ controls:
     evidence:
       - type: ci_command
         scope: repository
-        terms: [secret scan, scan secrets, secrets scan]
-        min_terms: 1
+        min_tools: 1
       - type: manual
         scope: platform
         prompt: Show that host-native secret scanning or push protection covers the assessed repository and relevant branches, including current status and controlled exceptions.
