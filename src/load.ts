@@ -147,8 +147,14 @@ function applyDetectorAdapter(
         tools.set(extensionTool.id, {
           id: extensionTool.id,
           executables: [...new Set([...(tool?.executables ?? []), ...extensionTool.executables])],
-          scan_arguments: [
-            ...new Set([...(tool?.scan_arguments ?? []), ...extensionTool.scan_arguments]),
+          required_arguments: [
+            ...new Set([...(tool?.required_arguments ?? []), ...extensionTool.required_arguments]),
+          ],
+          standalone_executables: [
+            ...new Set([
+              ...(tool?.standalone_executables ?? []),
+              ...extensionTool.standalone_executables,
+            ]),
           ],
           actions: [...new Set([...(tool?.actions ?? []), ...extensionTool.actions])],
         });

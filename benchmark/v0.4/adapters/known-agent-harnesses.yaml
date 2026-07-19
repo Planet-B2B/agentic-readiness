@@ -28,7 +28,26 @@ extensions:
       ]
   - control_id: ADRB-CTX-003
     evidence_index: 0
-    required_any_terms: [CLAUDE.md, copilot instructions]
+    ci_tools:
+      - id: agent-guidance-validation
+        executables: [npm, pnpm, yarn, bun, make, node, tsx]
+        required_arguments:
+          [
+            agent-doc-check,
+            agent-docs-check,
+            check-agent-docs,
+            check:agent-docs,
+            lint-agent-docs,
+            lint:agent-docs,
+            validate-agent-docs,
+            validate:agent-docs,
+            scripts/check-agent-docs.js,
+            scripts/check-agent-docs.ts,
+            scripts/validate-agent-docs.js,
+            scripts/validate-agent-docs.ts,
+          ]
+        standalone_executables:
+          [agent-doc-check, check-agent-docs, lint-agent-docs, validate-agent-docs]
   - control_id: ADRB-ENV-001
     evidence_index: 0
     files:

@@ -57,13 +57,9 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: content_terms
+      - type: ci_command
         scope: repository
-        files: [.github/workflows/**, scripts/**, package.json, Makefile]
-        terms: [validate, lint, stale, broken link, integrity, check]
-        min_terms: 1
-        required_any_terms: [agent docs, agent instructions, AGENTS.md, Agents.md]
-        max_span_lines: 25
+        min_tools: 1
     remediation: Add a CI check for required agent files, links, ownership, and structural invariants.
   - id: ADRB-CTX-004
     level: 4

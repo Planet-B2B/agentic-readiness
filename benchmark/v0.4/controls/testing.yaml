@@ -52,12 +52,9 @@ controls:
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]
     evidence:
-      - type: content_terms
+      - type: ci_command
         scope: repository
-        files: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml]
-        terms: [test, typecheck, lint, coverage, e2e, integration]
-        min_terms: 2
-        max_span_lines: 160
+        min_tools: 2
     remediation: Configure CI to run the applicable verification layers from a clean environment.
   - id: ADRB-TST-005
     level: 3

@@ -13,10 +13,10 @@ an attestation path, or execute code.
 
 Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors plus
-provider discovery rules and recognized scanner definitions to `ci_command`. A scanner definition
-uses full owner/repository action identities or executable identities paired with scan-bearing
-arguments. GitHub action invocations also require an explicit non-empty `@ref`. Names alone never
-turn comments, version/help commands, display commands, disabled or
+provider discovery rules and recognized command definitions to `ci_command`. A command class uses
+full owner/repository action identities, executable identities paired with required arguments, or
+semantically specific standalone executables. GitHub action invocations also require an explicit
+non-empty `@ref`. Names alone never turn comments, version/help commands, display commands, disabled or
 non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
 into enforced evidence. Push-only, post-close, or path-gated execution does not establish the
 repository-wide before-integration outcome; the external platform alternative remains available
@@ -26,7 +26,13 @@ fail closed. Executable GitHub step jobs require a runner; job-level reusable wo
 are not step actions, and invalid steps that combine `uses` with `run` are rejected. Provider path
 filters and GitLab rules with unparsed gating fields fail closed. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
-step result.
+step result. Agent-guidance integrity requires a recognized validation command; verification
+requires both a test command class and a static-analysis command class. Repository-specific command
+surfaces that are not recognized may use eligible source-backed agent evidence instead of keyword
+inference. Package-manager task invocations are resolved through the tracked root `package.json` and
+must bind to a recognized executable command; referenced repository validation scripts must exist as
+non-empty assessed files. A plausible task name, missing path, collection-only test mode, or
+configuration-display mode is insufficient.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

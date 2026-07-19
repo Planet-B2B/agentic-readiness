@@ -97,16 +97,19 @@ const CiToolSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/),
     executables: z.array(z.string().min(1)).default([]),
-    scan_arguments: z.array(z.string().min(1)).default([]),
+    required_arguments: z.array(z.string().min(1)).default([]),
+    standalone_executables: z.array(z.string().min(1)).default([]),
     actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([]),
   })
   .superRefine((tool, context) => {
-    const commandConfigured = tool.executables.length > 0 && tool.scan_arguments.length > 0;
+    const commandConfigured =
+      (tool.executables.length > 0 && tool.required_arguments.length > 0) ||
+      tool.standalone_executables.length > 0;
     if (!commandConfigured && tool.actions.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'A CI tool must define an executable with scan arguments or a full action identity',
+          'A CI tool must define an executable with required arguments, a standalone executable, or a full action identity',
       });
     }
   });

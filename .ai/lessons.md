@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Mechanical outcomes need executed evidence
+
+**Context.** Automated re-review found that two Level 3 controls still inferred executed guidance
+validation and verification from CI comments, while impossible conditions, display-mode commands,
+absence phrasing, and first-match rule ordering could distort structural results.
+
+**Rule.** Mechanically checked outcomes must bind to enabled recognized commands; condition parsers
+must preserve satisfiability and first-match semantics; and semantic matching must reject explicit
+absence as well as direct negation.
+
 ## 2026-07-18 — Executable-looking configuration still needs a binding guarantee
 
 **Context.** Automated re-review found that an unversioned action, a backgrounded scanner, a

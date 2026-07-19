@@ -68,7 +68,8 @@ describe('benchmark catalog', () => {
       expect.objectContaining({
         id: 'gitleaks',
         executables: ['gitleaks'],
-        scan_arguments: ['detect', 'protect'],
+        required_arguments: ['detect', 'protect'],
+        standalone_executables: [],
         actions: ['gitleaks/gitleaks-action'],
       }),
     );
@@ -87,9 +88,18 @@ describe('benchmark catalog', () => {
       governanceOwnership?.type === 'ownership_map' ? governanceOwnership.patterns : [],
     ).toContain('.github/CODEOWNERS');
     expect(governanceControlSource).not.toContain('.github/CODEOWNERS');
+    const guidanceIntegrity = controls.find(({ id }) => id === 'ADRB-CTX-003');
+    const guidanceCheck = guidanceIntegrity?.evidence.find(({ type }) => type === 'ci_command');
+    expect(guidanceCheck?.type === 'ci_command' ? guidanceCheck.tools : []).toContainEqual(
+      expect.objectContaining({ id: 'agent-guidance-validation' }),
+    );
     const ciVerification = controls.find(({ id }) => id === 'ADRB-TST-003');
-    const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'content_terms');
-    expect(ciCheck?.type === 'content_terms' ? ciCheck.terms : []).toContain('pytest');
+    const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'ci_command');
+    const ciTools = ciCheck?.type === 'ci_command' ? ciCheck.tools : [];
+    expect(ciTools.find(({ id }) => id === 'tests')?.standalone_executables).toContain('pytest');
+    expect(ciTools.find(({ id }) => id === 'static-analysis')?.standalone_executables).toContain(
+      'mypy',
+    );
     expect(controlSource).not.toMatch(/pytest|mypy|flake8|ruff|pyright/);
 
     const specification = controls.find(({ id }) => id === 'ADRB-SPC-001');

@@ -92,14 +92,15 @@ var CiProviderSchema = z.object({
 var CiToolSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   executables: z.array(z.string().min(1)).default([]),
-  scan_arguments: z.array(z.string().min(1)).default([]),
+  required_arguments: z.array(z.string().min(1)).default([]),
+  standalone_executables: z.array(z.string().min(1)).default([]),
   actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([])
 }).superRefine((tool, context) => {
-  const commandConfigured = tool.executables.length > 0 && tool.scan_arguments.length > 0;
+  const commandConfigured = tool.executables.length > 0 && tool.required_arguments.length > 0 || tool.standalone_executables.length > 0;
   if (!commandConfigured && tool.actions.length === 0) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "A CI tool must define an executable with scan arguments or a full action identity"
+      message: "A CI tool must define an executable with required arguments, a standalone executable, or a full action identity"
     });
   }
 });
@@ -416,8 +417,14 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
         tools.set(extensionTool.id, {
           id: extensionTool.id,
           executables: [.../* @__PURE__ */ new Set([...tool?.executables ?? [], ...extensionTool.executables])],
-          scan_arguments: [
-            .../* @__PURE__ */ new Set([...tool?.scan_arguments ?? [], ...extensionTool.scan_arguments])
+          required_arguments: [
+            .../* @__PURE__ */ new Set([...tool?.required_arguments ?? [], ...extensionTool.required_arguments])
+          ],
+          standalone_executables: [
+            .../* @__PURE__ */ new Set([
+              ...tool?.standalone_executables ?? [],
+              ...extensionTool.standalone_executables
+            ])
           ],
           actions: [.../* @__PURE__ */ new Set([...tool?.actions ?? [], ...extensionTool.actions])]
         });
@@ -1209,6 +1216,7 @@ function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
   return { matchedGroups: strongestGroups, qualifies: strongestGroups.length >= minGroups };
 }
 async function evaluateCiCommand(context, check) {
+  const bindings = await repositoryCommandBindings(context, check.tools);
   const patterns = check.providers.flatMap(({ files: files2 }) => files2);
   const files = await readSearchableFiles(context, patterns, check.max_files_per_pattern);
   const providerPaths = await Promise.all(
@@ -1222,7 +1230,7 @@ async function evaluateCiCommand(context, check) {
       ({ id, paths }) => paths.has(path) ? ciIntegrationInvocations(id, text) : []
     );
     const matchedTools = check.tools.filter(
-      (tool) => invocations.some((invocation) => invocationMatchesTool(invocation, tool))
+      (tool) => invocations.some((invocation) => invocationMatchesTool(invocation, tool, bindings))
     );
     return { path, matchedTools };
   });
@@ -1235,9 +1243,43 @@ async function evaluateCiCommand(context, check) {
     check.type,
     check.scope,
     qualifying.length > 0 ? "met" : "not_met",
-    `${qualifying.length} CI configuration file(s) contain an enabled integration-triggered scanner invocation; strongest scanner match ${strongest.matchedTools.length}/${check.tools.length} recognized tool(s) across ${files.length} candidate file(s); threshold ${check.min_tools}`,
+    `${qualifying.length} CI configuration file(s) contain enabled integration-triggered recognized commands; strongest command-class match ${strongest.matchedTools.length}/${check.tools.length} across ${files.length} candidate file(s); threshold ${check.min_tools}`,
     qualifying.map(({ path }) => path)
   );
+}
+async function repositoryCommandBindings(context, tools) {
+  const commandPaths = [
+    ...new Set(
+      tools.flatMap(
+        ({ required_arguments }) => required_arguments.filter(isRepositoryCommandPath).map(normalizeCommandPath)
+      )
+    )
+  ];
+  const availableCommandPaths = new Set(
+    (await nonEmptyMatches(context, commandPaths, 1)).map(normalizeCommandPath)
+  );
+  const packageFile = (await readSearchableFiles(context, ["package.json"])).find(
+    ({ path }) => path === "package.json"
+  );
+  if (!packageFile) return { availableCommandPaths, packageScripts: /* @__PURE__ */ new Map() };
+  try {
+    const document = asRecord(JSON.parse(packageFile.text));
+    const scripts = asRecord(document?.scripts);
+    return {
+      availableCommandPaths,
+      packageScripts: new Map(
+        Object.entries(scripts ?? {}).filter((entry) => typeof entry[1] === "string").map(([name, command]) => [name.toLowerCase(), command])
+      )
+    };
+  } catch {
+    return { availableCommandPaths, packageScripts: /* @__PURE__ */ new Map() };
+  }
+}
+function isRepositoryCommandPath(value) {
+  return /(?:^|\/)scripts?\/|^\.{0,2}\//i.test(value);
+}
+function normalizeCommandPath(value) {
+  return value.replace(/^\.\//, "");
 }
 function ciIntegrationInvocations(provider, text) {
   try {
@@ -1384,6 +1426,7 @@ function githubConditionEvents(value, parentEvents) {
   if (equals.length === 0 && excludes.length === 0) return /* @__PURE__ */ new Set();
   const unsupported = condition.replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, "").replace(/\b(?:always|success|cancelled)\(\)/g, "").replace(/[\s${}()!&|]/g, "");
   if (unsupported.length > 0) return /* @__PURE__ */ new Set();
+  if (new Set(equals).size > 1) return /* @__PURE__ */ new Set();
   const candidates = equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
   return new Set(candidates.filter((event) => !excludes.includes(event)));
 }
@@ -1392,17 +1435,23 @@ function hasGitlabMergeRequestRule(value) {
     const rule = asRecord(ruleValue);
     if (!rule) return false;
     const supportedKeys = /* @__PURE__ */ new Set(["allow_failure", "if", "when"]);
+    if (typeof rule.if === "string") {
+      const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(
+        rule.if
+      );
+      if (!comparison) return false;
+      const operator = comparison[1];
+      const event = comparison[2]?.toLowerCase();
+      const matchesMergeRequest = operator === "==" ? event === "merge_request_event" : event !== "merge_request_event";
+      if (!matchesMergeRequest) continue;
+    } else if (rule.if !== void 0) {
+      return false;
+    }
     if (Object.keys(rule).some((key) => !supportedKeys.has(key))) return false;
     if (rule.when !== void 0 && (typeof rule.when !== "string" || !["always", "on_success"].includes(rule.when.toLowerCase()))) {
       return false;
     }
-    if (typeof rule.if !== "string") return !isDisabledCiNode(rule);
-    const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(rule.if);
-    if (!comparison) return false;
-    const operator = comparison[1];
-    const event = comparison[2]?.toLowerCase();
-    const matchesMergeRequest = operator === "==" ? event === "merge_request_event" : event !== "merge_request_event";
-    if (matchesMergeRequest) return !isDisabledCiNode(rule);
+    return !isDisabledCiNode(rule);
   }
   return false;
 }
@@ -1457,14 +1506,17 @@ function isDisabledCiNode(node) {
 function configuredNonBlocking(node, fields) {
   return fields.some((field) => Object.hasOwn(node, field) && node[field] !== false);
 }
-function invocationMatchesTool(invocation, tool) {
+function invocationMatchesTool(invocation, tool, bindings) {
   if (invocation.kind === "action") {
     const action = /^([^@\s]+)@([^@\s]+)$/.exec(invocation.value.trim());
     if (!action) return false;
     const identity = action[1]?.toLowerCase() ?? "";
     return tool.actions.some((action2) => action2.toLowerCase() === identity);
   }
-  return shellStatements(invocation.value).some((statement) => {
+  return commandTextMatchesTool(invocation.value, tool, bindings, /* @__PURE__ */ new Set());
+}
+function commandTextMatchesTool(value, tool, bindings, visitedScripts) {
+  return shellStatements(value).some((statement) => {
     if (statement.includes("||") || /(^|[^|])\|(?!\|)/.test(statement) || /(^|[^&])&(?!&)/.test(statement)) {
       return false;
     }
@@ -1472,28 +1524,89 @@ function invocationMatchesTool(invocation, tool) {
     for (const rawCommand of commands) {
       const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, "").trim();
       if (/^(?:false|exit\s+[1-9]\d*)$/i.test(command)) return false;
-      if (commandMatchesTool(command, tool)) return true;
+      if (commandMatchesTool(command, tool, bindings, visitedScripts)) return true;
     }
     return false;
   });
 }
-function commandMatchesTool(command, tool) {
+function commandMatchesTool(command, tool, bindings, visitedScripts) {
   if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
     return false;
   }
   const tokens = command.split(/\s+/).filter(Boolean);
+  const nonExecutingArguments = /* @__PURE__ */ new Set([
+    "--co",
+    "--collect-only",
+    "--help",
+    "--list",
+    "--listtests",
+    "--print-config",
+    "--showconfig",
+    "--version",
+    "-h",
+    "help",
+    "list",
+    "version"
+  ]);
+  if (tokens.some((token) => {
+    const normalized = token.toLowerCase();
+    return nonExecutingArguments.has(normalized) || normalized.startsWith("--help=") || normalized.startsWith("--version=");
+  })) {
+    return false;
+  }
+  const packageInvocation = packageScriptInvocation(tokens);
+  if (packageInvocation && !(packageInvocation.manager === "bun" && packageInvocation.task === "test")) {
+    if (visitedScripts.has(packageInvocation.task) || visitedScripts.size >= 4) return false;
+    const script = bindings.packageScripts.get(packageInvocation.task);
+    if (!script) return false;
+    const nextVisited = new Set(visitedScripts).add(packageInvocation.task);
+    return commandTextMatchesTool(script, tool, bindings, nextVisited);
+  }
+  const recognizedExecutables = [...tool.executables, ...tool.standalone_executables];
   const executableIndex = tokens.findIndex(
-    (token) => tool.executables.some((executable) => executableIdentity(token) === executable.toLowerCase())
+    (token) => recognizedExecutables.some(
+      (executable2) => executableIdentity(token) === executable2.toLowerCase()
+    )
   );
   if (executableIndex < 0) return false;
   if (executableIndex > 0) {
     const wrapper = tokens[0] ?? "";
-    const supportedWrapper = /^(?:npx|pipx|sudo|uvx)$/i.test(wrapper);
-    const wrapperArgumentsAreOptions = tokens.slice(1, executableIndex).every((token) => token.startsWith("-"));
-    if (!supportedWrapper || !wrapperArgumentsAreOptions) return false;
+    const wrapperArguments = tokens.slice(1, executableIndex);
+    const supportedWrapper = /^(?:bunx|npx|sudo|uvx)$/i.test(wrapper);
+    const supportedUvRun = /^uv$/i.test(wrapper) && wrapperArguments.join(" ") === "run";
+    const supportedPipxRun = /^pipx$/i.test(wrapper) && wrapperArguments.join(" ") === "run";
+    const supportedPackageExec = /^(?:bun|npm|pnpm|yarn)$/i.test(wrapper) && /^(?:dlx|exec|x)$/.test(wrapperArguments.join(" "));
+    const supportedPythonModule = /^python(?:3(?:\.\d+)?)?$/i.test(wrapper) && wrapperArguments.join(" ") === "-m";
+    if (!(supportedWrapper && wrapperArguments.every((token) => token.startsWith("-"))) && !supportedUvRun && !supportedPipxRun && !supportedPackageExec && !supportedPythonModule) {
+      return false;
+    }
   }
   const arguments_ = tokens.slice(executableIndex + 1).map((token) => token.toLowerCase());
-  return tool.scan_arguments.some((argument) => arguments_.includes(argument.toLowerCase()));
+  const executable = executableIdentity(tokens[executableIndex] ?? "");
+  if (tool.standalone_executables.some(
+    (standalone) => standalone.toLowerCase() === executable.toLowerCase()
+  )) {
+    return true;
+  }
+  return tool.required_arguments.some((argument) => {
+    const normalizedArgument = argument.toLowerCase();
+    const matchesArgument = isRepositoryCommandPath(argument) ? arguments_.some(
+      (candidate) => normalizeCommandPath(candidate) === normalizeCommandPath(normalizedArgument)
+    ) : arguments_.includes(normalizedArgument);
+    if (!matchesArgument) return false;
+    return !isRepositoryCommandPath(argument) || bindings.availableCommandPaths.has(normalizeCommandPath(argument));
+  });
+}
+function packageScriptInvocation(tokens) {
+  const manager = executableIdentity(tokens[0] ?? "");
+  if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
+  const arguments_ = tokens.slice(1);
+  if (["dlx", "exec", "x"].includes(arguments_[0]?.toLowerCase() ?? "")) return null;
+  let index = 0;
+  if (arguments_[index]?.toLowerCase() === "run") index += 1;
+  while (arguments_[index]?.startsWith("-")) index += 1;
+  const task = arguments_[index]?.toLowerCase();
+  return task ? { manager, task } : null;
 }
 function executableIdentity(value) {
   return value.split("/").at(-1)?.replace(/\.exe$/i, "").toLowerCase() ?? "";
@@ -1562,7 +1675,10 @@ function containsPositiveTerm(text, term) {
   for (const match of text.matchAll(expression)) {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
-    if (!/\b(?:cannot|never|no|not)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(prefix)) {
+    const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
+    if (!/\b(?:cannot|lacks?|lacking|missing|never|no|not|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
+      prefix
+    ) && !/\b(?:absent|lacking|missing|unavailable)\b|:\s*none\b/i.test(suffix)) {
       return true;
     }
   }
@@ -1573,6 +1689,11 @@ function containingClausePrefix(text, end) {
   const boundaries = [...before.matchAll(/[.;:\n]|\bbut\b/gi)];
   const lastBoundary = boundaries.at(-1);
   return before.slice(lastBoundary ? lastBoundary.index + lastBoundary[0].length : 0);
+}
+function containingClauseSuffix(text, start) {
+  const after = text.slice(start);
+  const boundary = /[.;\n]|\bbut\b/i.exec(after);
+  return after.slice(0, boundary?.index ?? after.length);
 }
 function termPattern(term) {
   return term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");

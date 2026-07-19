@@ -23,6 +23,14 @@
   authority negation across its containing clause.
 - Require explicit GitHub action refs, reject backgrounded scanners, path-gated provider triggers,
   and conditionally gated GitLab rules, and treat explicit no-owner assignments as placeholders.
+- Replace keyword inference for `ADRB-CTX-003` and `ADRB-TST-003` with enabled
+  integration-triggered command classes, requiring both tests and static analysis for verification.
+- Resolve root package-manager task invocations to tracked script definitions and reject missing or
+  display-only bindings; require referenced validation scripts to exist and reject collection-only
+  or configuration-display command modes.
+- Add the same agent-guidance integrity check to this repository's required `npm run check` path.
+- Reject impossible event conjunctions, display-mode commands, and absence phrasing as positive
+  evidence while preserving valid GitLab first-match rule evaluation.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

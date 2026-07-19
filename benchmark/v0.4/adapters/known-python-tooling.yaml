@@ -13,6 +13,3 @@ extensions:
   - control_id: ADRB-TST-002
     evidence_index: 0
     terms: [pytest, mypy, flake8, ruff, pyright, tox, nox]
-  - control_id: ADRB-TST-003
-    evidence_index: 0
-    terms: [pytest, mypy, flake8, ruff, pyright, tox, nox, pytest-cov]

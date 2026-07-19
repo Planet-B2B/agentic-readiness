@@ -34,9 +34,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "check:agent-docs": "tsx scripts/check-agent-docs.ts",
     "validate:benchmark": "tsx src/cli.ts validate",
     "self-assess": "tsx src/cli.ts assess . --profile planning --format markdown",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run validate:benchmark && npm run build"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:agent-docs && npm test && npm run validate:benchmark && npm run build"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24"

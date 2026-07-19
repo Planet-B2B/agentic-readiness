@@ -6,16 +6,16 @@ extensions:
     ci_tools:
       - id: gitleaks
         executables: [gitleaks]
-        scan_arguments: [detect, protect]
+        required_arguments: [detect, protect]
         actions: [gitleaks/gitleaks-action]
       - id: trufflehog
         executables: [trufflehog]
-        scan_arguments: [git, filesystem]
+        required_arguments: [git, filesystem]
         actions: [trufflesecurity/trufflehog]
       - id: detect-secrets
         executables: [detect-secrets]
-        scan_arguments: [scan]
+        required_arguments: [scan]
         actions: [Yelp/detect-secrets-action]
       - id: git-secrets
         executables: [git-secrets]
-        scan_arguments: [--scan, --scan-history]
+        required_arguments: [--scan, --scan-history]

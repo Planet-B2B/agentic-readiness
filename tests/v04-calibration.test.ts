@@ -443,7 +443,7 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(executedReport, 'ADRB-SEC-003')?.evidence[0]?.type).toBe('ci_command');
       expect(controlStatus(nonEnforcedReport, 'ADRB-SEC-003')?.status).toBe('unknown');
       expect(controlStatus(nonEnforcedReport, 'ADRB-SEC-003')?.evidence[0]?.summary).toContain(
-        '0 CI configuration file(s) contain an enabled integration-triggered scanner invocation',
+        '0 CI configuration file(s) contain enabled integration-triggered recognized commands',
       );
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.status).toBe('unknown');
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.evidence[0]?.type).toBe('manual');
@@ -579,6 +579,187 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not infer containment components from explicit absence language', async () => {
+    const repository = await gitFixture({
+      'AGENTS.md': [
+        'Work proceeds without an allowed path or write scope.',
+        'Work continues without a budget or retry limit.',
+        'The harness has no stop condition and lacks escalation.',
+        'The recovery owner is missing.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const resilience = controlStatus(report, 'ADRB-RES-002');
+      expect(resilience?.status).toBe('not_met');
+      expect(resilience?.evidence[0]?.summary).toContain('semantic coverage 0/5');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('requires executed CI commands for level-three guidance and verification controls', async () => {
+    const commentsOnly = await gitFixture({
+      Jenkinsfile: [
+        '// validate AGENTS.md and agent instructions',
+        '// test coverage, typecheck, and lint',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        '# validate AGENTS.md and agent instructions',
+        '# test coverage, typecheck, and lint',
+        'jobs:',
+        '  noop:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: echo no-op',
+        '      - run: pytest --collect-only',
+        '      - run: mypy --help',
+      ].join('\n'),
+    });
+    const executed = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: {
+          'agent-doc-check': 'node scripts/check-agent-docs.js',
+          test: 'vitest run',
+          typecheck: 'tsc --noEmit',
+        },
+      }),
+      'scripts/check-agent-docs.js': 'export const validatesAgentGuidance = true;\n',
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: npm run agent-doc-check',
+        '      - run: npm test',
+        '      - run: npm run typecheck',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const commentsReport = await assess(commentsOnly, benchmark, controls, 'pr-creation');
+      const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
+
+      expect(controlStatus(commentsReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(commentsReport, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(executedReport, 'ADRB-CTX-003')?.status).toBe('met');
+      expect(controlStatus(executedReport, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(commentsOnly, { recursive: true, force: true });
+      await rm(executed, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects package task names that are missing or bound only to display commands', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: {
+          'agent-doc-check': 'node scripts/check-agent-docs.js',
+          test: 'echo vitest run',
+          typecheck: 'echo tsc --noEmit',
+        },
+      }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: npm run agent-doc-check',
+        '      - run: npm test',
+        '      - run: npm run missing-typecheck',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes polyglot verification commands across GitLab and Azure', async () => {
+    const gitlab = await gitFixture({
+      '.gitlab-ci.yml': [
+        'verify:',
+        '  only: [merge_requests]',
+        '  script:',
+        '    - uv run pytest',
+        '    - uv run mypy .',
+      ].join('\n'),
+    });
+    const azure = await gitFixture({
+      'azure-pipelines.yml': [
+        'pr: [main]',
+        'steps:',
+        '  - script: cargo test',
+        '  - script: cargo clippy',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      for (const repository of [gitlab, azure]) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+      }
+    } finally {
+      await rm(gitlab, { recursive: true, force: true });
+      await rm(azure, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves recognized monorepo commands through tracked package tasks', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: {
+          lint: 'turbo run lint',
+          test: 'turbo run test',
+        },
+      }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: npm test',
+        '      - run: npm run lint',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('honors GitLab first-match rules after a non-merge rule', async () => {
+    const repository = await gitFixture({
+      '.gitlab-ci.yml': [
+        'secret-scan:',
+        '  rules:',
+        `    - if: '$CI_PIPELINE_SOURCE == "push"'`,
+        '      when: never',
+        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+        '  script: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('rejects non-integration conditions, disabled triggers, and non-enforcing scanner text', async () => {
     const repository = await gitFixture({
       '.github/workflows/invalid.yml': [
@@ -599,6 +780,8 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npx gitleaks-info',
         '      - run: gitleaks --version',
         '      - run: gitleaks help',
+        '      - run: gitleaks detect --help',
+        '      - run: gitleaks --version detect',
         '      - uses: actions/checkout@gitleaks',
         '      - uses: gitleaks-logger/checkout@v1',
         '      - uses: attacker/gitleaks-action@v1',
@@ -613,6 +796,8 @@ describe('v0.4 evidence calibration', () => {
         '        run: gitleaks detect',
         '      - run: set +e; gitleaks detect; exit 0',
         '      - run: gitleaks detect & echo done',
+        "      - if: github.event_name == 'pull_request' && github.event_name == 'push'",
+        '        run: gitleaks detect',
       ].join('\n'),
       '.github/workflows/closed.yml': [
         'on:',

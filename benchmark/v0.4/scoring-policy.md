@@ -66,6 +66,10 @@ authority, and explicit accountable-human merge authority are independently requ
 human authority. Directly negated authority statements do not count as positive evidence, and
 explicit mappings require a recognized repository-wide target or path/component target rather than
 arbitrary punctuation.
+Mechanical Level 3 context and testing controls require structurally recognized CI commands;
+comments, documentation, and command-name keywords do not establish execution. `ADRB-TST-003`
+requires independent test and static-analysis command classes. Root package-manager tasks must
+resolve to tracked script definitions whose command bodies establish the applicable command class.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome
 controls cannot be inferred from repository keywords.
