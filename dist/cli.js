@@ -2592,14 +2592,12 @@ function hasExplicitlyUnboundedQualifier(prefix, suffix) {
   return precedingQualifier || followingQualifier;
 }
 function hasPlaceholderQualifier(prefix, suffix) {
-  const placeholder = "(?:n\\s*\\/\\s*a|none|pending|tbd|to\\s+be\\s+(?:assigned|determined)|unassigned|unknown|vacant)";
-  const precedingQualifier = new RegExp(`\\b${placeholder}(?:\\s+[a-z0-9_-]+){0,2}\\s*$`, "i").test(
+  const precedingQualifier = /\b(?:n\s*\/\s*a|none|pending|tbd|to\s+be\s+(?:assigned|determined)|unassigned|unknown|vacant)(?:\s+[a-z0-9_-]+){0,2}\s*$/i.test(
     prefix
   );
-  const followingQualifier = new RegExp(
-    `^\\s*(?:(?:is|are|remains?|stays?|=|:)\\s*)?(?:explicitly\\s+)?${placeholder}\\b`,
-    "i"
-  ).test(suffix);
+  const followingQualifier = /^\s*(?:(?:is|are|remains?|stays?|=|:)\s*)?(?:explicitly\s+)?(?:n\s*\/\s*a|none|pending|tbd|to\s+be\s+(?:assigned|determined)|unassigned|unknown|vacant)\b/i.test(
+    suffix
+  );
   return precedingQualifier || followingQualifier;
 }
 function hasNonHumanAuthorityPrefix(prefix, term) {
@@ -2728,24 +2726,49 @@ function alternativeSupplementalResolution(evidence, attestation, agentEvidence)
     return { confidence: "attested", status: "not_applicable" };
   }
   const statuses = evidence.map(({ status }) => status);
-  const agentIndexes = agentEvidence ? evidence.flatMap(({ scope }, index) => scope === agentEvidence.scope ? [index] : []) : [];
-  const attestationIndexes = evidence.flatMap(
-    ({ type }, index) => type === "manual" ? [index] : []
+  const agentIndexes = matchingAlternativeIndexes(evidence, agentEvidence?.scope ?? null);
+  const attestationIndexes = manualAlternativeIndexes(evidence);
+  if (alternativeSupplementalEvidenceConflicts(
+    evidence,
+    attestationIndexes,
+    attestation,
+    agentEvidence
+  )) {
+    return { confidence: "none", status: "unknown" };
+  }
+  applyAlternativeStatus(statuses, agentIndexes, agentEvidence?.status ?? null);
+  applyAlternativeStatus(statuses, attestationIndexes, attestation?.status ?? null);
+  const confidence = alternativeSupplementalConfidence(
+    agentEvidence !== null && agentIndexes.length > 0,
+    attestation !== null && attestationIndexes.length > 0
   );
-  const supplementalConflict = agentEvidence !== null && agentEvidence.status !== "unknown" && attestation !== null && attestation.status !== "unknown" && attestationIndexes.some((index) => evidence[index]?.scope === agentEvidence.scope) && agentEvidence.status !== attestation.status;
-  if (supplementalConflict) return { confidence: "none", status: "unknown" };
-  if (agentEvidence) {
-    for (const index of agentIndexes) statuses[index] = agentEvidence.status;
-  }
-  for (const index of attestationIndexes) {
-    if (attestation) statuses[index] = attestation.status;
-  }
-  const agentContributed = agentEvidence !== null && agentIndexes.length > 0;
-  const attestationContributed = attestation !== null && attestationIndexes.length > 0;
-  const confidence = agentContributed ? "agent-collected" : attestationContributed ? "attested" : "none";
-  if (statuses.some((status) => status === "met")) return { confidence, status: "met" };
+  if (statuses.includes("met")) return { confidence, status: "met" };
   if (statuses.every((status) => status === "not_met")) return { confidence, status: "not_met" };
   return { confidence, status: "unknown" };
+}
+function matchingAlternativeIndexes(evidence, scope) {
+  if (scope === null) return [];
+  return evidence.flatMap(({ scope: candidate }, index) => candidate === scope ? [index] : []);
+}
+function manualAlternativeIndexes(evidence) {
+  return evidence.flatMap(({ type }, index) => type === "manual" ? [index] : []);
+}
+function alternativeSupplementalEvidenceConflicts(evidence, attestationIndexes, attestation, agentEvidence) {
+  if (!agentEvidence || agentEvidence.status === "unknown") return false;
+  if (!attestation || ["not_applicable", "unknown"].includes(attestation.status)) return false;
+  const sameAlternative = attestationIndexes.some(
+    (index) => evidence[index]?.scope === agentEvidence.scope
+  );
+  return sameAlternative && agentEvidence.status !== attestation.status;
+}
+function applyAlternativeStatus(statuses, indexes, status) {
+  if (status === null || status === "not_applicable") return;
+  for (const index of indexes) statuses[index] = status;
+}
+function alternativeSupplementalConfidence(agentContributed, attestationContributed) {
+  if (agentContributed) return "agent-collected";
+  if (attestationContributed) return "attested";
+  return "none";
 }
 function resolveControl(control, evidence, attestation, agentEvidence) {
   const checksPassed = evidenceChecksPass(control, evidence);
