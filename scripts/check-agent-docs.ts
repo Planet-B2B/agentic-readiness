@@ -3,21 +3,16 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const requiredFiles = [
-  'AGENTS.md',
-  '.ai/constitution.md',
-  '.agents/skills/benchmark-authoring/SKILL.md',
-];
+const requiredFiles = ['.ai/constitution.md', '.agents/skills/benchmark-authoring/SKILL.md'];
 
-const contents = await Promise.all(
+const agents = await readFile(resolve(root, 'AGENTS.md'), 'utf8');
+if (agents.trim().length === 0) throw new Error('AGENTS.md must not be empty');
+await Promise.all(
   requiredFiles.map(async (path) => {
     const text = await readFile(resolve(root, path), 'utf8');
     if (text.trim().length === 0) throw new Error(`${path} must not be empty`);
-    return [path, text] as const;
   }),
 );
-const documents = new Map(contents);
-const agents = documents.get('AGENTS.md') ?? '';
 for (const heading of ['## Orientation', '## Non-negotiables', '## Verification']) {
   if (!agents.includes(heading)) throw new Error(`AGENTS.md is missing ${heading}`);
 }

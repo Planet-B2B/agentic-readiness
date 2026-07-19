@@ -104,6 +104,7 @@ var CiCommandSignatureSchema = z.object({
   source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
   source_max_span_lines: z.number().int().positive().max(200).default(120),
   required_argument_prefixes: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  max_arguments: z.number().int().nonnegative().optional(),
   prohibited_arguments: z.array(z.string().min(1)).default([]),
   prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([])
 });
@@ -984,11 +985,13 @@ var nonExecutingCommandArguments = /* @__PURE__ */ new Set([
   "--collect-only",
   "--help",
   "--list",
+  "--list-tests",
   "--listtests",
   "--print-config",
   "--showconfig",
   "--version",
   "-h",
+  "-list",
   "help",
   "list",
   "version"
@@ -1742,7 +1745,7 @@ function azureStepInvocations(node) {
   );
   if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
   const value = node[commandFields[0] ?? ""];
-  if (/\r|\n/.test(value)) return [];
+  if (/[\r\n]/.test(value)) return [];
   return [{ kind: "command", value }];
 }
 function azureWorkingDirectoryIsRoot(value) {
@@ -1820,14 +1823,13 @@ function githubConditionEvents(value, parentEvents) {
   }
   if (value === false) return { certain: true, events: /* @__PURE__ */ new Set() };
   if (typeof value !== "string") return { certain: false, events: /* @__PURE__ */ new Set() };
+  return githubStringConditionEvents(value, parentEvents);
+}
+function githubStringConditionEvents(value, parentEvents) {
   const condition = value.toLowerCase();
   const normalized = condition.replace(/[\s${}]/g, "");
   if (!condition.includes("github.event_name")) {
-    if (["true", "always()", "success()", "!cancelled()"].includes(normalized)) {
-      return { certain: true, events: new Set(parentEvents) };
-    }
-    if (["false", "never"].includes(normalized)) return { certain: true, events: /* @__PURE__ */ new Set() };
-    return { certain: false, events: /* @__PURE__ */ new Set() };
+    return githubStatusConditionEvents(normalized, parentEvents);
   }
   const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
     (match) => match[1] ?? ""
@@ -1851,6 +1853,13 @@ function githubConditionEvents(value, parentEvents) {
     certain: true,
     events: new Set(candidates.filter((event) => !excludes.includes(event)))
   };
+}
+function githubStatusConditionEvents(normalized, parentEvents) {
+  if (["true", "always()", "success()", "!cancelled()"].includes(normalized)) {
+    return { certain: true, events: new Set(parentEvents) };
+  }
+  if (["false", "never"].includes(normalized)) return { certain: true, events: /* @__PURE__ */ new Set() };
+  return { certain: false, events: /* @__PURE__ */ new Set() };
 }
 function hasGitlabMergeRequestRule(value) {
   for (const ruleValue of asArray(value)) {
@@ -2016,7 +2025,9 @@ function isNonExecutingCommandArgument(value) {
   return nonExecutingCommandArguments.has(normalized) || normalized.startsWith("--help=") || normalized.startsWith("--version=");
 }
 function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
-  const manager = executableIdentity(tokens[0] ?? "");
+  const managerToken = tokens[0] ?? "";
+  if (/[\\/]/.test(managerToken) || managerToken.startsWith(".")) return null;
+  const manager = executableIdentity(managerToken);
   if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
   if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
@@ -2072,6 +2083,9 @@ function wrapperExecutableIndex(tokens) {
 }
 function commandSignatureMatches(signature, arguments_, bindings) {
   if (hasProhibitedArguments(signature, arguments_)) return false;
+  if (signature.max_arguments !== void 0 && arguments_.length > signature.max_arguments) {
+    return false;
+  }
   if (signature.required_argument_prefixes.length > 0 && !signature.required_argument_prefixes.some(
     (prefix) => startsWithArgumentSequence(
       arguments_,
@@ -2131,11 +2145,44 @@ function hasUncalledValidationFunction(source, path, groups, maxSpanLines) {
   if (groups.length === 0) return false;
   const lines = source.split(/\r?\n/);
   const blocks = sourceFunctionBlocks(lines, path);
+  const reachable = reachableSourceFunctionNames(lines, blocks, path);
   return blocks.some((block) => {
     const body = lines.slice(block.start, block.end + 1).join("\n");
     if (!sourcePatternGroupsAreCoLocated(body, groups, maxSpanLines)) return false;
-    return !sourceFunctionIsCalled(lines, block, path);
+    return !reachable.has(block.name);
   });
+}
+function reachableSourceFunctionNames(lines, blocks, path) {
+  const topLevelLines = topLevelSourceLines(lines, blocks);
+  const reachable = new Set(
+    blocks.filter((block) => sourceFunctionIsCalled(topLevelLines, block.name, path)).map(({ name }) => name)
+  );
+  const pending = [...reachable];
+  while (pending.length > 0) {
+    const callerName = pending.shift();
+    const caller = blocks.find(({ name }) => name === callerName);
+    if (!caller) continue;
+    const body = sourceFunctionExecutionLines(lines, caller, blocks);
+    for (const candidate of blocks) {
+      if (reachable.has(candidate.name)) continue;
+      if (!sourceFunctionIsCalled(body, candidate.name, path)) continue;
+      reachable.add(candidate.name);
+      pending.push(candidate.name);
+    }
+  }
+  return reachable;
+}
+function sourceFunctionExecutionLines(lines, caller, blocks) {
+  return lines.filter(
+    (_, index) => index >= caller.start && index <= caller.end && blocks.every(
+      (block) => block === caller || index < block.start || index > block.end || block.start < caller.start || block.end > caller.end
+    )
+  );
+}
+function topLevelSourceLines(lines, blocks) {
+  return lines.filter(
+    (_, index) => blocks.every((block) => index < block.start || index > block.end)
+  );
 }
 function sourceFunctionBlocks(lines, path) {
   if (/\.py$/i.test(path)) return pythonFunctionBlocks(lines);
@@ -2208,12 +2255,10 @@ function pythonFunctionBlocks(lines) {
 function leadingWhitespace(value) {
   return /^\s*/.exec(value)?.[0].length ?? 0;
 }
-function sourceFunctionIsCalled(lines, block, path) {
-  const name = block.name.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+function sourceFunctionIsCalled(lines, functionName, path) {
+  const name = functionName.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const callPattern = /\.py$|\.[cm]?[jt]sx?$/i.test(path) ? String.raw`(?:^|[^\w$])${name}\s*\(` : String.raw`^\s*${name}(?:\s|$)`;
-  return lines.some(
-    (line, index) => (index < block.start || index > block.end) && executableSourcePatternMatches(line, callPattern)
-  );
+  return lines.some((line) => executableSourcePatternMatches(line, callPattern));
 }
 function hasObviouslyUnreachableBranch(source, path) {
   let pattern = String.raw`^\s*if\s+(?:false|\[\s+(?:false|0)\s+\])\s*;?\s*then\b`;
@@ -2449,8 +2494,15 @@ function executableIdentity(value) {
 function shellStatements(value, requiresFinalExitStatus) {
   if (value.includes(";") || hasUnsupportedShellStructure(value)) return [];
   const statements = value.split(/\r?\n/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
-  if (!requiresFinalExitStatus) return statements;
-  return statements.length > 0 ? [statements.at(-1) ?? ""] : [];
+  const terminatingIndex = statements.findIndex(hasUnconditionalShellTermination);
+  const reachable = terminatingIndex < 0 ? statements : statements.slice(0, terminatingIndex + 1);
+  if (!requiresFinalExitStatus) return reachable;
+  return reachable.length > 0 ? [reachable.at(-1) ?? ""] : [];
+}
+function hasUnconditionalShellTermination(value) {
+  return value.split("&&").some(
+    (command) => /^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*(?:exit|return)(?:\s|$)/i.test(command.trim())
+  );
 }
 function hasUnsupportedShellStructure(value) {
   if (value.includes("<<")) return true;
@@ -2519,11 +2571,15 @@ function containsPositiveTerm(text, term) {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
-    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix)) {
+    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix) && !hasNonHumanAuthorityPrefix(prefix, term)) {
       return true;
     }
   }
   return false;
+}
+function hasNonHumanAuthorityPrefix(prefix, term) {
+  if (!/\b(?:maintainers?|owners?|reviewers?)\b/i.test(term)) return false;
+  return /\b(?:ai|agents?|bots?|automated|automation)\s+$/i.test(prefix);
 }
 function hasNegativePrefix(value) {
   const normalized = withoutRestrictiveUpperBound(value);

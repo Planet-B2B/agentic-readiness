@@ -86,7 +86,9 @@ closed; nested package-exec tools may qualify only at a supported executable pos
 Custom guidance validators additionally require adapter-declared validation structures in the
 executed tracked source after language comments are excluded; file presence or comment text alone
 does not establish behavior. Specification-traceability and knowledge-curation checks use the same
-source-bound standard. Constant-false branches and uncalled validation functions fail closed.
+source-bound standard. A recognized specification validator binds an approved work-item reference
+to both implementation and verification artifacts; checking only for a heading is insufficient.
+Constant-false branches and validation functions without a top-level reachable call path fail closed.
 Tool-specific discovery or
 listing modes do not count as execution. Fail-fast multiline verification steps may contribute each
 command, while scanners configured to require final exit-status propagation contribute only from the

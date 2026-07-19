@@ -81,6 +81,12 @@
 - Honor supported GitHub run shells and disjunctive integration-event conditions, reject Azure
   multiline commands whose failure propagation is unresolved, preserve multiline source-string
   boundaries, and recognize locked installs from pnpm, Yarn, and Bun without treating them as tasks.
+- Reject repository-owned package-manager impersonators and commands after unconditional exits;
+  require specification validators to bind approved work items to both implementation and
+  verification artifacts instead of checking only for a heading.
+- Root validation-function reachability in top-level execution, bind git-secrets to its default
+  repository target, reject AI/bot-qualified governance actors and test-listing modes, and make this
+  repository's own agent-guidance check structurally discoverable.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

@@ -73,11 +73,13 @@ const nonExecutingCommandArguments = new Set([
   '--collect-only',
   '--help',
   '--list',
+  '--list-tests',
   '--listtests',
   '--print-config',
   '--showconfig',
   '--version',
   '-h',
+  '-list',
   'help',
   'list',
   'version',
@@ -1111,7 +1113,7 @@ function azureStepInvocations(node: Record<string, unknown>): CiInvocation[] {
   );
   if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
   const value = node[commandFields[0] ?? ''] as string;
-  if (/\r|\n/.test(value)) return [];
+  if (/[\r\n]/.test(value)) return [];
   return [{ kind: 'command', value }];
 }
 
@@ -1205,14 +1207,17 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): GitHu
   }
   if (value === false) return { certain: true, events: new Set() };
   if (typeof value !== 'string') return { certain: false, events: new Set() };
+  return githubStringConditionEvents(value, parentEvents);
+}
+
+function githubStringConditionEvents(
+  value: string,
+  parentEvents: Set<string>,
+): GitHubConditionEvents {
   const condition = value.toLowerCase();
   const normalized = condition.replace(/[\s${}]/g, '');
   if (!condition.includes('github.event_name')) {
-    if (['true', 'always()', 'success()', '!cancelled()'].includes(normalized)) {
-      return { certain: true, events: new Set(parentEvents) };
-    }
-    if (['false', 'never'].includes(normalized)) return { certain: true, events: new Set() };
-    return { certain: false, events: new Set() };
+    return githubStatusConditionEvents(normalized, parentEvents);
   }
   const equals = [...condition.matchAll(/github\.event_name\s*==\s*['"]([^'"]+)['"]/g)].map(
     (match) => match[1] ?? '',
@@ -1241,6 +1246,17 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): GitHu
     certain: true,
     events: new Set(candidates.filter((event) => !excludes.includes(event))),
   };
+}
+
+function githubStatusConditionEvents(
+  normalized: string,
+  parentEvents: Set<string>,
+): GitHubConditionEvents {
+  if (['true', 'always()', 'success()', '!cancelled()'].includes(normalized)) {
+    return { certain: true, events: new Set(parentEvents) };
+  }
+  if (['false', 'never'].includes(normalized)) return { certain: true, events: new Set() };
+  return { certain: false, events: new Set() };
 }
 
 function hasGitlabMergeRequestRule(value: unknown): boolean {
@@ -1473,7 +1489,9 @@ function packageScriptMatchesTool(
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
 ): boolean | null {
-  const manager = executableIdentity(tokens[0] ?? '');
+  const managerToken = tokens[0] ?? '';
+  if (/[\\/]/.test(managerToken) || managerToken.startsWith('.')) return null;
+  const manager = executableIdentity(managerToken);
   if (!['bun', 'npm', 'pnpm', 'yarn'].includes(manager)) return null;
   if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
@@ -1538,6 +1556,9 @@ function commandSignatureMatches(
   bindings: RepositoryCommandBindings,
 ): boolean {
   if (hasProhibitedArguments(signature, arguments_)) return false;
+  if (signature.max_arguments !== undefined && arguments_.length > signature.max_arguments) {
+    return false;
+  }
   if (
     signature.required_argument_prefixes.length > 0 &&
     !signature.required_argument_prefixes.some((prefix) =>
@@ -1641,11 +1662,65 @@ function hasUncalledValidationFunction(
   if (groups.length === 0) return false;
   const lines = source.split(/\r?\n/);
   const blocks = sourceFunctionBlocks(lines, path);
+  const reachable = reachableSourceFunctionNames(lines, blocks, path);
   return blocks.some((block) => {
     const body = lines.slice(block.start, block.end + 1).join('\n');
     if (!sourcePatternGroupsAreCoLocated(body, groups, maxSpanLines)) return false;
-    return !sourceFunctionIsCalled(lines, block, path);
+    return !reachable.has(block.name);
   });
+}
+
+function reachableSourceFunctionNames(
+  lines: string[],
+  blocks: SourceFunctionBlock[],
+  path: string,
+): Set<string> {
+  const topLevelLines = topLevelSourceLines(lines, blocks);
+  const reachable = new Set(
+    blocks
+      .filter((block) => sourceFunctionIsCalled(topLevelLines, block.name, path))
+      .map(({ name }) => name),
+  );
+  const pending = [...reachable];
+  while (pending.length > 0) {
+    const callerName = pending.shift();
+    const caller = blocks.find(({ name }) => name === callerName);
+    if (!caller) continue;
+    const body = sourceFunctionExecutionLines(lines, caller, blocks);
+    for (const candidate of blocks) {
+      if (reachable.has(candidate.name)) continue;
+      if (!sourceFunctionIsCalled(body, candidate.name, path)) continue;
+      reachable.add(candidate.name);
+      pending.push(candidate.name);
+    }
+  }
+  return reachable;
+}
+
+function sourceFunctionExecutionLines(
+  lines: string[],
+  caller: SourceFunctionBlock,
+  blocks: SourceFunctionBlock[],
+): string[] {
+  return lines.filter(
+    (_, index) =>
+      index >= caller.start &&
+      index <= caller.end &&
+      blocks.every(
+        (block) =>
+          block === caller ||
+          index < block.start ||
+          index > block.end ||
+          block.start < caller.start ||
+          block.end > caller.end,
+      ),
+  );
+}
+
+function topLevelSourceLines(lines: string[], blocks: SourceFunctionBlock[]): string[] {
+  return lines.filter((_, index) =>
+    blocks.every((block) => index < block.start || index > block.end),
+  );
 }
 
 function sourceFunctionBlocks(lines: string[], path: string): SourceFunctionBlock[] {
@@ -1732,20 +1807,12 @@ function leadingWhitespace(value: string): number {
   return /^\s*/.exec(value)?.[0].length ?? 0;
 }
 
-function sourceFunctionIsCalled(
-  lines: string[],
-  block: SourceFunctionBlock,
-  path: string,
-): boolean {
-  const name = block.name.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+function sourceFunctionIsCalled(lines: string[], functionName: string, path: string): boolean {
+  const name = functionName.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const callPattern = /\.py$|\.[cm]?[jt]sx?$/i.test(path)
     ? String.raw`(?:^|[^\w$])${name}\s*\(`
     : String.raw`^\s*${name}(?:\s|$)`;
-  return lines.some(
-    (line, index) =>
-      (index < block.start || index > block.end) &&
-      executableSourcePatternMatches(line, callPattern),
-  );
+  return lines.some((line) => executableSourcePatternMatches(line, callPattern));
 }
 
 function hasObviouslyUnreachableBranch(source: string, path: string): boolean {
@@ -2060,8 +2127,18 @@ function shellStatements(value: string, requiresFinalExitStatus: boolean): strin
     .split(/\r?\n/)
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0 && !statement.startsWith('#'));
-  if (!requiresFinalExitStatus) return statements;
-  return statements.length > 0 ? [statements.at(-1) ?? ''] : [];
+  const terminatingIndex = statements.findIndex(hasUnconditionalShellTermination);
+  const reachable = terminatingIndex < 0 ? statements : statements.slice(0, terminatingIndex + 1);
+  if (!requiresFinalExitStatus) return reachable;
+  return reachable.length > 0 ? [reachable.at(-1) ?? ''] : [];
+}
+
+function hasUnconditionalShellTermination(value: string): boolean {
+  return value
+    .split('&&')
+    .some((command) =>
+      /^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*(?:exit|return)(?:\s|$)/i.test(command.trim()),
+    );
 }
 
 function hasUnsupportedShellStructure(value: string): boolean {
@@ -2149,11 +2226,20 @@ function containsPositiveTerm(text: string, term: string): boolean {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
-    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix)) {
+    if (
+      !hasNegativePrefix(prefix) &&
+      !hasNegativeSuffix(suffix) &&
+      !hasNonHumanAuthorityPrefix(prefix, term)
+    ) {
       return true;
     }
   }
   return false;
+}
+
+function hasNonHumanAuthorityPrefix(prefix: string, term: string): boolean {
+  if (!/\b(?:maintainers?|owners?|reviewers?)\b/i.test(term)) return false;
+  return /\b(?:ai|agents?|bots?|automated|automation)\s+$/i.test(prefix);
 }
 
 function hasNegativePrefix(value: string): boolean {

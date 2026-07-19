@@ -18,6 +18,7 @@ uses structural mappings outside former, inactive, past, or retired sections; de
 remain inactive until a same-or-higher-level section resumes current ownership. A command class uses
 full owner/repository action identities, explicit executable signatures with independently required
 argument groups and prohibited non-blocking modes, or semantically specific standalone executables.
+Signatures may cap accepted arguments when any explicit target would leave the assessed checkout.
 Executables and arguments from different signatures never combine. GitHub action invocations also
 require an explicit non-empty `@ref`. Names alone never turn comments, version/help commands,
 display commands, disabled or non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
@@ -40,7 +41,8 @@ only when the scanner is the final effective foreground statement and its exit s
 step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
 failure path; comments, inert string literals, and non-empty no-op scripts are insufficient.
-Constant-false branches and uncalled validation functions also fail closed.
+Constant-false branches and validation functions without a call path rooted in top-level execution
+also fail closed; a call from another unreachable function is not evidence of execution.
 Scanner modes that require a source target must bind that target to the assessed checkout rather
 than an arbitrary path; explicit source overrides fail closed unless the adapter can prove that
 binding. Repository-relative executables do not inherit a trusted tool identity from their basename.
@@ -54,7 +56,8 @@ inference. Package-manager task invocations are resolved through the tracked roo
 must bind to a recognized executable command even through supported wrappers and global options;
 context-changing package/workspace flags fail closed unless their selected manifest is resolved,
 while recognized nested package-exec targets are evaluated at their executable position. Package
-manager built-ins are not treated as same-named scripts: npm resolves arbitrary task names only
+manager built-ins are not treated as same-named scripts, and path-qualified local executables never
+inherit package-manager identity: npm resolves arbitrary task names only
 through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible.
 Wrapper and package-manager options with separate values are consumed before executable or task
 identity is evaluated; option values never inherit tool identity.

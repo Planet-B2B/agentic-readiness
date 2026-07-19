@@ -42,3 +42,4 @@ extensions:
         commands:
           - executables: [git-secrets]
             argument_groups: [[--scan, --scan-history]]
+            max_arguments: 1

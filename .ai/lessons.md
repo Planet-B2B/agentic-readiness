@@ -3,6 +3,26 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Enforcement proof needs a reachable root and an in-scope target
+
+**Context.** Automated review found that calls inside unused functions could fake validator
+reachability, explicit scanner operands could leave the checkout, non-human qualifiers could turn
+role phrases into false governance evidence, and test-listing modes could imitate execution.
+
+**Rule.** Trace validation calls from top-level execution, constrain scanner targets and command
+modes to the claimed outcome, and interpret actor qualifiers before treating authority phrases as
+accountable human governance.
+
+## 2026-07-18 — Traceability and execution identity require connected proof
+
+**Context.** Automated review found that a path-qualified no-op could impersonate a package
+manager, commands after an unconditional exit could appear reachable, and a specification heading
+check could claim mechanical change-to-verification traceability.
+
+**Rule.** Trust only recognized executable identities, preserve termination across command lines,
+and require traceability validators to connect a work artifact to both implementation and
+verification references before awarding enforced maturity.
+
 ## 2026-07-18 — Syntax semantics belong to the provider and runtime
 
 **Context.** Automated review found that explicit GitHub shells and disjunctive event conditions,

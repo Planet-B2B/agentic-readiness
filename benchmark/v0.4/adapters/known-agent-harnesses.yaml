@@ -81,7 +81,15 @@ extensions:
                 ]
             source_pattern_groups:
               - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:specs?/|requirements?/|\.ai/specs?)']
-              - ['\b(?:includes|match|test)\s*\([^\n]*(?:acceptance|requirement|task|trace)']
+              - ['\b(?:task|work\s*item|issue)[^\n]*\.(?:exec|match)\s*\(']
+              - ['\b(?:implementation|change|source|code)[^\n]*\.(?:exec|match)\s*\(']
+              - ['\b(?:verification|tests?)[^\n]*\.(?:exec|match)\s*\(']
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:implementation|change|source|code)\w*']
+              - ['\b(?:readfilesync|readfile)\s*\([^\n]*(?:verification|tests?)\w*']
+              - [
+                  '\b(?:implementation|change|source|code)\w*\.includes\s*\([^\n]*(?:work|task|issue)',
+                ]
+              - ['\b(?:verification|tests?)\w*\.includes\s*\([^\n]*(?:work|task|issue)']
               - [
                   '\bthrow\s+new\s+error\s*\(',
                   '\bprocess\.exit\s*\(\s*[1-9]',
