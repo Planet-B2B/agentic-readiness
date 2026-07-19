@@ -241,6 +241,7 @@ describe('v0.4 evidence calibration', () => {
         '| TBD | @platform-team |',
         '| - | @release-team |',
         '| component TBD | @component-team |',
+        '| path / | @path-team |',
         '| / | @root-team |',
         '| * | @wildcard-team |',
         '| /** | @recursive-team |',
@@ -268,83 +269,33 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
-  it('requires authority guidance in addition to an ownership map', async () => {
-    const repository = await gitFixture({
-      'CONTRIBUTING.md': 'Repository owners select reviewers for each change.\n',
-      'OWNERS.md': '- @platform-team\n',
-    });
-    try {
-      const { benchmark, controls } = await loadBenchmark(v04Root);
-      const report = await assess(repository, benchmark, controls, 'pr-creation');
-      const governance = controlStatus(report, 'ADRB-GOV-002');
-
-      expect(governance?.status).toBe('not_met');
-      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
-      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
-    } finally {
-      await rm(repository, { recursive: true, force: true });
-    }
-  });
-
-  it('does not infer positive authority from a statement denying agent authority', async () => {
-    const repository = await gitFixture({
-      'CONTRIBUTING.md': [
+  it.each([
+    {
+      name: 'requires authority guidance in addition to an ownership map',
+      guidance: 'Repository owners select reviewers for each change.\n',
+    },
+    {
+      name: 'does not infer positive authority from a statement denying agent authority',
+      guidance: [
         'Repository owners select reviewers for each change.',
         'Green CI is not merge authority, and agents cannot approve changes.',
       ].join('\n'),
-      'OWNERS.md': '- @platform-team\n',
-    });
-    try {
-      const { benchmark, controls } = await loadBenchmark(v04Root);
-      const report = await assess(repository, benchmark, controls, 'pr-creation');
-      const governance = controlStatus(report, 'ADRB-GOV-002');
-
-      expect(governance?.status).toBe('not_met');
-      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
-    } finally {
-      await rm(repository, { recursive: true, force: true });
-    }
-  });
-
-  it('does not accept agent approval and merge authority as retained human governance', async () => {
+    },
+    {
+      name: 'does not accept agent approval and merge authority as retained human governance',
+      guidance: 'Agents may approve and agents may merge changes automatically.\n',
+    },
+    {
+      name: 'does not infer human authority from explicitly negated statements',
+      guidance: 'No designated human may approve changes. No designated human may merge changes.\n',
+    },
+    {
+      name: 'does not infer authority from negation after the matched term',
+      guidance: 'Reviewer approval is not required. Human merge authority is prohibited.\n',
+    },
+  ])('$name', async ({ guidance }) => {
     const repository = await gitFixture({
-      'CONTRIBUTING.md': 'Agents may approve and agents may merge changes automatically.\n',
-      'OWNERS.md': '- @platform-team\n',
-    });
-    try {
-      const { benchmark, controls } = await loadBenchmark(v04Root);
-      const report = await assess(repository, benchmark, controls, 'pr-creation');
-      const governance = controlStatus(report, 'ADRB-GOV-002');
-      expect(governance?.status).toBe('not_met');
-      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
-      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
-    } finally {
-      await rm(repository, { recursive: true, force: true });
-    }
-  });
-
-  it('does not infer human authority from explicitly negated statements', async () => {
-    const repository = await gitFixture({
-      'CONTRIBUTING.md':
-        'No designated human may approve changes. No designated human may merge changes.\n',
-      'OWNERS.md': '- @platform-team\n',
-    });
-    try {
-      const { benchmark, controls } = await loadBenchmark(v04Root);
-      const report = await assess(repository, benchmark, controls, 'pr-creation');
-      const governance = controlStatus(report, 'ADRB-GOV-002');
-      expect(governance?.status).toBe('not_met');
-      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
-      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
-    } finally {
-      await rm(repository, { recursive: true, force: true });
-    }
-  });
-
-  it('does not infer authority from negation after the matched term', async () => {
-    const repository = await gitFixture({
-      'CONTRIBUTING.md':
-        'Reviewer approval is not required. Human merge authority is prohibited.\n',
+      'CONTRIBUTING.md': guidance,
       'OWNERS.md': '- @platform-team\n',
     });
     try {

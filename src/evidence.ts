@@ -20,6 +20,56 @@ const maxContentFiles = 250;
 const maxContentTotalBytes = 5_000_000;
 const namedOwnerRolePattern = /^(.{2,80})\s+(?:team|owners?|reviewers?|maintainers?)$/i;
 const ownerRoleAssignmentPattern = /^(?:owner|reviewer|maintainer|team)\s*[:=-]\s*(.{2,80})$/i;
+const repositoryWideOwnershipTargets = new Set([
+  'all files',
+  'default',
+  'entire repository',
+  'global',
+  'repo',
+  'repository',
+  'root',
+]);
+const namedOwnershipTargetPrefixes = new Set(['area', 'component', 'module', 'path', 'scope']);
+const placeholderOwnerValues = new Set([
+  'tbd',
+  'to be assigned',
+  'to be determined',
+  'not assigned',
+  'unassigned',
+  'n/a',
+  'na',
+  'not applicable',
+  'none',
+  'no owner',
+  'no owners',
+  'no designated owner',
+  'no designated owners',
+  'without owner',
+  'without owners',
+  'without a owner',
+  'without an owner',
+  'without a owners',
+  'without an owners',
+  'nobody',
+  'unknown',
+  'pending',
+  'vacant',
+]);
+const supportedGitlabRuleKeys = new Set(['allow_failure', 'if', 'when']);
+const nonExecutingCommandArguments = new Set([
+  '--co',
+  '--collect-only',
+  '--help',
+  '--list',
+  '--listtests',
+  '--print-config',
+  '--showconfig',
+  '--version',
+  '-h',
+  'help',
+  'list',
+  'version',
+]);
 
 async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
   const found = await fg(patterns, {
@@ -203,11 +253,15 @@ function explicitOwnershipMappings(lines: string[]): number {
 
 function isOwnershipTarget(value: string): boolean {
   const target = value.trim();
-  if (/^(?:all files|default|entire repository|global|repo|repository|root)$/i.test(target)) {
-    return true;
+  if (repositoryWideOwnershipTargets.has(target.toLowerCase())) return true;
+  const firstSpace = target.indexOf(' ');
+  if (firstSpace > 0) {
+    const prefix = target.slice(0, firstSpace).toLowerCase();
+    if (namedOwnershipTargetPrefixes.has(prefix)) {
+      const namedScope = target.slice(firstSpace + 1);
+      return !isPlaceholderOwner(namedScope) && /[a-z0-9_-]/i.test(namedScope);
+    }
   }
-  const namedTarget = /^(?:area|component|module|path|scope)\s+(.+)$/i.exec(target);
-  if (namedTarget) return !isPlaceholderOwner(namedTarget[1] ?? '');
   if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) {
     return /[a-z0-9_-]/i.test(target.replace(/^\.{0,2}\//, ''));
   }
@@ -249,14 +303,27 @@ function isConventionalOwnerListEntry(value: string): boolean {
 }
 
 function isDirectOwnerContact(value: string): boolean {
-  const contacts = value.split(/\s*(?:,|&|\band\b)\s*|\s+/i);
+  const contacts = value
+    .replace(/\band\b/gi, ' ')
+    .split(/[\s,&]+/)
+    .filter(Boolean);
   return (
     contacts.length > 0 &&
-    contacts.every(
-      (contact) =>
-        /^@[a-z0-9][a-z0-9_/-]*$/i.test(contact) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact),
-    )
+    contacts.every((contact) => isOwnerHandle(contact) || isExactEmailContact(contact))
   );
+}
+
+function isOwnerHandle(value: string): boolean {
+  return /^@[a-z0-9][a-z0-9_/-]*$/i.test(value);
+}
+
+function isExactEmailContact(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at <= 0 || at !== value.lastIndexOf('@')) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.indexOf('.');
+  return dot > 0 && dot < domain.length - 1 && !domain.endsWith('.');
 }
 
 function isNamedOwnerIdentity(value: string): boolean {
@@ -269,9 +336,10 @@ function isNamedOwnerIdentity(value: string): boolean {
 }
 
 function hasNegativeOwnerAssignment(value: string): boolean {
-  return /\b(?:former|inactive|retired|unassigned|vacant|deprecated)\b|\b(?:no|without)\s+(?:designated\s+)?(?:owner|maintainer|reviewer|team)s?\b/i.test(
-    value,
-  );
+  const inactiveRole = /\b(?:former|inactive|retired|unassigned|vacant|deprecated)\b/i.test(value);
+  const absentRole =
+    /\b(?:no|without)\s+(?:designated\s+)?(?:owner|maintainer|reviewer|team)s?\b/i.test(value);
+  return inactiveRole || absentRole;
 }
 
 function isOwnerContact(value: string): boolean {
@@ -287,8 +355,10 @@ function hasEmailContact(value: string): boolean {
 }
 
 function isPlaceholderOwner(value: string): boolean {
-  return /^(?:tbd|to be (?:assigned|determined)|not assigned|unassigned|n\/?a|not applicable|none|no(?: designated)? owners?|without (?:an? )?owners?|nobody|unknown|pending|vacant|-+)$/i.test(
-    value,
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return (
+    placeholderOwnerValues.has(normalized) ||
+    (normalized.length > 0 && normalized.replaceAll('-', '').length === 0)
   );
 }
 
@@ -776,10 +846,10 @@ function githubTriggerAllowsIntegration(value: unknown, name: string): boolean {
   if (!trigger) return false;
   if (['paths', 'paths-ignore'].some((key) => Object.hasOwn(trigger, key))) return false;
   if (trigger.types === undefined) return true;
-  const types = stringValues(trigger.types).map((type) => type.toLowerCase());
+  const types = new Set(stringValues(trigger.types).map((type) => type.toLowerCase()));
   const requiredTypes =
     name === 'pull_request' ? ['opened', 'reopened', 'synchronize'] : ['checks_requested'];
-  return requiredTypes.every((type) => types.includes(type));
+  return requiredTypes.every((type) => types.has(type));
 }
 
 function githubConditionEvents(value: unknown, parentEvents: Set<string>): Set<string> {
@@ -812,32 +882,43 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): Set<s
 
 function hasGitlabMergeRequestRule(value: unknown): boolean {
   for (const ruleValue of asArray(value)) {
-    const rule = asRecord(ruleValue);
-    if (!rule) return false;
-    const supportedKeys = new Set(['allow_failure', 'if', 'when']);
-    if (typeof rule.if === 'string') {
-      const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(
-        rule.if,
-      );
-      if (!comparison) return false;
-      const operator = comparison[1];
-      const event = comparison[2]?.toLowerCase();
-      const matchesMergeRequest =
-        operator === '==' ? event === 'merge_request_event' : event !== 'merge_request_event';
-      if (!matchesMergeRequest) continue;
-    } else if (rule.if !== undefined) {
-      return false;
-    }
-    if (Object.keys(rule).some((key) => !supportedKeys.has(key))) return false;
-    if (
-      rule.when !== undefined &&
-      (typeof rule.when !== 'string' || !['always', 'on_success'].includes(rule.when.toLowerCase()))
-    ) {
-      return false;
-    }
-    return !isDisabledCiNode(rule);
+    const disposition = gitlabMergeRequestRuleDisposition(ruleValue);
+    if (disposition === 'unsupported') return false;
+    if (disposition === 'skip') continue;
+    return disposition === 'allow';
   }
   return false;
+}
+
+type GitlabRuleDisposition = 'allow' | 'deny' | 'skip' | 'unsupported';
+
+function gitlabMergeRequestRuleDisposition(value: unknown): GitlabRuleDisposition {
+  const rule = asRecord(value);
+  if (!rule || Object.keys(rule).some((key) => !supportedGitlabRuleKeys.has(key))) {
+    return 'unsupported';
+  }
+  const applies = gitlabRuleAppliesToMergeRequest(rule.if);
+  if (applies === null) return 'unsupported';
+  if (!applies) return 'skip';
+  if (!isSupportedBlockingGitlabRule(rule)) return 'deny';
+  return 'allow';
+}
+
+function gitlabRuleAppliesToMergeRequest(value: unknown): boolean | null {
+  if (value === undefined) return true;
+  if (typeof value !== 'string') return null;
+  const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(value);
+  if (!comparison) return null;
+  const event = comparison[2]?.toLowerCase();
+  return comparison[1] === '==' ? event === 'merge_request_event' : event !== 'merge_request_event';
+}
+
+function isSupportedBlockingGitlabRule(rule: Record<string, unknown>): boolean {
+  if (isDisabledCiNode(rule)) return false;
+  if (rule.when === undefined) return true;
+  return (
+    typeof rule.when === 'string' && ['always', 'on_success'].includes(rule.when.toLowerCase())
+  );
 }
 
 function hasAzurePullRequestTrigger(value: unknown): boolean {
@@ -948,43 +1029,9 @@ function commandMatchesTool(
     return false;
   }
   const tokens = command.split(/\s+/).filter(Boolean);
-  const nonExecutingArguments = new Set([
-    '--co',
-    '--collect-only',
-    '--help',
-    '--list',
-    '--listtests',
-    '--print-config',
-    '--showconfig',
-    '--version',
-    '-h',
-    'help',
-    'list',
-    'version',
-  ]);
-  if (
-    tokens.some((token) => {
-      const normalized = token.toLowerCase();
-      return (
-        nonExecutingArguments.has(normalized) ||
-        normalized.startsWith('--help=') ||
-        normalized.startsWith('--version=')
-      );
-    })
-  ) {
-    return false;
-  }
-  const packageInvocation = packageScriptInvocation(tokens);
-  if (
-    packageInvocation &&
-    !(packageInvocation.manager === 'bun' && packageInvocation.task === 'test')
-  ) {
-    if (visitedScripts.has(packageInvocation.task) || visitedScripts.size >= 4) return false;
-    const script = bindings.packageScripts.get(packageInvocation.task);
-    if (!script) return false;
-    const nextVisited = new Set(visitedScripts).add(packageInvocation.task);
-    return commandTextMatchesTool(script, tool, bindings, nextVisited);
-  }
+  if (tokens.some(isNonExecutingCommandArgument)) return false;
+  const packageMatch = packageScriptMatchesTool(tokens, tool, bindings, visitedScripts);
+  if (packageMatch !== null) return packageMatch;
   const recognizedExecutables = [
     ...tool.commands.flatMap(({ executables }) => executables),
     ...tool.standalone_executables,
@@ -994,57 +1041,80 @@ function commandMatchesTool(
       (executable) => executableIdentity(token) === executable.toLowerCase(),
     ),
   );
-  if (executableIndex < 0) return false;
-  if (executableIndex > 0) {
-    const wrapper = tokens[0] ?? '';
-    const wrapperArguments = tokens.slice(1, executableIndex);
-    const supportedWrapper = /^(?:bunx|npx|sudo|uvx)$/i.test(wrapper);
-    const supportedUvRun = /^uv$/i.test(wrapper) && wrapperArguments.join(' ') === 'run';
-    const supportedPipxRun = /^pipx$/i.test(wrapper) && wrapperArguments.join(' ') === 'run';
-    const supportedPackageExec =
-      /^(?:bun|npm|pnpm|yarn)$/i.test(wrapper) &&
-      /^(?:dlx|exec|x)$/.test(wrapperArguments.join(' '));
-    const supportedPythonModule =
-      /^python(?:3(?:\.\d+)?)?$/i.test(wrapper) && wrapperArguments.join(' ') === '-m';
-    if (
-      !(supportedWrapper && wrapperArguments.every((token) => token.startsWith('-'))) &&
-      !supportedUvRun &&
-      !supportedPipxRun &&
-      !supportedPackageExec &&
-      !supportedPythonModule
-    ) {
-      return false;
-    }
-  }
+  if (executableIndex < 0 || !isSupportedExecutablePosition(tokens, executableIndex)) return false;
   const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
   const executable = executableIdentity(tokens[executableIndex] ?? '');
-  if (
-    tool.standalone_executables.some(
-      (standalone) => standalone.toLowerCase() === executable.toLowerCase(),
-    )
-  ) {
+  if (tool.standalone_executables.some((standalone) => standalone.toLowerCase() === executable))
     return true;
-  }
   return tool.commands
     .filter(({ executables }) =>
-      executables.some((candidate) => candidate.toLowerCase() === executable.toLowerCase()),
+      executables.some((candidate) => candidate.toLowerCase() === executable),
     )
-    .some(({ argument_groups, prohibited_arguments, prohibited_argument_sequences }) => {
-      if (
-        prohibited_arguments.some((argument) => arguments_.includes(argument.toLowerCase())) ||
-        prohibited_argument_sequences.some((sequence) =>
-          containsArgumentSequence(
-            arguments_,
-            sequence.map((argument) => argument.toLowerCase()),
-          ),
-        )
-      ) {
-        return false;
-      }
-      return argument_groups.every((group) =>
-        group.some((argument) => commandArgumentMatches(argument, arguments_, bindings)),
-      );
-    });
+    .some((signature) => commandSignatureMatches(signature, arguments_, bindings));
+}
+
+function isNonExecutingCommandArgument(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return (
+    nonExecutingCommandArguments.has(normalized) ||
+    normalized.startsWith('--help=') ||
+    normalized.startsWith('--version=')
+  );
+}
+
+function packageScriptMatchesTool(
+  tokens: string[],
+  tool: CiTool,
+  bindings: RepositoryCommandBindings,
+  visitedScripts: Set<string>,
+): boolean | null {
+  const invocation = packageScriptInvocation(tokens);
+  if (!invocation || (invocation.manager === 'bun' && invocation.task === 'test')) return null;
+  if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
+  const script = bindings.packageScripts.get(invocation.task);
+  if (!script) return false;
+  return commandTextMatchesTool(
+    script,
+    tool,
+    bindings,
+    new Set(visitedScripts).add(invocation.task),
+  );
+}
+
+function isSupportedExecutablePosition(tokens: string[], executableIndex: number): boolean {
+  if (executableIndex === 0) return true;
+  const wrapper = tokens[0] ?? '';
+  const wrapperArguments = tokens.slice(1, executableIndex);
+  const wrapperCommand = wrapperArguments.join(' ');
+  if (/^(?:bunx|npx|sudo|uvx)$/i.test(wrapper)) {
+    return wrapperArguments.every((token) => token.startsWith('-'));
+  }
+  if (/^(?:uv|pipx)$/i.test(wrapper)) return wrapperCommand === 'run';
+  if (/^(?:bun|npm|pnpm|yarn)$/i.test(wrapper)) return /^(?:dlx|exec|x)$/.test(wrapperCommand);
+  return /^python(?:3(?:\.\d+)?)?$/i.test(wrapper) && wrapperCommand === '-m';
+}
+
+function commandSignatureMatches(
+  signature: CiTool['commands'][number],
+  arguments_: string[],
+  bindings: RepositoryCommandBindings,
+): boolean {
+  if (
+    signature.prohibited_arguments.some((argument) =>
+      arguments_.includes(argument.toLowerCase()),
+    ) ||
+    signature.prohibited_argument_sequences.some((sequence) =>
+      containsArgumentSequence(
+        arguments_,
+        sequence.map((argument) => argument.toLowerCase()),
+      ),
+    )
+  ) {
+    return false;
+  }
+  return signature.argument_groups.every((group) =>
+    group.some((argument) => commandArgumentMatches(argument, arguments_, bindings)),
+  );
 }
 
 function commandArgumentMatches(

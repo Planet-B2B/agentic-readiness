@@ -3,6 +3,14 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Keep evidence parsers structurally reviewable
+
+**Context.** Sonar review found that ownership regexes and monolithic provider/command parsers made
+the fail-closed evidence logic harder to audit even though the quality gate still passed.
+
+**Rule.** Prefer bounded string validation and small disposition helpers over complex regexes or
+branch-heavy collectors so each structural guarantee can be reviewed and tested independently.
+
 ## 2026-07-18 — Aggregate outcomes without inheriting uncertainty
 
 **Context.** Automated review found that split CI files could undercount a complete verification
