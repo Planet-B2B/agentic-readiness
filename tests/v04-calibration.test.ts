@@ -2822,7 +2822,7 @@ describe('v0.4 evidence calibration', () => {
             target: { repository: 'https://example.invalid/other/repository.git' },
           },
         }),
-      ).rejects.toThrow('does not match https://example.invalid/acme/repository.git');
+      ).rejects.toThrow('does not match https://example.invalid/acme/repository');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -2854,6 +2854,33 @@ describe('v0.4 evidence calibration', () => {
       await expect(loadAttestations(path, '0.4.0')).rejects.toThrow();
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('treats optional Git remote suffixes as the same attestation repository target', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture\n' });
+    const attestations: AttestationFile = {
+      benchmark_version: '0.4.0',
+      target: { repository: 'https://example.invalid/acme/repository' },
+      attestations: {
+        'ADRB-SEC-003': {
+          status: 'met',
+          evidence: 'https://example.invalid/evidence',
+          owner: 'Security owner',
+          reviewed_at: '2026-07-19',
+          expires_at: '2026-10-19',
+        },
+      },
+    };
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation', {
+        attestations,
+        now: new Date('2026-07-19T12:00:00.000Z'),
+      });
+      expect(controlStatus(report, 'ADRB-SEC-003')?.confidence).toBe('attested');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
     }
   });
 

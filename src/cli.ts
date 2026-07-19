@@ -6,7 +6,11 @@ import { stringify } from 'yaml';
 
 import { loadAgentEvidence, loadAttestations, loadBenchmark } from './load.js';
 import { toMarkdown } from './report.js';
-import { createRepositoryContext, repositoryEvidenceTarget } from './repository.js';
+import {
+  createRepositoryContext,
+  normalizeRepositoryTarget,
+  repositoryEvidenceTarget,
+} from './repository.js';
 import type { AssessmentScope, EvidenceCheck } from './schema.js';
 import { assess } from './score.js';
 
@@ -58,7 +62,9 @@ program
     }
     const { benchmark, controls } = await loadBenchmark();
     const context = await createRepositoryContext(repo, 'workspace');
-    const target = { repository: repositoryEvidenceTarget(context.metadata).repository };
+    const target = {
+      repository: normalizeRepositoryTarget(repositoryEvidenceTarget(context.metadata).repository),
+    };
     const reviewedAt = new Date();
     const expiresAt = new Date(reviewedAt);
     expiresAt.setDate(expiresAt.getDate() + 90);

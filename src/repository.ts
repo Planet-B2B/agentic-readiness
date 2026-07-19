@@ -135,3 +135,9 @@ export function repositoryEvidenceTarget(metadata: RepositoryMetadata): {
     git_head: metadata.git_head,
   };
 }
+
+export function normalizeRepositoryTarget(repository: string): string {
+  const target = repository.trim();
+  const remoteLike = target.includes('://') || /^[^/\\]+@[^:]+:/.test(target);
+  return remoteLike ? target.replace(/\/+$/, '').replace(/\.git$/i, '') : target;
+}

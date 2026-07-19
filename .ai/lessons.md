@@ -9,8 +9,9 @@ feedback. Each entry contains a context and a rule.
 runtime validation silently stripped fields forbidden by the published schema, and an omitted shell
 was interpreted as fail-fast Bash even on Windows or unresolved GitHub runners.
 
-**Rule.** Bind supplemental evidence to the assessed target, keep published and runtime schemas
-equally strict, and infer provider defaults only when the execution environment establishes them.
+**Rule.** Bind supplemental evidence to a normalized assessed target, keep published and runtime
+schemas equally strict, and infer provider defaults only when the execution environment establishes
+them.
 
 ## 2026-07-19 — Input bounds must also bound parser complexity
 

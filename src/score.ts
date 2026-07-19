@@ -17,6 +17,7 @@ import type {
 import { evaluateControl } from './evidence.js';
 import {
   createRepositoryContext,
+  normalizeRepositoryTarget,
   repositoryEvidenceTarget,
   type RepositoryContext,
 } from './repository.js';
@@ -303,11 +304,13 @@ function validateAttestations(
       `Attestation benchmark ${attestations.benchmark_version} does not match ${benchmark.version}`,
     );
   }
-  const expectedTarget = repositoryEvidenceTarget(context.metadata).repository;
+  const expectedTarget = normalizeRepositoryTarget(
+    repositoryEvidenceTarget(context.metadata).repository,
+  );
   if (!attestations.target) {
     throw new Error('ADRB v0.4 attestations require a repository target');
   }
-  if (attestations.target.repository !== expectedTarget) {
+  if (normalizeRepositoryTarget(attestations.target.repository) !== expectedTarget) {
     throw new Error(
       `Attestation target ${attestations.target.repository} does not match ${expectedTarget}`,
     );

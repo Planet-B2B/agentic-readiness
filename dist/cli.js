@@ -973,6 +973,11 @@ function repositoryEvidenceTarget(metadata) {
     git_head: metadata.git_head
   };
 }
+function normalizeRepositoryTarget(repository) {
+  const target = repository.trim();
+  const remoteLike = target.includes("://") || /^[^/\\]+@[^:]+:/.test(target);
+  return remoteLike ? target.replace(/\/+$/, "").replace(/\.git$/i, "") : target;
+}
 
 // src/score.ts
 import { readFile as readFile3 } from "fs/promises";
@@ -3270,11 +3275,13 @@ function validateAttestations(benchmark, catalog, context, attestations) {
       `Attestation benchmark ${attestations.benchmark_version} does not match ${benchmark.version}`
     );
   }
-  const expectedTarget = repositoryEvidenceTarget(context.metadata).repository;
+  const expectedTarget = normalizeRepositoryTarget(
+    repositoryEvidenceTarget(context.metadata).repository
+  );
   if (!attestations.target) {
     throw new Error("ADRB v0.4 attestations require a repository target");
   }
-  if (attestations.target.repository !== expectedTarget) {
+  if (normalizeRepositoryTarget(attestations.target.repository) !== expectedTarget) {
     throw new Error(
       `Attestation target ${attestations.target.repository} does not match ${expectedTarget}`
     );
@@ -3427,7 +3434,9 @@ program.command("init").argument("[repository]", "repository to initialize", "."
   }
   const { benchmark, controls } = await loadBenchmark();
   const context = await createRepositoryContext(repo, "workspace");
-  const target = { repository: repositoryEvidenceTarget(context.metadata).repository };
+  const target = {
+    repository: normalizeRepositoryTarget(repositoryEvidenceTarget(context.metadata).repository)
+  };
   const reviewedAt = /* @__PURE__ */ new Date();
   const expiresAt = new Date(reviewedAt);
   expiresAt.setDate(expiresAt.getDate() + 90);
