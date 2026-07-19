@@ -1562,6 +1562,7 @@ function invocationFromField(node, field, kind) {
   return typeof value === "string" ? { kind, value } : null;
 }
 function gitlabIntegrationInvocations(document) {
+  if (document.include !== void 0) return [];
   const workflow = asRecord(document.workflow);
   const hasWorkflowRules = asArray(workflow?.rules).length > 0;
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);

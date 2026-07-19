@@ -4,11 +4,17 @@
   "type": "module",
   "scripts": {
     "agent-doc-check": "tsx scripts/check-agent-docs.ts",
-    "check": "npm run test && npm run typecheck && npm run lint",
+    "check": "npm run agent-doc-check && npm run test && npm run typecheck && npm run lint && npm run spec-check && npm run knowledge-curator",
     "knowledge-curator": "tsx scripts/check-knowledge.ts",
-    "lint": "eslint .",
+    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "spec-check": "tsx scripts/check-specs.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }

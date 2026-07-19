@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Positive fixtures must execute the behavior they prove
+
+**Context.** Automated review found a positive conformance fixture with undeclared dependencies, an
+ESM-incompatible path lookup, an incomplete canonical check chain, and a heading-only knowledge
+check; unresolved GitLab includes could also override local enforcement.
+
+**Rule.** Run positive fixture workflows with locked dependencies, require mechanical checks to
+implement the claimed outcome, and fail closed whenever an unresolved provider include can change
+execution or blocking semantics.
+
 ## 2026-07-18 — Execution state changes over time and across syntax layers
 
 **Context.** Automated review found that later checkout steps could invalidate earlier repository

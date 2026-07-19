@@ -66,6 +66,9 @@
 - Preserve case-sensitive package task identities, clear checkout proof when later checkout steps
   replace the target, and reject unbound working directories, shell continuations, heredocs, and
   command-level directory changes in deterministic CI evidence.
+- Fail closed on unresolved GitLab include graphs and make the mature conformance fixture independently
+  runnable with locked verification dependencies, an ESM-safe guidance check, and mechanical
+  duplicate/stale knowledge-quality validation.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

@@ -1500,6 +1500,14 @@ describe('v0.4 evidence calibration', () => {
     const configurations: Array<Record<string, string>> = [
       {
         '.gitlab-ci.yml': [
+          'include: local-ci.yml',
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
           'workflow:',
           '  rules:',
           '    - when: never',

@@ -872,6 +872,7 @@ function invocationFromField(
 }
 
 function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
+  if (document.include !== undefined) return [];
   const workflow = asRecord(document.workflow);
   const hasWorkflowRules = asArray(workflow?.rules).length > 0;
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
