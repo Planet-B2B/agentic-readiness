@@ -2143,35 +2143,27 @@ function commandSourceMatches(signature, arguments_, bindings) {
     if (source === void 0) return false;
     const uncommented = stripSourceComments(source, path);
     if (hasObviouslyUnreachableBranch(uncommented, path)) return false;
-    if (hasUncalledValidationFunction(
-      uncommented,
-      path,
-      signature.source_pattern_groups,
-      signature.source_max_span_lines
-    )) {
-      return false;
-    }
+    const executableSource = executableValidationSource(uncommented, path);
     return sourceGroupsAreCoLocated(
-      uncommented,
+      executableSource,
       signature.source_content_groups,
       signature.source_max_span_lines
     ) && sourcePatternGroupsAreCoLocated(
-      uncommented,
+      executableSource,
       signature.source_pattern_groups,
       signature.source_max_span_lines
     );
   });
 }
-function hasUncalledValidationFunction(source, path, groups, maxSpanLines) {
-  if (groups.length === 0) return false;
+function executableValidationSource(source, path) {
   const lines = source.split(/\r?\n/);
   const blocks = sourceFunctionBlocks(lines, path);
   const reachable = reachableSourceFunctionNames(lines, blocks, path);
-  return blocks.some((block) => {
-    const body = lines.slice(block.start, block.end + 1).join("\n");
-    if (!sourcePatternGroupsAreCoLocated(body, groups, maxSpanLines)) return false;
-    return !reachable.has(block.name);
-  });
+  return lines.filter((_, index) => sourceLineIsExecutable(index, blocks, reachable)).join("\n");
+}
+function sourceLineIsExecutable(index, blocks, reachable) {
+  const containingBlocks = blocks.filter((block) => index >= block.start && index <= block.end);
+  return containingBlocks.length === 0 || containingBlocks.every((block) => reachable.has(block.name));
 }
 function reachableSourceFunctionNames(lines, blocks, path) {
   const topLevelLines = topLevelSourceLines(lines, blocks);

@@ -120,6 +120,23 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('treats a compound out-of-bounds stop as both scope and stop evidence', async () => {
+    const repository = await gitFixture({
+      'AGENTS.md': [
+        'Do not continue outside the allowed paths; escalate to the coordinator.',
+        'Respect the token budget and maximum attempts.',
+        'The rollback owner is responsible for recovery.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-RES-002')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('accepts restrictive language that imposes explicit upper bounds', async () => {
     const repository = await gitFixture({
       'AGENTS.md': [
@@ -1098,6 +1115,28 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npm run agent-doc-check',
       ].join('\n'),
     });
+    const splitAcrossUncalledFunctions = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        'function readGuidance() {',
+        "  return readFileSync('AGENTS.md', 'utf8');",
+        '}',
+        'function failGuidance() {',
+        "  throw new Error('AGENTS.md is invalid');",
+        '}',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
     const called = await gitFixture({
       'package.json': JSON.stringify({
         scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
@@ -1163,6 +1202,12 @@ describe('v0.4 evidence calibration', () => {
         controls,
         'pr-creation',
       );
+      const splitUncalledReport = await assess(
+        splitAcrossUncalledFunctions,
+        benchmark,
+        controls,
+        'pr-creation',
+      );
       const calledReport = await assess(called, benchmark, controls, 'pr-creation');
       const transitivelyCalledReport = await assess(
         transitivelyCalled,
@@ -1181,6 +1226,7 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(uncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(nestedUncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(nestedDeclarationReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(splitUncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(calledReport, 'ADRB-CTX-003')?.status).toBe('met');
       expect(controlStatus(transitivelyCalledReport, 'ADRB-CTX-003')?.status).toBe('met');
     } finally {
@@ -1192,6 +1238,7 @@ describe('v0.4 evidence calibration', () => {
       await rm(uncalled, { recursive: true, force: true });
       await rm(nestedUncalled, { recursive: true, force: true });
       await rm(nestedDeclarationOnly, { recursive: true, force: true });
+      await rm(splitAcrossUncalledFunctions, { recursive: true, force: true });
       await rm(called, { recursive: true, force: true });
       await rm(transitivelyCalled, { recursive: true, force: true });
     }

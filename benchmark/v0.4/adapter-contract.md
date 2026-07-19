@@ -41,8 +41,9 @@ only when the scanner is the final effective foreground statement and its exit s
 step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
 failure path; comments, inert string literals, and non-empty no-op scripts are insufficient.
-Constant-false branches and validation functions without a call path rooted in top-level execution
-also fail closed; a call from another unreachable function is not evidence of execution.
+Pattern groups are evaluated only over top-level code and function bodies reachable from top-level
+execution. Constant-false branches and unreachable validation functions fail closed; separate
+unreachable functions cannot combine their inert patterns into evidence.
 Scanner modes that require a source target must bind that target to the assessed checkout rather
 than an arbitrary path; explicit source overrides fail closed unless the adapter can prove that
 binding. Repository-relative executables do not inherit a trusted tool identity from their basename.

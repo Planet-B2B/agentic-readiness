@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Semantic negation and structural reachability are outcome-aware
+
+**Context.** Automated review found that an explicit “do not continue outside allowed paths” rule
+lost its scope meaning to generic negation handling, while pattern groups split across unreachable
+functions could combine into false execution evidence.
+
+**Rule.** Encode compound prohibitions that positively establish a boundary, and evaluate all
+required structural groups over one executable source projection rooted in top-level behavior.
+
 ## 2026-07-18 — Flags and repository wrappers are executable-specific
 
 **Context.** Automated review found that one runner's listing flag rejected another runner's valid

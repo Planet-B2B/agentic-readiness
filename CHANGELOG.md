@@ -90,6 +90,8 @@
 - Scope Nox's `-l` listing mode without rejecting Pytest's local-variable display, recognize only
   tracked adapter-declared Maven/Gradle wrappers, and reject malformed GitLab workflow or job-rule
   node shapes.
+- Recognize compound out-of-bounds stop language as both mutation scope and stop evidence, and
+  evaluate validator patterns only across top-level and transitively reachable function bodies.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

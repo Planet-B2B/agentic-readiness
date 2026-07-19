@@ -89,6 +89,7 @@ does not establish behavior. Specification-traceability and knowledge-curation c
 source-bound standard. A recognized specification validator binds an approved work-item reference
 to both implementation and verification artifacts; checking only for a heading is insufficient.
 Constant-false branches and validation functions without a top-level reachable call path fail closed.
+Required structural groups cannot combine across unreachable function bodies.
 Tool-specific discovery or
 listing modes do not count as execution. Fail-fast multiline verification steps may contribute each
 command, while scanners configured to require final exit-status propagation contribute only from the

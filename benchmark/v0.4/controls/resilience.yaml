@@ -82,6 +82,8 @@ controls:
                 outside scope,
                 edit only,
                 do not edit,
+                do not continue outside allowed paths,
+                do not continue outside the allowed paths,
               ]
           - id: resource-bounds
             terms: [budget, token limit, time limit, tool call limit, wall clock limit]
