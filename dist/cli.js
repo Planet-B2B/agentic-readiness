@@ -1819,37 +1819,48 @@ function stripCStyleComments(source) {
     const character = source[index] ?? "";
     const next = source[index + 1] ?? "";
     if (lineComment) {
-      const update = cLineCommentUpdate(character);
-      lineComment = update.active;
-      output += update.output;
+      const update2 = cLineCommentUpdate(character);
+      lineComment = update2.active;
+      output += update2.output;
       continue;
     }
     if (blockComment) {
-      const update = cBlockCommentUpdate(character, next);
-      blockComment = update.active;
-      output += update.output;
-      index += update.advance;
+      const update2 = cBlockCommentUpdate(character, next);
+      blockComment = update2.active;
+      output += update2.output;
+      index += update2.advance;
       continue;
     }
     if (quote) {
-      const update = quotedSourceUpdate(character, quote, escaped);
+      const update2 = quotedSourceUpdate(character, quote, escaped);
       output += character;
-      quote = update.quote;
-      escaped = update.escaped;
+      quote = update2.quote;
+      escaped = update2.escaped;
       continue;
     }
-    if (character === "/" && next === "/") {
-      lineComment = true;
-      index += 1;
-    } else if (character === "/" && next === "*") {
-      blockComment = true;
-      index += 1;
-    } else {
-      if (['"', "'", "`"].includes(character)) quote = character;
-      output += character;
-    }
+    const update = cCodeUpdate(character, next);
+    lineComment = update.lineComment;
+    blockComment = update.blockComment;
+    quote = update.quote;
+    output += update.output;
+    index += update.advance;
   }
   return output;
+}
+function cCodeUpdate(character, next) {
+  if (character === "/" && next === "/") {
+    return { advance: 1, blockComment: false, lineComment: true, output: "", quote: "" };
+  }
+  if (character === "/" && next === "*") {
+    return { advance: 1, blockComment: true, lineComment: false, output: "", quote: "" };
+  }
+  return {
+    advance: 0,
+    blockComment: false,
+    lineComment: false,
+    output: character,
+    quote: ['"', "'", "`"].includes(character) ? character : ""
+  };
 }
 function cLineCommentUpdate(character) {
   return character === "\n" ? { active: false, advance: 0, output: character } : { active: true, advance: 0, output: "" };
@@ -2013,15 +2024,22 @@ function containsPositiveTerm(text, term) {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
-    if (!/\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
-      prefix
-    ) && !/\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b|:\s*none\b/i.test(
-      suffix
-    )) {
+    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix)) {
       return true;
     }
   }
   return false;
+}
+function hasNegativePrefix(value) {
+  const negativeWord = /\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b/i.test(value);
+  const negativeModal = /\b(?:can|do|does|may|must)\s+not\b/i.test(value);
+  return negativeWord || negativeModal;
+}
+function hasNegativeSuffix(value) {
+  const negativeWord = /\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b/i.test(
+    value
+  );
+  return negativeWord || /:\s*none\b/i.test(value);
 }
 function containingClausePrefix(text, end) {
   const before = text.slice(0, end);

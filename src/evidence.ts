@@ -1258,16 +1258,12 @@ function stripCStyleComments(source: string): string {
       escaped = update.escaped;
       continue;
     }
-    if (character === '/' && next === '/') {
-      lineComment = true;
-      index += 1;
-    } else if (character === '/' && next === '*') {
-      blockComment = true;
-      index += 1;
-    } else {
-      if (['"', "'", '`'].includes(character)) quote = character;
-      output += character;
-    }
+    const update = cCodeUpdate(character, next);
+    lineComment = update.lineComment;
+    blockComment = update.blockComment;
+    quote = update.quote;
+    output += update.output;
+    index += update.advance;
   }
   return output;
 }
@@ -1276,6 +1272,30 @@ interface CommentScanUpdate {
   active: boolean;
   advance: number;
   output: string;
+}
+
+interface CodeScanUpdate {
+  advance: number;
+  blockComment: boolean;
+  lineComment: boolean;
+  output: string;
+  quote: string;
+}
+
+function cCodeUpdate(character: string, next: string): CodeScanUpdate {
+  if (character === '/' && next === '/') {
+    return { advance: 1, blockComment: false, lineComment: true, output: '', quote: '' };
+  }
+  if (character === '/' && next === '*') {
+    return { advance: 1, blockComment: true, lineComment: false, output: '', quote: '' };
+  }
+  return {
+    advance: 0,
+    blockComment: false,
+    lineComment: false,
+    output: character,
+    quote: ['"', "'", '`'].includes(character) ? character : '',
+  };
 }
 
 function cLineCommentUpdate(character: string): CommentScanUpdate {
@@ -1502,18 +1522,26 @@ function containsPositiveTerm(text: string, term: string): boolean {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
-    if (
-      !/\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
-        prefix,
-      ) &&
-      !/\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b|:\s*none\b/i.test(
-        suffix,
-      )
-    ) {
+    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix)) {
       return true;
     }
   }
   return false;
+}
+
+function hasNegativePrefix(value: string): boolean {
+  const negativeWord =
+    /\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b/i.test(value);
+  const negativeModal = /\b(?:can|do|does|may|must)\s+not\b/i.test(value);
+  return negativeWord || negativeModal;
+}
+
+function hasNegativeSuffix(value: string): boolean {
+  const negativeWord =
+    /\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b/i.test(
+      value,
+    );
+  return negativeWord || /:\s*none\b/i.test(value);
 }
 
 function containingClausePrefix(text: string, end: number): string {
