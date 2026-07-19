@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Syntax semantics belong to the provider and runtime
+
+**Context.** Automated review found that explicit GitHub shells and disjunctive event conditions,
+Azure multiline failure behavior, multiline source strings, and direct package-manager install
+commands could be interpreted using the wrong execution semantics.
+
+**Rule.** Parse commands only through supported shell and provider guarantees, preserve lexical
+state across lines, model boolean event expressions explicitly, and distinguish package-manager
+built-ins from manifest task invocations before matching tools.
+
 ## 2026-07-18 — Enforced maturity requires execution, inputs, and accountable actors
 
 **Context.** Automated re-review found Level 3 environment, specification, and learning controls

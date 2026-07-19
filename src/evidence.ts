@@ -140,7 +140,12 @@ const npmImplicitScripts = new Map([
   ['test', 'test'],
   ['tst', 'test'],
 ]);
-const npmDirectToolCommands = new Set(['ci']);
+const packageManagerDirectToolCommands = new Map([
+  ['bun', new Set(['install'])],
+  ['npm', new Set(['ci'])],
+  ['pnpm', new Set(['install'])],
+  ['yarn', new Set(['install'])],
+]);
 
 async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
   const found = await fg(patterns, {
@@ -893,7 +898,7 @@ function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvo
     const stepEvents = condition.events;
     if (stepEvents.size === 0) return [];
     if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
-    return githubStepInvocations(step, runDefaults.workingDirectory);
+    return githubStepInvocations(step, runDefaults.workingDirectory, runDefaults.shell);
   });
 }
 
@@ -919,30 +924,46 @@ function githubCheckoutDisposition(step: Record<string, unknown>): 'other' | 'ta
 }
 
 interface GitHubRunDefaults {
+  shell: unknown;
   valid: boolean;
   workingDirectory: unknown;
 }
 
 function githubRunDefaults(value: unknown): GitHubRunDefaults {
-  if (value === undefined) return { valid: true, workingDirectory: undefined };
+  if (value === undefined) return { shell: undefined, valid: true, workingDirectory: undefined };
   const defaults = asRecord(value);
-  if (!defaults) return { valid: false, workingDirectory: undefined };
-  if (defaults.run === undefined) return { valid: true, workingDirectory: undefined };
+  if (!defaults) return { shell: undefined, valid: false, workingDirectory: undefined };
+  if (defaults.run === undefined) {
+    return { shell: undefined, valid: true, workingDirectory: undefined };
+  }
   const run = asRecord(defaults.run);
   return run
-    ? { valid: true, workingDirectory: run['working-directory'] }
-    : { valid: false, workingDirectory: undefined };
+    ? { shell: run.shell, valid: true, workingDirectory: run['working-directory'] }
+    : { shell: undefined, valid: false, workingDirectory: undefined };
 }
 
-function githubStepInvocations(value: unknown, defaultWorkingDirectory: unknown): CiInvocation[] {
+function githubStepInvocations(
+  value: unknown,
+  defaultWorkingDirectory: unknown,
+  defaultShell: unknown,
+): CiInvocation[] {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (step.uses !== undefined && step.run !== undefined) return [];
   const action = invocationFromField(step, 'uses', 'action');
-  const command = githubWorkingDirectoryIsRoot(step['working-directory'] ?? defaultWorkingDirectory)
-    ? invocationFromField(step, 'run', 'command')
-    : null;
+  const command =
+    githubWorkingDirectoryIsRoot(step['working-directory'] ?? defaultWorkingDirectory) &&
+    githubShellSupportsCommands(step.shell ?? defaultShell)
+      ? invocationFromField(step, 'run', 'command')
+      : null;
   return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
+}
+
+function githubShellSupportsCommands(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return ['bash', 'bash {0}', 'sh', 'sh {0}'].includes(normalized);
 }
 
 function githubWorkingDirectoryIsRoot(value: unknown): boolean {
@@ -1089,7 +1110,9 @@ function azureStepInvocations(node: Record<string, unknown>): CiInvocation[] {
     (field) => typeof node[field] === 'string',
   );
   if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
-  return [{ kind: 'command', value: node[commandFields[0] ?? ''] as string }];
+  const value = node[commandFields[0] ?? ''] as string;
+  if (/\r|\n/.test(value)) return [];
+  return [{ kind: 'command', value }];
 }
 
 function azureWorkingDirectoryIsRoot(value: unknown): boolean {
@@ -1206,7 +1229,12 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): GitHu
     .replace(/\b(?:always|success)\(\)/g, '')
     .replace(/[\s${}()&|]/g, '');
   if (unsupported.length > 0) return { certain: false, events: new Set() };
-  if (new Set(equals).size > 1) return { certain: true, events: new Set() };
+  const hasConjunction = condition.includes('&&');
+  const hasDisjunction = condition.includes('||');
+  if (hasConjunction && hasDisjunction) return { certain: false, events: new Set() };
+  if (new Set(equals).size > 1 && !hasDisjunction) {
+    return { certain: true, events: new Set() };
+  }
   const candidates =
     equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
   return {
@@ -1453,7 +1481,7 @@ function packageScriptMatchesTool(
     if (manager !== 'npm' || isPackageExecutionWrapper(tokens)) return null;
     const arguments_ = tokens.slice(1);
     const subcommand = arguments_[skipPackageOptions(arguments_, 0)]?.toLowerCase() ?? '';
-    return npmDirectToolCommands.has(subcommand) ? null : false;
+    return packageManagerDirectToolCommands.get(manager)?.has(subcommand) ? null : false;
   }
   if (invocation.manager === 'bun' && invocation.task === 'test') return null;
   if (invocation.hasForwardedArguments) return false;
@@ -1755,7 +1783,7 @@ function stripCStyleComments(source: string): string {
     }
     if (quote) {
       const update = quotedSourceUpdate(character, quote, escaped);
-      output += character;
+      output += quote === '`' && character !== '\n' && update.quote !== '' ? ' ' : character;
       quote = update.quote;
       escaped = update.escaped;
       continue;
@@ -1968,6 +1996,7 @@ function packageScriptInvocation(
   let index = skipPackageOptions(arguments_, 0);
   const subcommand = arguments_[index]?.toLowerCase() ?? '';
   if (['dlx', 'exec', 'x'].includes(subcommand)) return null;
+  if (packageManagerDirectToolCommands.get(manager)?.has(subcommand)) return null;
   if (['run', 'run-script'].includes(subcommand)) {
     index = skipPackageOptions(arguments_, index + 1);
   } else if (manager === 'npm') {

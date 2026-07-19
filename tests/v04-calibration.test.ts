@@ -962,6 +962,26 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npm run agent-doc-check',
       ].join('\n'),
     });
+    const multilineString = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        'export const description = `',
+        "readFileSync('AGENTS.md');",
+        "throw new Error('invalid guidance');",
+        '`;',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
     const unreachable = await gitFixture({
       'package.json': JSON.stringify({
         scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
@@ -1028,6 +1048,12 @@ describe('v0.4 evidence calibration', () => {
       const commentsReport = await assess(commentsOnly, benchmark, controls, 'pr-creation');
       const executedReport = await assess(executed, benchmark, controls, 'pr-creation');
       const noOpReport = await assess(noOp, benchmark, controls, 'pr-creation');
+      const multilineStringReport = await assess(
+        multilineString,
+        benchmark,
+        controls,
+        'pr-creation',
+      );
       const unreachableReport = await assess(unreachable, benchmark, controls, 'pr-creation');
       const uncalledReport = await assess(uncalled, benchmark, controls, 'pr-creation');
       const calledReport = await assess(called, benchmark, controls, 'pr-creation');
@@ -1037,6 +1063,7 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(executedReport, 'ADRB-CTX-003')?.status).toBe('met');
       expect(controlStatus(executedReport, 'ADRB-TST-003')?.status).toBe('met');
       expect(controlStatus(noOpReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(multilineStringReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(unreachableReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(uncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(calledReport, 'ADRB-CTX-003')?.status).toBe('met');
@@ -1044,6 +1071,7 @@ describe('v0.4 evidence calibration', () => {
       await rm(commentsOnly, { recursive: true, force: true });
       await rm(executed, { recursive: true, force: true });
       await rm(noOp, { recursive: true, force: true });
+      await rm(multilineString, { recursive: true, force: true });
       await rm(unreachable, { recursive: true, force: true });
       await rm(uncalled, { recursive: true, force: true });
       await rm(called, { recursive: true, force: true });
@@ -1144,6 +1172,42 @@ describe('v0.4 evidence calibration', () => {
       );
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes locked installs from each supported JavaScript package manager', async () => {
+    const installers = [
+      'pnpm install --frozen-lockfile',
+      'yarn install --immutable',
+      'bun install --frozen-lockfile',
+    ];
+    const repositories = await Promise.all(
+      installers.map((installer) =>
+        gitFixture({
+          '.github/workflows/verify.yml': [
+            'on: [pull_request]',
+            'jobs:',
+            '  verify:',
+            '    runs-on: ubuntu-latest',
+            '    steps:',
+            '      - uses: actions/checkout@v4',
+            `      - run: ${installer}`,
+            '      - run: pytest',
+            '      - run: mypy .',
+          ].join('\n'),
+        }),
+      ),
+    );
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      for (const repository of repositories) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        expect(controlStatus(report, 'ADRB-ENV-003')?.status).toBe('met');
+      }
+    } finally {
+      await Promise.all(
+        repositories.map(async (repository) => rm(repository, { recursive: true, force: true })),
+      );
     }
   });
 
@@ -1343,6 +1407,26 @@ describe('v0.4 evidence calibration', () => {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const report = await assess(repository, benchmark, controls, 'pr-creation');
       expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('does not assume Azure multiline scripts preserve an earlier command failure', async () => {
+    const repository = await gitFixture({
+      'azure-pipelines.yml': [
+        'pr: [main]',
+        'steps:',
+        '  - checkout: self',
+        '  - script: |',
+        '      pytest',
+        '      mypy .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -1558,6 +1642,55 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('recognizes GitHub jobs explicitly enabled for either integration event', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/security.yml': [
+        'on: [pull_request, merge_group]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        "    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'",
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('does not parse GitHub run text through an unsupported explicit shell', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/security.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    defaults:',
+        '      run:',
+        '        shell: python',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: gitleaks detect',
+        '      - shell: node {0}',
+        '        run: gitleaks detect',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.evidence[0]?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('rejects non-integration conditions, disabled triggers, and non-enforcing scanner text', async () => {
     const repository = await gitFixture({
       '.github/workflows/invalid.yml': [
@@ -1578,6 +1711,8 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npm run gitleaks-info',
         '      - run: npx gitleaks-info',
         '      - run: npx --package gitleaks echo detect',
+        '      - shell: python',
+        '        run: gitleaks detect',
         '      - run: gitleaks --version',
         '      - run: gitleaks help',
         '      - run: gitleaks detect --help',

@@ -1051,7 +1051,12 @@ var npmImplicitScripts = /* @__PURE__ */ new Map([
   ["test", "test"],
   ["tst", "test"]
 ]);
-var npmDirectToolCommands = /* @__PURE__ */ new Set(["ci"]);
+var packageManagerDirectToolCommands = /* @__PURE__ */ new Map([
+  ["bun", /* @__PURE__ */ new Set(["install"])],
+  ["npm", /* @__PURE__ */ new Set(["ci"])],
+  ["pnpm", /* @__PURE__ */ new Set(["install"])],
+  ["yarn", /* @__PURE__ */ new Set(["install"])]
+]);
 async function matches(context, patterns) {
   const found = await fg2(patterns, {
     cwd: context.metadata.root,
@@ -1594,7 +1599,7 @@ function githubJobInvocations(value, parentEvents) {
     const stepEvents = condition.events;
     if (stepEvents.size === 0) return [];
     if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
-    return githubStepInvocations(step, runDefaults.workingDirectory);
+    return githubStepInvocations(step, runDefaults.workingDirectory, runDefaults.shell);
   });
 }
 function hasGithubRunner(value) {
@@ -1613,20 +1618,28 @@ function githubCheckoutDisposition(step) {
   ) ? "other" : "target";
 }
 function githubRunDefaults(value) {
-  if (value === void 0) return { valid: true, workingDirectory: void 0 };
+  if (value === void 0) return { shell: void 0, valid: true, workingDirectory: void 0 };
   const defaults = asRecord(value);
-  if (!defaults) return { valid: false, workingDirectory: void 0 };
-  if (defaults.run === void 0) return { valid: true, workingDirectory: void 0 };
+  if (!defaults) return { shell: void 0, valid: false, workingDirectory: void 0 };
+  if (defaults.run === void 0) {
+    return { shell: void 0, valid: true, workingDirectory: void 0 };
+  }
   const run = asRecord(defaults.run);
-  return run ? { valid: true, workingDirectory: run["working-directory"] } : { valid: false, workingDirectory: void 0 };
+  return run ? { shell: run.shell, valid: true, workingDirectory: run["working-directory"] } : { shell: void 0, valid: false, workingDirectory: void 0 };
 }
-function githubStepInvocations(value, defaultWorkingDirectory) {
+function githubStepInvocations(value, defaultWorkingDirectory, defaultShell) {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (step.uses !== void 0 && step.run !== void 0) return [];
   const action = invocationFromField(step, "uses", "action");
-  const command = githubWorkingDirectoryIsRoot(step["working-directory"] ?? defaultWorkingDirectory) ? invocationFromField(step, "run", "command") : null;
+  const command = githubWorkingDirectoryIsRoot(step["working-directory"] ?? defaultWorkingDirectory) && githubShellSupportsCommands(step.shell ?? defaultShell) ? invocationFromField(step, "run", "command") : null;
   return [action, command].filter((invocation) => invocation !== null);
+}
+function githubShellSupportsCommands(value) {
+  if (value === void 0) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  return ["bash", "bash {0}", "sh", "sh {0}"].includes(normalized);
 }
 function githubWorkingDirectoryIsRoot(value) {
   if (value === void 0) return true;
@@ -1728,7 +1741,9 @@ function azureStepInvocations(node) {
     (field) => typeof node[field] === "string"
   );
   if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
-  return [{ kind: "command", value: node[commandFields[0] ?? ""] }];
+  const value = node[commandFields[0] ?? ""];
+  if (/\r|\n/.test(value)) return [];
+  return [{ kind: "command", value }];
 }
 function azureWorkingDirectoryIsRoot(value) {
   if (value === void 0) return true;
@@ -1825,7 +1840,12 @@ function githubConditionEvents(value, parentEvents) {
   }
   const unsupported = condition.replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, "").replaceAll("!cancelled()", "").replace(/\b(?:always|success)\(\)/g, "").replace(/[\s${}()&|]/g, "");
   if (unsupported.length > 0) return { certain: false, events: /* @__PURE__ */ new Set() };
-  if (new Set(equals).size > 1) return { certain: true, events: /* @__PURE__ */ new Set() };
+  const hasConjunction = condition.includes("&&");
+  const hasDisjunction = condition.includes("||");
+  if (hasConjunction && hasDisjunction) return { certain: false, events: /* @__PURE__ */ new Set() };
+  if (new Set(equals).size > 1 && !hasDisjunction) {
+    return { certain: true, events: /* @__PURE__ */ new Set() };
+  }
   const candidates = equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];
   return {
     certain: true,
@@ -2004,7 +2024,7 @@ function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
     if (manager !== "npm" || isPackageExecutionWrapper(tokens)) return null;
     const arguments_ = tokens.slice(1);
     const subcommand = arguments_[skipPackageOptions(arguments_, 0)]?.toLowerCase() ?? "";
-    return npmDirectToolCommands.has(subcommand) ? null : false;
+    return packageManagerDirectToolCommands.get(manager)?.has(subcommand) ? null : false;
   }
   if (invocation.manager === "bun" && invocation.task === "test") return null;
   if (invocation.hasForwardedArguments) return false;
@@ -2228,7 +2248,7 @@ function stripCStyleComments(source) {
     }
     if (quote) {
       const update2 = quotedSourceUpdate(character, quote, escaped);
-      output += character;
+      output += quote === "`" && character !== "\n" && update2.quote !== "" ? " " : character;
       quote = update2.quote;
       escaped = update2.escaped;
       continue;
@@ -2383,6 +2403,7 @@ function packageScriptInvocation(tokens) {
   let index = skipPackageOptions(arguments_, 0);
   const subcommand = arguments_[index]?.toLowerCase() ?? "";
   if (["dlx", "exec", "x"].includes(subcommand)) return null;
+  if (packageManagerDirectToolCommands.get(manager)?.has(subcommand)) return null;
   if (["run", "run-script"].includes(subcommand)) {
     index = skipPackageOptions(arguments_, index + 1);
   } else if (manager === "npm") {

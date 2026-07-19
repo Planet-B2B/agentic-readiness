@@ -78,6 +78,9 @@
   for approval and merge authority, and parse supported value-taking package-manager options.
 - Parse wrapper option arity before tool identity, preserve status-condition polarity, recognize
   restrictive upper bounds, and exclude contacts under plain-text former-owner sections.
+- Honor supported GitHub run shells and disjunctive integration-event conditions, reject Azure
+  multiline commands whose failure propagation is unresolved, preserve multiline source-string
+  boundaries, and recognize locked installs from pnpm, Yarn, and Bun without treating them as tasks.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB
