@@ -1976,9 +1976,9 @@ function commandSourceMatches(signature, arguments_, bindings) {
   });
 }
 function hasObviouslyUnreachableBranch(source, path) {
-  let pattern = "^\\s*if\\s+(?:false|\\[\\s+(?:false|0)\\s+\\])\\s*;?\\s*then\\b";
-  if (/\.[cm]?[jt]sx?$/i.test(path)) pattern = "\\bif\\s*\\(\\s*(?:false|0)\\s*\\)";
-  else if (/\.py$/i.test(path)) pattern = "^\\s*if\\s+(?:false|0)\\s*:";
+  let pattern = String.raw`^\s*if\s+(?:false|\[\s+(?:false|0)\s+\])\s*;?\s*then\b`;
+  if (/\.[cm]?[jt]sx?$/i.test(path)) pattern = String.raw`\bif\s*\(\s*(?:false|0)\s*\)`;
+  else if (/\.py$/i.test(path)) pattern = String.raw`^\s*if\s+(?:false|0)\s*:`;
   return source.split(/\r?\n/).some((line) => executableSourcePatternMatches(line, pattern));
 }
 function stripSourceComments(source, path) {
