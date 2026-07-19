@@ -1686,9 +1686,7 @@ function sourceLineIsExecutable(
   reachable: Set<string>,
 ): boolean {
   const containingBlocks = blocks.filter((block) => index >= block.start && index <= block.end);
-  return (
-    containingBlocks.length === 0 || containingBlocks.every((block) => reachable.has(block.name))
-  );
+  return containingBlocks.every((block) => reachable.has(block.name));
 }
 
 function reachableSourceFunctionNames(
