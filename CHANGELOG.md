@@ -18,6 +18,9 @@
 - Require pre-integration GitHub activity types, supported event-admitting conditions, literal
   blocking configuration, scan-bearing command arguments, and adapter-declared full action
   identities; validate Markdown ownership scope cells structurally.
+- Require runnable GitHub step jobs, reject job-level reusable workflows as scanner actions, parse
+  complete supported GitLab predicates, preserve scanner exit-status propagation, and detect
+  authority negation across its containing clause.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

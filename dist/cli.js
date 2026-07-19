@@ -1261,11 +1261,13 @@ function githubJobInvocations(value, parentEvents) {
   if (!job || isDisabledCiNode(job)) return [];
   const events = githubConditionEvents(job.if, parentEvents);
   if (events.size === 0) return [];
-  const reusableWorkflow = invocationFromField(job, "uses", "action");
-  return [
-    ...reusableWorkflow ? [reusableWorkflow] : [],
-    ...asArray(job.steps).flatMap((step) => githubStepInvocations(step, events))
-  ];
+  const steps = asArray(job.steps);
+  if (steps.length === 0 || !hasGithubRunner(job["runs-on"])) return [];
+  return steps.flatMap((step) => githubStepInvocations(step, events));
+}
+function hasGithubRunner(value) {
+  if (typeof value === "string") return value.trim().length > 0;
+  return Array.isArray(value) && value.some((entry) => typeof entry === "string" && entry.length > 0);
 }
 function githubStepInvocations(value, parentEvents) {
   const step = asRecord(value);
@@ -1381,7 +1383,7 @@ function hasGitlabMergeRequestRule(value) {
     const rule = asRecord(ruleValue);
     if (!rule) return false;
     if (typeof rule.if !== "string") return !isDisabledCiNode(rule);
-    const comparison = /\bci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]/i.exec(rule.if);
+    const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(rule.if);
     if (!comparison) return false;
     const operator = comparison[1];
     const event = comparison[2]?.toLowerCase();
@@ -1478,7 +1480,9 @@ function executableIdentity(value) {
   return value.split("/").at(-1)?.replace(/\.exe$/i, "").toLowerCase() ?? "";
 }
 function shellStatements(value) {
-  return value.split(/\r?\n|;/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
+  if (value.includes(";")) return [];
+  const statements = value.split(/\r?\n/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
+  return statements.length > 0 ? [statements.at(-1) ?? ""] : [];
 }
 function stringValues(value) {
   if (typeof value === "string") return [value];
@@ -1538,10 +1542,18 @@ function containsPositiveTerm(text, term) {
   const expression = new RegExp(`(^|[^a-z0-9])(${pattern})(?=$|[^a-z0-9])`, "gi");
   for (const match of text.matchAll(expression)) {
     const termStart = match.index + (match[1]?.length ?? 0);
-    const prefix = text.slice(Math.max(0, termStart - 12), termStart);
-    if (!/\b(?:no|not)\s+$/i.test(prefix)) return true;
+    const prefix = containingClausePrefix(text, termStart);
+    if (!/\b(?:cannot|never|no|not)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(prefix)) {
+      return true;
+    }
   }
   return false;
+}
+function containingClausePrefix(text, end) {
+  const before = text.slice(0, end);
+  const boundaries = [...before.matchAll(/[.;:\n]|\bbut\b/gi)];
+  const lastBoundary = boundaries.at(-1);
+  return before.slice(lastBoundary ? lastBoundary.index + lastBoundary[0].length : 0);
 }
 function termPattern(term) {
   return term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");

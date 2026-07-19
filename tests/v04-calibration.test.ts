@@ -313,7 +313,8 @@ describe('v0.4 evidence calibration', () => {
 
   it('does not infer human authority from explicitly negated statements', async () => {
     const repository = await gitFixture({
-      'CONTRIBUTING.md': 'No human may approve changes. No human may merge changes.\n',
+      'CONTRIBUTING.md':
+        'No designated human may approve changes. No designated human may merge changes.\n',
       'OWNERS.md': '- @platform-team\n',
     });
     try {
@@ -383,6 +384,7 @@ describe('v0.4 evidence calibration', () => {
         '    types: [opened, reopened, synchronize]',
         'jobs:',
         '  scan:',
+        '    runs-on: ubuntu-latest',
         '    steps:',
         '      - uses: gitleaks/gitleaks-action@v2',
       ].join('\n'),
@@ -393,6 +395,7 @@ describe('v0.4 evidence calibration', () => {
         'on: [pull_request]',
         'jobs:',
         '  scan:',
+        '    runs-on: ubuntu-latest',
         '    steps:',
         '      - run: echo gitleaks',
       ].join('\n'),
@@ -401,6 +404,7 @@ describe('v0.4 evidence calibration', () => {
         'on: [pull_request]',
         'jobs:',
         '  scan:',
+        '    runs-on: ubuntu-latest',
         '    steps:',
         '      - if: false',
         '        run: gitleaks detect',
@@ -410,6 +414,7 @@ describe('v0.4 evidence calibration', () => {
         'on: [workflow_dispatch]',
         'jobs:',
         '  scan:',
+        '    runs-on: ubuntu-latest',
         '    steps:',
         '      - run: gitleaks detect',
       ].join('\n'),
@@ -578,10 +583,12 @@ describe('v0.4 evidence calibration', () => {
         'on: [push, pull_request]',
         'jobs:',
         '  push-only:',
+        '    runs-on: ubuntu-latest',
         "    if: github.event_name == 'push'",
         '    steps:',
         '      - run: gitleaks detect',
         '  bypasses:',
+        '    runs-on: ubuntu-latest',
         '    steps:',
         '      - run: false && gitleaks detect',
         '      - run: gitleaks detect || true',
@@ -601,6 +608,7 @@ describe('v0.4 evidence calibration', () => {
         '        run: gitleaks detect',
         '      - continue-on-error: ${{ true }}',
         '        run: gitleaks detect',
+        '      - run: set +e; gitleaks detect; exit 0',
       ].join('\n'),
       '.github/workflows/closed.yml': [
         'on:',
@@ -608,8 +616,22 @@ describe('v0.4 evidence calibration', () => {
         '    types: [closed]',
         'jobs:',
         '  scan:',
+        '    runs-on: ubuntu-latest',
         '    steps:',
         '      - run: gitleaks detect',
+      ].join('\n'),
+      '.github/workflows/missing-runner.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    steps:',
+        '      - uses: gitleaks/gitleaks-action@v2',
+      ].join('\n'),
+      '.github/workflows/reusable-job.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    uses: gitleaks/gitleaks-action@v2',
       ].join('\n'),
       '.gitlab-ci.yml': [
         'secret-scan:',
@@ -630,6 +652,12 @@ describe('v0.4 evidence calibration', () => {
         '  rules:',
         `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
         '      allow_failure: true',
+        '  script: gitleaks detect',
+      ].join('\n'),
+      '.gitlab-ci/extra-predicate.yml': [
+        'secret-scan:',
+        '  rules:',
+        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $RUN_SECRET_SCAN == "true"'`,
         '  script: gitleaks detect',
       ].join('\n'),
       '.gitlab-ci/job-allow-failure.yml': [

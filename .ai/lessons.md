@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Prove the check can execute and block
+
+**Context.** Automated re-review found that a GitHub job without a runner, a job-level reusable
+workflow reference, a partially parsed GitLab predicate, or a scanner followed by `exit 0` could
+still appear to be an executable blocking scan; short negation lookback also missed modifiers.
+
+**Rule.** Require an executable provider job shape, validate complete supported conditions, accept
+only a final exit-status-bearing scanner statement, distinguish step actions from reusable jobs, and
+evaluate semantic negation across the containing clause.
+
 ## 2026-07-18 — A scanner name is not a scan
 
 **Context.** Automated re-review found that post-close triggers, unsupported conditions, quoted

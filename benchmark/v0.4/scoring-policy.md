@@ -57,7 +57,8 @@ target-profile headline discloses the number of required controls from each prov
 Repository controls use non-empty files, control-specific term thresholds, semantic component
 groups, structurally identifiable non-placeholder ownership mappings, enabled integration-triggered
 CI invocations with adapter-declared full action identities or executable plus scan-bearing argument
-forms, bounded line windows, and per-pattern candidate limits. Partial evidence remains
+forms, executable job structure, supported complete conditions, and blocking exit-status
+propagation, bounded line windows, and per-pattern candidate limits. Partial evidence remains
 visible but does not pass a control. An ownership artifact, explicit accountable-human approval
 authority, and explicit accountable-human merge authority are independently required for
 `ADRB-GOV-002`; a generic owner/reviewer mention or declared agent authority cannot establish either

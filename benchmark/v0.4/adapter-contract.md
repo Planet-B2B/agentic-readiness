@@ -20,7 +20,9 @@ non-integration steps, manual-only workflows, ineffective shell branches, or doc
 into enforced evidence. Push-only or post-close execution does not establish the before-integration
 outcome; the external platform alternative remains available when enforcement lives outside
 pull-request CI. Unsupported provider conditions and any configured non-literal blocking override
-fail closed.
+fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
+are not step actions. Multi-statement shell forms qualify only when the scanner is the final
+effective statement and its exit status determines the step result.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and
