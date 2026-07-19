@@ -82,7 +82,7 @@ const nonExecutingCommandArguments = new Set([
   'list',
   'version',
 ]);
-const packageOptionsWithValues = new Set([
+const packageContextOptions = new Set([
   '--cwd',
   '--dir',
   '--filter',
@@ -822,33 +822,39 @@ function hasRiskyGitlabDefaults(value: unknown): boolean {
 
 function azureIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
   if (!hasAzurePullRequestTrigger(document.pr)) return [];
-  return collectAzureInvocations(document, false);
+  return collectAzureInvocations(document, 'root');
 }
 
-function collectAzureInvocations(node: Record<string, unknown>, isStep: boolean): CiInvocation[] {
+type AzureNodeKind = 'root' | 'stage' | 'job' | 'step';
+
+function collectAzureInvocations(
+  node: Record<string, unknown>,
+  kind: AzureNodeKind,
+): CiInvocation[] {
   if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
-  const invocations: CiInvocation[] = [];
-  if (isStep) {
-    const commandFields = ['script', 'bash', 'pwsh', 'powershell'].filter(
-      (field) => typeof node[field] === 'string',
-    );
-    if (commandFields.length === 1) {
-      invocations.push({ kind: 'command', value: node[commandFields[0] ?? ''] as string });
-    }
-  }
-  for (const collection of ['stages', 'jobs'] as const) {
-    for (const childValue of asArray(node[collection])) {
-      const child = asRecord(childValue);
-      if (child) invocations.push(...collectAzureInvocations(child, false));
-    }
-  }
-  for (const childValue of asArray(node.steps)) {
+  if (kind === 'step') return azureStepInvocations(node);
+  if (kind === 'stage') return azureChildInvocations(node.jobs, 'job');
+  if (kind === 'job') return azureChildInvocations(node.steps, 'step');
+  return [
+    ...azureChildInvocations(node.stages, 'stage'),
+    ...azureChildInvocations(node.jobs, 'job'),
+    ...azureChildInvocations(node.steps, 'step'),
+  ];
+}
+
+function azureChildInvocations(value: unknown, kind: AzureNodeKind): CiInvocation[] {
+  return asArray(value).flatMap((childValue) => {
     const child = asRecord(childValue);
-    if (child) {
-      invocations.push(...collectAzureInvocations(child, true));
-    }
-  }
-  return invocations;
+    return child ? collectAzureInvocations(child, kind) : [];
+  });
+}
+
+function azureStepInvocations(node: Record<string, unknown>): CiInvocation[] {
+  const commandFields = ['script', 'bash', 'pwsh', 'powershell'].filter(
+    (field) => typeof node[field] === 'string',
+  );
+  if (commandFields.length !== 1) return [];
+  return [{ kind: 'command', value: node[commandFields[0] ?? ''] as string }];
 }
 
 function hasNamedTrigger(value: unknown, names: string[]): boolean {
@@ -1075,12 +1081,22 @@ function commandMatchesTool(
     ...tool.commands.flatMap(({ executables }) => executables),
     ...tool.standalone_executables,
   ];
-  const executableIndex = tokens.findIndex((token) =>
-    recognizedExecutables.some(
-      (executable) => executableIdentity(token) === executable.toLowerCase(),
-    ),
+  return tokens.some(
+    (token, executableIndex) =>
+      recognizedExecutables.some(
+        (executable) => executableIdentity(token) === executable.toLowerCase(),
+      ) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts),
   );
-  if (executableIndex < 0 || !isSupportedExecutablePosition(tokens, executableIndex)) return false;
+}
+
+function executablePositionMatchesTool(
+  tokens: string[],
+  executableIndex: number,
+  tool: CiTool,
+  bindings: RepositoryCommandBindings,
+  visitedScripts: Set<string>,
+): boolean {
+  if (!isSupportedExecutablePosition(tokens, executableIndex)) return false;
   const wrappedPackageMatch = packageScriptMatchesTool(
     tokens.slice(executableIndex),
     tool,
@@ -1115,6 +1131,9 @@ function packageScriptMatchesTool(
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
 ): boolean | null {
+  const manager = executableIdentity(tokens[0] ?? '');
+  if (!['bun', 'npm', 'pnpm', 'yarn'].includes(manager)) return null;
+  if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
   if (!invocation || (invocation.manager === 'bun' && invocation.task === 'test')) return null;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
@@ -1126,6 +1145,10 @@ function packageScriptMatchesTool(
     bindings,
     new Set(visitedScripts).add(invocation.task),
   );
+}
+
+function isPackageContextOption(value: string): boolean {
+  return packageContextOptions.has(value.toLowerCase().split('=')[0] ?? '');
 }
 
 function isSupportedExecutablePosition(tokens: string[], executableIndex: number): boolean {
@@ -1194,12 +1217,107 @@ function commandSourceMatches(
     return (
       source !== undefined &&
       sourceGroupsAreCoLocated(
-        source,
+        stripSourceComments(source, path),
         signature.source_content_groups,
         signature.source_max_span_lines,
       )
     );
   });
+}
+
+function stripSourceComments(source: string, path: string): string {
+  return /\.[cm]?[jt]sx?$/i.test(path) ? stripCStyleComments(source) : stripHashComments(source);
+}
+
+function stripCStyleComments(source: string): string {
+  let output = '';
+  let quote = '';
+  let lineComment = false;
+  let blockComment = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? '';
+    const next = source[index + 1] ?? '';
+    if (lineComment) {
+      const update = cLineCommentUpdate(character);
+      lineComment = update.active;
+      output += update.output;
+      continue;
+    }
+    if (blockComment) {
+      const update = cBlockCommentUpdate(character, next);
+      blockComment = update.active;
+      output += update.output;
+      index += update.advance;
+      continue;
+    }
+    if (quote) {
+      const update = quotedSourceUpdate(character, quote, escaped);
+      output += character;
+      quote = update.quote;
+      escaped = update.escaped;
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      lineComment = true;
+      index += 1;
+    } else if (character === '/' && next === '*') {
+      blockComment = true;
+      index += 1;
+    } else {
+      if (['"', "'", '`'].includes(character)) quote = character;
+      output += character;
+    }
+  }
+  return output;
+}
+
+interface CommentScanUpdate {
+  active: boolean;
+  advance: number;
+  output: string;
+}
+
+function cLineCommentUpdate(character: string): CommentScanUpdate {
+  return character === '\n'
+    ? { active: false, advance: 0, output: character }
+    : { active: true, advance: 0, output: '' };
+}
+
+function cBlockCommentUpdate(character: string, next: string): CommentScanUpdate {
+  if (character === '*' && next === '/') return { active: false, advance: 1, output: '' };
+  return { active: true, advance: 0, output: character === '\n' ? character : '' };
+}
+
+function quotedSourceUpdate(
+  character: string,
+  quote: string,
+  escaped: boolean,
+): { escaped: boolean; quote: string } {
+  if (escaped) return { escaped: false, quote };
+  if (character === '\\') return { escaped: true, quote };
+  return { escaped: false, quote: character === quote ? '' : quote };
+}
+
+function stripHashComments(source: string): string {
+  return source.split(/\r?\n/).map(stripHashComment).join('\n');
+}
+
+function stripHashComment(line: string): string {
+  let quote = '';
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index] ?? '';
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (['"', "'", '`'].includes(character)) quote = character;
+    else if (character === '#') return line.slice(0, index);
+  }
+  return line;
 }
 
 function sourceGroupsAreCoLocated(
@@ -1282,8 +1400,7 @@ function skipPackageOptions(arguments_: string[], start: number): number {
       break;
     }
     if (!argument.startsWith('-')) break;
-    const option = argument.split('=')[0] ?? argument;
-    index += packageOptionsWithValues.has(option) && !argument.includes('=') ? 2 : 1;
+    index += 1;
   }
   return index;
 }
@@ -1386,7 +1503,7 @@ function containsPositiveTerm(text: string, term: string): boolean {
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
     if (
-      !/\b(?:cannot|lacks?|lacking|missing|never|no|not|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
+      !/\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
         prefix,
       ) &&
       !/\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b|:\s*none\b/i.test(
@@ -1401,7 +1518,7 @@ function containsPositiveTerm(text: string, term: string): boolean {
 
 function containingClausePrefix(text: string, end: number): string {
   const before = text.slice(0, end);
-  const boundaries = [...before.matchAll(/[.;:\n]|\bbut\b/gi)];
+  const boundaries = [...before.matchAll(/[.;\n]|\bbut\b/gi)];
   const lastBoundary = boundaries.at(-1);
   return before.slice(lastBoundary ? lastBoundary.index + lastBoundary[0].length : 0);
 }

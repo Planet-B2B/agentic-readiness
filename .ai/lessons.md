@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Static proof must exclude inert text and unresolved context
+
+**Context.** Automated review found that comments could fake validation structure, package context
+flags could bind the wrong manifest, nested `exec` tools were missed, and explicit scanner exit-code
+variables could hide a non-blocking result.
+
+**Rule.** Exclude inert language comments from source evidence, fail closed when execution context
+changes cannot be resolved, inspect every supported executable position, and reject configuration
+overrides whose blocking semantics are unknown.
+
 ## 2026-07-18 — Compose provider gates and preserve semantic context
 
 **Context.** Automated review found that a job gate could override a denied GitLab workflow, package

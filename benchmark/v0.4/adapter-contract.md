@@ -37,8 +37,11 @@ without imposing that restriction on ordinary fail-fast verification steps. Repo
 surfaces that are not recognized may use eligible source-backed agent evidence instead of keyword
 inference. Package-manager task invocations are resolved through the tracked root `package.json` and
 must bind to a recognized executable command even through supported wrappers and global options;
-referenced repository validation scripts must exist as
-non-empty assessed files. A plausible task name, missing path, collection-only test mode, or
+context-changing package/workspace flags fail closed unless their selected manifest is resolved,
+while recognized nested package-exec targets are evaluated at their executable position. Source
+validation excludes language comments before checking bounded structural groups, and referenced
+repository validation scripts must exist as non-empty assessed files. A plausible task name,
+missing path, collection-only test mode, or
 configuration-display mode is insufficient.
 Deterministic provider discovery is limited to auto-loaded entry points: direct GitHub workflow
 YAML files, the root GitLab CI file, and conventional root Azure pipeline files. Include graphs and

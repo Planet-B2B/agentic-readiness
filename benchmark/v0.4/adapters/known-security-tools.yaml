@@ -9,8 +9,7 @@ extensions:
         commands:
           - executables: [gitleaks]
             argument_groups: [[detect]]
-            prohibited_arguments: [--exit-code=0]
-            prohibited_argument_sequences: [[--exit-code, '0']]
+            prohibited_arguments: [--exit-code]
         actions: [gitleaks/gitleaks-action]
       - id: trufflehog
         requires_final_exit_status: true

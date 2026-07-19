@@ -983,7 +983,7 @@ var nonExecutingCommandArguments = /* @__PURE__ */ new Set([
   "list",
   "version"
 ]);
-var packageOptionsWithValues = /* @__PURE__ */ new Set([
+var packageContextOptions = /* @__PURE__ */ new Set([
   "--cwd",
   "--dir",
   "--filter",
@@ -1514,32 +1514,31 @@ function hasRiskyGitlabDefaults(value) {
 }
 function azureIntegrationInvocations(document) {
   if (!hasAzurePullRequestTrigger(document.pr)) return [];
-  return collectAzureInvocations(document, false);
+  return collectAzureInvocations(document, "root");
 }
-function collectAzureInvocations(node, isStep) {
+function collectAzureInvocations(node, kind) {
   if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
-  const invocations = [];
-  if (isStep) {
-    const commandFields = ["script", "bash", "pwsh", "powershell"].filter(
-      (field) => typeof node[field] === "string"
-    );
-    if (commandFields.length === 1) {
-      invocations.push({ kind: "command", value: node[commandFields[0] ?? ""] });
-    }
-  }
-  for (const collection of ["stages", "jobs"]) {
-    for (const childValue of asArray(node[collection])) {
-      const child = asRecord(childValue);
-      if (child) invocations.push(...collectAzureInvocations(child, false));
-    }
-  }
-  for (const childValue of asArray(node.steps)) {
+  if (kind === "step") return azureStepInvocations(node);
+  if (kind === "stage") return azureChildInvocations(node.jobs, "job");
+  if (kind === "job") return azureChildInvocations(node.steps, "step");
+  return [
+    ...azureChildInvocations(node.stages, "stage"),
+    ...azureChildInvocations(node.jobs, "job"),
+    ...azureChildInvocations(node.steps, "step")
+  ];
+}
+function azureChildInvocations(value, kind) {
+  return asArray(value).flatMap((childValue) => {
     const child = asRecord(childValue);
-    if (child) {
-      invocations.push(...collectAzureInvocations(child, true));
-    }
-  }
-  return invocations;
+    return child ? collectAzureInvocations(child, kind) : [];
+  });
+}
+function azureStepInvocations(node) {
+  const commandFields = ["script", "bash", "pwsh", "powershell"].filter(
+    (field) => typeof node[field] === "string"
+  );
+  if (commandFields.length !== 1) return [];
+  return [{ kind: "command", value: node[commandFields[0] ?? ""] }];
 }
 function hasNamedTrigger(value, names) {
   if (typeof value === "string") return names.includes(value.toLowerCase());
@@ -1716,12 +1715,14 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
     ...tool.commands.flatMap(({ executables }) => executables),
     ...tool.standalone_executables
   ];
-  const executableIndex = tokens.findIndex(
-    (token) => recognizedExecutables.some(
-      (executable2) => executableIdentity(token) === executable2.toLowerCase()
-    )
+  return tokens.some(
+    (token, executableIndex) => recognizedExecutables.some(
+      (executable) => executableIdentity(token) === executable.toLowerCase()
+    ) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts)
   );
-  if (executableIndex < 0 || !isSupportedExecutablePosition(tokens, executableIndex)) return false;
+}
+function executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts) {
+  if (!isSupportedExecutablePosition(tokens, executableIndex)) return false;
   const wrappedPackageMatch = packageScriptMatchesTool(
     tokens.slice(executableIndex),
     tool,
@@ -1743,6 +1744,9 @@ function isNonExecutingCommandArgument(value) {
   return nonExecutingCommandArguments.has(normalized) || normalized.startsWith("--help=") || normalized.startsWith("--version=");
 }
 function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
+  const manager = executableIdentity(tokens[0] ?? "");
+  if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
+  if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
   if (!invocation || invocation.manager === "bun" && invocation.task === "test") return null;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
@@ -1754,6 +1758,9 @@ function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
     bindings,
     new Set(visitedScripts).add(invocation.task)
   );
+}
+function isPackageContextOption(value) {
+  return packageContextOptions.has(value.toLowerCase().split("=")[0] ?? "");
 }
 function isSupportedExecutablePosition(tokens, executableIndex) {
   if (executableIndex === 0) return true;
@@ -1793,11 +1800,87 @@ function commandSourceMatches(signature, arguments_, bindings) {
   return sourcePaths.some((path) => {
     const source = bindings.commandSources.get(path);
     return source !== void 0 && sourceGroupsAreCoLocated(
-      source,
+      stripSourceComments(source, path),
       signature.source_content_groups,
       signature.source_max_span_lines
     );
   });
+}
+function stripSourceComments(source, path) {
+  return /\.[cm]?[jt]sx?$/i.test(path) ? stripCStyleComments(source) : stripHashComments(source);
+}
+function stripCStyleComments(source) {
+  let output = "";
+  let quote = "";
+  let lineComment = false;
+  let blockComment = false;
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    const next = source[index + 1] ?? "";
+    if (lineComment) {
+      const update = cLineCommentUpdate(character);
+      lineComment = update.active;
+      output += update.output;
+      continue;
+    }
+    if (blockComment) {
+      const update = cBlockCommentUpdate(character, next);
+      blockComment = update.active;
+      output += update.output;
+      index += update.advance;
+      continue;
+    }
+    if (quote) {
+      const update = quotedSourceUpdate(character, quote, escaped);
+      output += character;
+      quote = update.quote;
+      escaped = update.escaped;
+      continue;
+    }
+    if (character === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+    } else if (character === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+    } else {
+      if (['"', "'", "`"].includes(character)) quote = character;
+      output += character;
+    }
+  }
+  return output;
+}
+function cLineCommentUpdate(character) {
+  return character === "\n" ? { active: false, advance: 0, output: character } : { active: true, advance: 0, output: "" };
+}
+function cBlockCommentUpdate(character, next) {
+  if (character === "*" && next === "/") return { active: false, advance: 1, output: "" };
+  return { active: true, advance: 0, output: character === "\n" ? character : "" };
+}
+function quotedSourceUpdate(character, quote, escaped) {
+  if (escaped) return { escaped: false, quote };
+  if (character === "\\") return { escaped: true, quote };
+  return { escaped: false, quote: character === quote ? "" : quote };
+}
+function stripHashComments(source) {
+  return source.split(/\r?\n/).map(stripHashComment).join("\n");
+}
+function stripHashComment(line) {
+  let quote = "";
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index] ?? "";
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = "";
+      continue;
+    }
+    if (['"', "'", "`"].includes(character)) quote = character;
+    else if (character === "#") return line.slice(0, index);
+  }
+  return line;
 }
 function sourceGroupsAreCoLocated(source, groups, maxSpanLines) {
   const counts = groups.map(() => 0);
@@ -1857,8 +1940,7 @@ function skipPackageOptions(arguments_, start) {
       break;
     }
     if (!argument.startsWith("-")) break;
-    const option = argument.split("=")[0] ?? argument;
-    index += packageOptionsWithValues.has(option) && !argument.includes("=") ? 2 : 1;
+    index += 1;
   }
   return index;
 }
@@ -1931,7 +2013,7 @@ function containsPositiveTerm(text, term) {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
-    if (!/\b(?:cannot|lacks?|lacking|missing|never|no|not|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
+    if (!/\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
       prefix
     ) && !/\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b|:\s*none\b/i.test(
       suffix
@@ -1943,7 +2025,7 @@ function containsPositiveTerm(text, term) {
 }
 function containingClausePrefix(text, end) {
   const before = text.slice(0, end);
-  const boundaries = [...before.matchAll(/[.;:\n]|\bbut\b/gi)];
+  const boundaries = [...before.matchAll(/[.;\n]|\bbut\b/gi)];
   const lastBoundary = boundaries.at(-1);
   return before.slice(lastBoundary ? lastBoundary.index + lastBoundary[0].length : 0);
 }

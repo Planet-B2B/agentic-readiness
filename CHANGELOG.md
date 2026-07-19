@@ -48,6 +48,10 @@
   to checkout/history detection, and preserve package-task binding through wrappers and global flags.
 - Parse mappings inside conventional ownership files, reject former-owner sections, and report the
   scope that actually established mixed-scope controls.
+- Resolve nested package-exec tools, fail closed on package/workspace context switches, preserve
+  negating policy labels, and reject malformed Azure stage-level steps.
+- Exclude source comments from validation-script structure and reject every explicit Gitleaks
+  exit-code override that cannot be proven blocking.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

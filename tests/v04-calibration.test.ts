@@ -353,6 +353,10 @@ describe('v0.4 evidence calibration', () => {
       name: 'does not infer authority from negation after the matched term',
       guidance: 'Reviewer approval is not required. Human merge authority is prohibited.\n',
     },
+    {
+      name: 'does not drop negating labels before authority terms',
+      guidance: 'Not allowed: reviewers may approve. Prohibited: maintainers may merge.\n',
+    },
   ])('$name', async ({ guidance }) => {
     const repository = await gitFixture({
       'CONTRIBUTING.md': guidance,
@@ -725,7 +729,10 @@ describe('v0.4 evidence calibration', () => {
       'package.json': JSON.stringify({
         scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
       }),
-      'scripts/check-agent-docs.js': 'export const validatesAgentGuidance = true;\n',
+      'scripts/check-agent-docs.js': [
+        "// readFileSync('AGENTS.md'); throw new Error('invalid guidance');",
+        'export const validatesAgentGuidance = true;',
+      ].join('\n'),
       '.github/workflows/verify.yml': [
         'on: [pull_request]',
         'jobs:',
@@ -805,6 +812,42 @@ describe('v0.4 evidence calibration', () => {
       );
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on package-context switches but recognizes package exec targets', async () => {
+    const contextSwitch = await gitFixture({
+      'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: npm --prefix packages/noop test',
+        '      - run: mypy .',
+      ].join('\n'),
+    });
+    const packageExec = await gitFixture({
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: pnpm exec vitest',
+        '      - run: npm exec eslint .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const contextReport = await assess(contextSwitch, benchmark, controls, 'pr-creation');
+      const execReport = await assess(packageExec, benchmark, controls, 'pr-creation');
+      expect(controlStatus(contextReport, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(execReport, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(contextSwitch, { recursive: true, force: true });
+      await rm(packageExec, { recursive: true, force: true });
     }
   });
 
@@ -1059,6 +1102,8 @@ describe('v0.4 evidence calibration', () => {
         '      - run: gitleaks detect --exit-code=0',
         "      - run: gitleaks detect --exit-code='0'",
         '      - run: gitleaks detect --exit-code="0"',
+        '      - run: gitleaks detect --exit-code=1',
+        '      - run: gitleaks detect --exit-code=$CODE',
         '      - run: gitleaks protect',
         '      - run: trufflehog git',
         '      - run: trufflehog git --fail=false',
@@ -1243,6 +1288,15 @@ describe('v0.4 evidence calibration', () => {
           '  except:',
           '    variables: [$SKIP_SECRET_SCAN]',
           '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'stages:',
+          '  - stage: Security',
+          '    steps:',
+          '      - script: gitleaks detect',
         ].join('\n'),
       },
       {

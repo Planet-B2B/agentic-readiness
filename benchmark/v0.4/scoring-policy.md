@@ -65,7 +65,7 @@ visible but does not pass a control. An ownership artifact, explicit accountable
 authority, and explicit accountable-human merge authority are independently required for
 `ADRB-GOV-002`; a generic owner/reviewer mention or declared agent authority cannot establish either
 human authority. Directly negated authority statements do not count as positive evidence whether
-negation appears before or after the matched phrase, and
+negation appears before or after the matched phrase, including a colon-delimited policy label, and
 explicit mappings require a recognized repository-wide target or path/component target rather than
 arbitrary or punctuation-only syntax.
 `ADRB-RES-002` requires resource budgets and retry bounds as independent co-located components;
@@ -76,8 +76,11 @@ requires independent test and static-analysis command classes aggregated across 
 entry points. Root package-manager tasks must
 resolve to tracked script definitions whose command bodies establish the applicable command class,
 including when supported wrappers or global package-manager options precede the invocation.
+Context-changing package/workspace options require resolution of the selected manifest or fail
+closed; nested package-exec tools may qualify only at a supported executable position.
 Custom guidance validators additionally require adapter-declared validation structures in the
-executed tracked source; file presence alone does not establish behavior. Tool-specific discovery or
+executed tracked source after language comments are excluded; file presence or comment text alone
+does not establish behavior. Tool-specific discovery or
 listing modes do not count as execution. Fail-fast multiline verification steps may contribute each
 command, while scanners configured to require final exit-status propagation contribute only from the
 final effective command.
