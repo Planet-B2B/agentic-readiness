@@ -1,9 +1,13 @@
 {
   "name": "mature-fixture",
   "private": true,
+  "type": "module",
   "scripts": {
     "agent-doc-check": "tsx scripts/check-agent-docs.ts",
+    "check": "npm run test && npm run typecheck && npm run lint",
+    "knowledge-curator": "tsx scripts/check-knowledge.ts",
     "lint": "eslint .",
+    "spec-check": "tsx scripts/check-specs.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   }

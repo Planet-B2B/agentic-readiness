@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Preserve target and arguments through every execution layer
+
+**Context.** Automated review found that a checkout action could select another repository or ref,
+package-task forwarding could hide prohibited scanner/test modes, and a positive fixture invoked
+undeclared tasks; the normative containment outcome also omitted its required retry bound.
+
+**Rule.** Validate repository identity and command arguments through checkout, package-manager, and
+script layers; require positive fixtures to describe runnable paths; and keep outcome text exactly
+aligned with every independently required evidence component.
+
 ## 2026-07-18 — Names do not establish executable or accountable identity
 
 **Context.** Automated review found that npm built-ins could bind same-named manifest scripts,

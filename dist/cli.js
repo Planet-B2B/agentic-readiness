@@ -1515,7 +1515,13 @@ function hasGithubRunner(value) {
 }
 function isGithubCheckoutStep(step) {
   if (step.run !== void 0 || typeof step.uses !== "string") return false;
-  return /^actions\/checkout@[^@\s]+$/i.test(step.uses.trim());
+  if (!/^actions\/checkout@[^@\s]+$/i.test(step.uses.trim())) return false;
+  if (step.with === void 0) return true;
+  const inputs = asRecord(step.with);
+  if (!inputs) return false;
+  return !["filter", "path", "ref", "repository", "sparse-checkout"].some(
+    (field) => Object.hasOwn(inputs, field)
+  );
 }
 function githubStepInvocations(value, parentEvents) {
   const step = asRecord(value);
@@ -1558,12 +1564,22 @@ function isSupportedBlockingGitlabWhen(value) {
 function gitlabRepositoryAvailable(globalValue, jobValue) {
   const globalVariables = asRecord(globalValue);
   const jobVariables = asRecord(jobValue);
-  const strategy = jobVariables?.git_strategy ?? globalVariables?.git_strategy;
-  const checkout = jobVariables?.git_checkout ?? globalVariables?.git_checkout;
+  const strategy = effectiveCiVariable(jobVariables, globalVariables, "GIT_STRATEGY");
+  const checkout = effectiveCiVariable(jobVariables, globalVariables, "GIT_CHECKOUT");
   if (checkout === false || typeof checkout === "string" && checkout.toLowerCase() === "false") {
     return false;
   }
   return strategy === void 0 || typeof strategy === "string" && ["clone", "fetch"].includes(strategy.toLowerCase());
+}
+function effectiveCiVariable(primary, fallback, name) {
+  const keys = [name, name.toLowerCase()];
+  for (const source of [primary, fallback]) {
+    if (!source) continue;
+    for (const key of keys) {
+      if (Object.hasOwn(source, key)) return source[key];
+    }
+  }
+  return void 0;
 }
 function hasRiskyGitlabDefaults(value) {
   if (value === void 0) return false;
@@ -1830,6 +1846,7 @@ function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
   const invocation = packageScriptInvocation(tokens);
   if (!invocation) return manager === "npm" && !isPackageExecutionWrapper(tokens) ? false : null;
   if (invocation.manager === "bun" && invocation.task === "test") return null;
+  if (invocation.hasForwardedArguments) return false;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
   const script = bindings.packageScripts.get(invocation.task);
   if (!script) return false;
@@ -2094,10 +2111,17 @@ function packageScriptInvocation(tokens) {
     index = skipPackageOptions(arguments_, index + 1);
   } else if (manager === "npm") {
     const implicitTask = npmImplicitScripts.get(subcommand);
-    return implicitTask ? { manager, task: implicitTask } : null;
+    return implicitTask ? {
+      hasForwardedArguments: hasForwardedPackageArguments(arguments_, index),
+      manager,
+      task: implicitTask
+    } : null;
   }
   const task = arguments_[index]?.toLowerCase();
-  return task ? { manager, task } : null;
+  return task ? { hasForwardedArguments: hasForwardedPackageArguments(arguments_, index), manager, task } : null;
+}
+function hasForwardedPackageArguments(arguments_, taskIndex) {
+  return arguments_.slice(taskIndex + 1).some((argument) => argument !== "--");
 }
 function skipPackageOptions(arguments_, start) {
   let index = start;

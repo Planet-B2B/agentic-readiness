@@ -800,7 +800,13 @@ function hasGithubRunner(value: unknown): boolean {
 
 function isGithubCheckoutStep(step: Record<string, unknown>): boolean {
   if (step.run !== undefined || typeof step.uses !== 'string') return false;
-  return /^actions\/checkout@[^@\s]+$/i.test(step.uses.trim());
+  if (!/^actions\/checkout@[^@\s]+$/i.test(step.uses.trim())) return false;
+  if (step.with === undefined) return true;
+  const inputs = asRecord(step.with);
+  if (!inputs) return false;
+  return !['filter', 'path', 'ref', 'repository', 'sparse-checkout'].some((field) =>
+    Object.hasOwn(inputs, field),
+  );
 }
 
 function githubStepInvocations(value: unknown, parentEvents: Set<string>): CiInvocation[] {
@@ -863,8 +869,8 @@ function isSupportedBlockingGitlabWhen(value: unknown): boolean {
 function gitlabRepositoryAvailable(globalValue: unknown, jobValue: unknown): boolean {
   const globalVariables = asRecord(globalValue);
   const jobVariables = asRecord(jobValue);
-  const strategy = jobVariables?.git_strategy ?? globalVariables?.git_strategy;
-  const checkout = jobVariables?.git_checkout ?? globalVariables?.git_checkout;
+  const strategy = effectiveCiVariable(jobVariables, globalVariables, 'GIT_STRATEGY');
+  const checkout = effectiveCiVariable(jobVariables, globalVariables, 'GIT_CHECKOUT');
   if (checkout === false || (typeof checkout === 'string' && checkout.toLowerCase() === 'false')) {
     return false;
   }
@@ -872,6 +878,21 @@ function gitlabRepositoryAvailable(globalValue: unknown, jobValue: unknown): boo
     strategy === undefined ||
     (typeof strategy === 'string' && ['clone', 'fetch'].includes(strategy.toLowerCase()))
   );
+}
+
+function effectiveCiVariable(
+  primary: Record<string, unknown> | null,
+  fallback: Record<string, unknown> | null,
+  name: string,
+): unknown {
+  const keys = [name, name.toLowerCase()];
+  for (const source of [primary, fallback]) {
+    if (!source) continue;
+    for (const key of keys) {
+      if (Object.hasOwn(source, key)) return source[key];
+    }
+  }
+  return undefined;
 }
 
 function hasRiskyGitlabDefaults(value: unknown): boolean {
@@ -1223,6 +1244,7 @@ function packageScriptMatchesTool(
   const invocation = packageScriptInvocation(tokens);
   if (!invocation) return manager === 'npm' && !isPackageExecutionWrapper(tokens) ? false : null;
   if (invocation.manager === 'bun' && invocation.task === 'test') return null;
+  if (invocation.hasForwardedArguments) return false;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
   const script = bindings.packageScripts.get(invocation.task);
   if (!script) return false;
@@ -1572,7 +1594,9 @@ function normalizeCommandArgument(value: string): string {
   return normalized.replace(/=(["'])([^"']*)\1$/, '=$2');
 }
 
-function packageScriptInvocation(tokens: string[]): { manager: string; task: string } | null {
+function packageScriptInvocation(
+  tokens: string[],
+): { hasForwardedArguments: boolean; manager: string; task: string } | null {
   const manager = executableIdentity(tokens[0] ?? '');
   if (!['bun', 'npm', 'pnpm', 'yarn'].includes(manager)) return null;
   const arguments_ = tokens.slice(1);
@@ -1583,10 +1607,22 @@ function packageScriptInvocation(tokens: string[]): { manager: string; task: str
     index = skipPackageOptions(arguments_, index + 1);
   } else if (manager === 'npm') {
     const implicitTask = npmImplicitScripts.get(subcommand);
-    return implicitTask ? { manager, task: implicitTask } : null;
+    return implicitTask
+      ? {
+          hasForwardedArguments: hasForwardedPackageArguments(arguments_, index),
+          manager,
+          task: implicitTask,
+        }
+      : null;
   }
   const task = arguments_[index]?.toLowerCase();
-  return task ? { manager, task } : null;
+  return task
+    ? { hasForwardedArguments: hasForwardedPackageArguments(arguments_, index), manager, task }
+    : null;
+}
+
+function hasForwardedPackageArguments(arguments_: string[], taskIndex: number): boolean {
+  return arguments_.slice(taskIndex + 1).some((argument) => argument !== '--');
 }
 
 function skipPackageOptions(arguments_: string[], start: number): number {

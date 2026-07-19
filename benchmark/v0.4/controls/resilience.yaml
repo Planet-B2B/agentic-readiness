@@ -38,7 +38,7 @@ controls:
   - id: ADRB-RES-002
     level: 2
     title: Failure containment and stop conditions are documented
-    outcome: Agent guidance defines mutation limits, budgets, stop triggers, escalation, and recovery ownership.
+    outcome: Agent guidance defines mutation limits, resource budgets, retry bounds, stop triggers, escalation, and recovery ownership.
     risk: A looping or confused agent continues spending or mutating beyond the intended scope.
     allow_agent_evidence: true
     agent_evidence_scopes: [repository]

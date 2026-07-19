@@ -695,6 +695,19 @@ describe('v0.4 evidence calibration', () => {
         ].join('\n'),
       },
       {
+        '.github/workflows/other-checkout.yml': [
+          'on: [pull_request]',
+          'jobs:',
+          '  scan:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          '        with:',
+          '          repository: another/example',
+          '      - run: gitleaks detect',
+        ].join('\n'),
+      },
+      {
         '.gitlab-ci.yml': [
           'variables:',
           '  GIT_STRATEGY: none',
@@ -929,6 +942,40 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
       expect(controlStatus(report, 'ADRB-TST-003')?.evidence[0]?.summary).toContain(
         'aggregate command-class match 0/2',
+      );
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects unresolved arguments forwarded to recognized package tasks', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: {
+          lint: 'eslint .',
+          'secret-scan': 'gitleaks detect',
+          test: 'vitest run',
+        },
+      }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run secret-scan -- --exit-code 0',
+        '      - run: npm test -- --fixtures',
+        '      - run: npm run lint',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.evidence[0]?.summary).toContain(
+        'aggregate command-class match 1/2',
       );
     } finally {
       await rm(repository, { recursive: true, force: true });

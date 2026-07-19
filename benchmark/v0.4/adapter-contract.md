@@ -31,7 +31,8 @@ inheritance, `except` conditions, non-blocking defaults, disabled source checkou
 job disposition also fail closed. Repository-bound commands qualify only after the provider has
 made the assessed repository available: GitHub requires a preceding `actions/checkout` step,
 GitLab must retain its clone/fetch checkout, and Azure must retain its default checkout or execute
-`checkout: self` before the command. Multi-statement shell forms qualify
+`checkout: self` before the command. GitHub checkout inputs that select another repository, ref,
+path, sparse subset, or object filter cannot establish this state. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
 step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
@@ -50,7 +51,8 @@ must bind to a recognized executable command even through supported wrappers and
 context-changing package/workspace flags fail closed unless their selected manifest is resolved,
 while recognized nested package-exec targets are evaluated at their executable position. Package
 manager built-ins are not treated as same-named scripts: npm resolves arbitrary task names only
-through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible. Source
+through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible.
+Arguments forwarded to a package task fail closed unless their effect is structurally resolved. Source
 validation excludes language comments before checking bounded structural groups, and referenced
 repository validation scripts must exist as non-empty assessed files. A plausible task name,
 missing path, collection-only test mode, or
