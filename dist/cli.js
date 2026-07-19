@@ -89,10 +89,19 @@ var CiProviderSchema = z.object({
   id: z.enum(["github-actions", "gitlab-ci", "azure-pipelines"]),
   files: z.array(z.string().min(1)).min(1)
 });
+var SourcePatternSchema = z.string().min(1).refine((pattern) => {
+  try {
+    new RegExp(pattern, "u");
+    return true;
+  } catch {
+    return false;
+  }
+}, "Source patterns must be valid regular expressions");
 var CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
   argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
   source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
   source_max_span_lines: z.number().int().positive().max(200).default(120),
   prohibited_arguments: z.array(z.string().min(1)).default([]),
   prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([])
@@ -1436,7 +1445,7 @@ async function repositoryCommandBindings(context, tools) {
   }
 }
 function isRepositoryCommandPath(value) {
-  return /(?:^|\/)scripts?\/|^\.{0,2}\//i.test(value);
+  return /(?:^|\/)scripts?\/|^\.{1,2}\/.+/i.test(value);
 }
 function normalizeCommandPath(value) {
   return value.replace(/^\.\//, "");
@@ -1466,11 +1475,27 @@ function githubJobInvocations(value, parentEvents) {
   if (events.size === 0) return [];
   const steps = asArray(job.steps);
   if (steps.length === 0 || !hasGithubRunner(job["runs-on"])) return [];
-  return steps.flatMap((step) => githubStepInvocations(step, events));
+  const checkoutEvents = /* @__PURE__ */ new Set();
+  return steps.flatMap((stepValue) => {
+    const step = asRecord(stepValue);
+    if (!step || isDisabledCiNode(step)) return [];
+    const stepEvents = githubConditionEvents(step.if, events);
+    if (stepEvents.size === 0) return [];
+    if (isGithubCheckoutStep(step)) {
+      stepEvents.forEach((event) => checkoutEvents.add(event));
+      return [];
+    }
+    if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
+    return githubStepInvocations(step, stepEvents);
+  });
 }
 function hasGithubRunner(value) {
   if (typeof value === "string") return value.trim().length > 0;
   return Array.isArray(value) && value.some((entry) => typeof entry === "string" && entry.length > 0);
+}
+function isGithubCheckoutStep(step) {
+  if (step.run !== void 0 || typeof step.uses !== "string") return false;
+  return /^actions\/checkout@[^@\s]+$/i.test(step.uses.trim());
 }
 function githubStepInvocations(value, parentEvents) {
   const step = asRecord(value);
@@ -1492,18 +1517,33 @@ function gitlabIntegrationInvocations(document) {
   if (hasWorkflowRules && !workflowAllowsMergeRequests) return [];
   if (hasRiskyGitlabDefaults(document.default)) return [];
   return Object.entries(document).flatMap(
-    ([name, value]) => gitlabJobInvocations(name, value, workflowAllowsMergeRequests)
+    ([name, value]) => gitlabJobInvocations(name, value, workflowAllowsMergeRequests, document.variables)
   );
 }
-function gitlabJobInvocations(name, value, workflowAllowsMergeRequests) {
+function gitlabJobInvocations(name, value, workflowAllowsMergeRequests, globalVariables) {
   if (name.startsWith(".") || gitlabReservedKeys.has(name)) return [];
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
   if (job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0) return [];
+  if (!isSupportedBlockingGitlabWhen(job.when)) return [];
+  if (!gitlabRepositoryAvailable(globalVariables, job.variables)) return [];
   const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
   const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasUnconditionallyNamedTrigger(job.only, ["merge_requests"]);
   if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) return [];
   return stringValues(job.script).map((command) => ({ kind: "command", value: command }));
+}
+function isSupportedBlockingGitlabWhen(value) {
+  return value === void 0 || typeof value === "string" && ["always", "on_success"].includes(value.toLowerCase());
+}
+function gitlabRepositoryAvailable(globalValue, jobValue) {
+  const globalVariables = asRecord(globalValue);
+  const jobVariables = asRecord(jobValue);
+  const strategy = jobVariables?.git_strategy ?? globalVariables?.git_strategy;
+  const checkout = jobVariables?.git_checkout ?? globalVariables?.git_checkout;
+  if (checkout === false || typeof checkout === "string" && checkout.toLowerCase() === "false") {
+    return false;
+  }
+  return strategy === void 0 || typeof strategy === "string" && ["clone", "fetch"].includes(strategy.toLowerCase());
 }
 function hasRiskyGitlabDefaults(value) {
   if (value === void 0) return false;
@@ -1520,11 +1560,11 @@ function collectAzureInvocations(node, kind) {
   if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
   if (kind === "step") return azureStepInvocations(node);
   if (kind === "stage") return azureChildInvocations(node.jobs, "job");
-  if (kind === "job") return azureChildInvocations(node.steps, "step");
+  if (kind === "job") return azureStepsInvocations(node.steps);
   return [
     ...azureChildInvocations(node.stages, "stage"),
     ...azureChildInvocations(node.jobs, "job"),
-    ...azureChildInvocations(node.steps, "step")
+    ...azureStepsInvocations(node.steps)
   ];
 }
 function azureChildInvocations(value, kind) {
@@ -1539,6 +1579,24 @@ function azureStepInvocations(node) {
   );
   if (commandFields.length !== 1) return [];
   return [{ kind: "command", value: node[commandFields[0] ?? ""] }];
+}
+function azureStepsInvocations(value) {
+  const steps = asArray(value);
+  let repositoryAvailable = !steps.some((stepValue) => {
+    const step = asRecord(stepValue);
+    return step !== null && Object.hasOwn(step, "checkout");
+  });
+  return steps.flatMap((stepValue) => {
+    const step = asRecord(stepValue);
+    if (!step || isDisabledCiNode(step) || !azureConditionAllowsPullRequest(step.condition)) {
+      return [];
+    }
+    if (Object.hasOwn(step, "checkout")) {
+      repositoryAvailable = typeof step.checkout === "string" && step.checkout.toLowerCase() === "self";
+      return [];
+    }
+    return repositoryAvailable ? azureStepInvocations(step) : [];
+  });
 }
 function hasNamedTrigger(value, names) {
   if (typeof value === "string") return names.includes(value.toLowerCase());
@@ -1795,13 +1853,21 @@ function hasProhibitedArguments(configuration, arguments_) {
   );
 }
 function commandSourceMatches(signature, arguments_, bindings) {
-  if (signature.source_content_groups.length === 0) return true;
+  if (signature.source_content_groups.length === 0 && signature.source_pattern_groups.length === 0) {
+    return true;
+  }
   const sourcePaths = signature.argument_groups.flat().filter(isRepositoryCommandPath).map(normalizeCommandPath).filter((path) => arguments_.some((argument) => normalizeCommandPath(argument) === path));
   return sourcePaths.some((path) => {
     const source = bindings.commandSources.get(path);
-    return source !== void 0 && sourceGroupsAreCoLocated(
-      stripSourceComments(source, path),
+    if (source === void 0) return false;
+    const uncommented = stripSourceComments(source, path);
+    return sourceGroupsAreCoLocated(
+      uncommented,
       signature.source_content_groups,
+      signature.source_max_span_lines
+    ) && sourcePatternGroupsAreCoLocated(
+      uncommented,
+      signature.source_pattern_groups,
       signature.source_max_span_lines
     );
   });
@@ -1897,8 +1963,9 @@ function sourceGroupsAreCoLocated(source, groups, maxSpanLines) {
   const counts = groups.map(() => 0);
   const lines = source.split(/\r?\n/);
   const update = (line, direction) => {
+    const normalizedLine = line.toLowerCase();
     groups.forEach((terms, index) => {
-      if (terms.some((term) => line.includes(term.toLowerCase()))) {
+      if (terms.some((term) => normalizedLine.includes(term.toLowerCase()))) {
         counts[index] = (counts[index] ?? 0) + direction;
       }
     });
@@ -1909,6 +1976,52 @@ function sourceGroupsAreCoLocated(source, groups, maxSpanLines) {
     if (counts.every((count) => count > 0)) return true;
   }
   return false;
+}
+function sourcePatternGroupsAreCoLocated(source, groups, maxSpanLines) {
+  if (groups.length === 0) return true;
+  const counts = groups.map(() => 0);
+  const lines = source.split(/\r?\n/);
+  const update = (line, direction) => {
+    groups.forEach((patterns, index) => {
+      if (patterns.some((pattern) => executableSourcePatternMatches(line, pattern))) {
+        counts[index] = (counts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    if (counts.every((count) => count > 0)) return true;
+  }
+  return false;
+}
+function executableSourcePatternMatches(line, pattern) {
+  const expression = new RegExp(pattern, "giu");
+  for (const match of line.matchAll(expression)) {
+    if (!sourceIndexIsQuoted(line, match.index)) return true;
+  }
+  return false;
+}
+function sourceIndexIsQuoted(line, targetIndex) {
+  let quote = "";
+  let escaped = false;
+  for (let index = 0; index < targetIndex; index += 1) {
+    const character = line[index] ?? "";
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = "";
+    } else if (['"', "'", "`"].includes(character)) {
+      quote = character;
+    }
+  }
+  return quote.length > 0;
 }
 function commandArgumentMatches(argument, actualArguments, bindings) {
   const normalizedArgument = argument.toLowerCase();

@@ -86,6 +86,7 @@ describe('benchmark catalog', () => {
             executables: ['gitleaks'],
             argument_groups: [['detect']],
             source_content_groups: [],
+            source_pattern_groups: [],
             source_max_span_lines: 120,
             prohibited_arguments: ['--exit-code'],
             prohibited_argument_sequences: [],
@@ -136,6 +137,7 @@ describe('benchmark catalog', () => {
       executables: ['cargo'],
       argument_groups: [['clippy', 'check']],
       source_content_groups: [],
+      source_pattern_groups: [],
       source_max_span_lines: 120,
       prohibited_arguments: [],
       prohibited_argument_sequences: [],
@@ -144,6 +146,7 @@ describe('benchmark catalog', () => {
       executables: ['go'],
       argument_groups: [['vet']],
       source_content_groups: [],
+      source_pattern_groups: [],
       source_max_span_lines: 120,
       prohibited_arguments: [],
       prohibited_argument_sequences: [],
@@ -313,9 +316,14 @@ describe('benchmark catalog', () => {
         claims?: {
           additionalProperties?: {
             allOf?: Array<{
+              if?: {
+                required?: string[];
+                properties?: { error?: { type?: string } };
+              };
               then?: {
                 properties?: {
                   references?: { items?: { pattern?: string } };
+                  status?: { const?: string };
                 };
               };
             }>;
@@ -323,9 +331,9 @@ describe('benchmark catalog', () => {
         };
       };
     };
-    const pattern =
-      schema.properties?.claims?.additionalProperties?.allOf?.[0]?.then?.properties?.references
-        ?.items?.pattern;
+    const pattern = schema.properties?.claims?.additionalProperties?.allOf
+      ?.map(({ then }) => then?.properties?.references?.items?.pattern)
+      .find((candidate): candidate is string => typeof candidate === 'string');
     expect(pattern).toBeDefined();
     const reference = new RegExp(pattern ?? '');
 
@@ -348,6 +356,12 @@ describe('benchmark catalog', () => {
     ]) {
       expect(reference.test(invalid), invalid).toBe(false);
     }
+
+    const errorInvariant = schema.properties?.claims?.additionalProperties?.allOf?.find(
+      (rule) => rule.if?.properties?.error?.type === 'string',
+    );
+    expect(errorInvariant?.if?.required).toContain('error');
+    expect(errorInvariant?.then?.properties?.status?.const).toBe('unknown');
   });
 
   it('uses an unmistakable unbound commit placeholder in the static evidence template', async () => {

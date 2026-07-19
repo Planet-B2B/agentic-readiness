@@ -431,6 +431,7 @@ describe('v0.4 evidence calibration', () => {
         '  scan:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - uses: gitleaks/gitleaks-action@v2',
       ].join('\n'),
     });
@@ -592,7 +593,8 @@ describe('v0.4 evidence calibration', () => {
         '  scan:',
         '    runs-on: ubuntu-latest',
         '    steps:',
-        '      - run: trufflehog git --fail',
+        '      - uses: actions/checkout@v4',
+        '      - run: trufflehog git file://. --fail',
       ].join('\n'),
     });
     const advisory = await gitFixture({
@@ -602,18 +604,112 @@ describe('v0.4 evidence calibration', () => {
         '  scan:',
         '    runs-on: ubuntu-latest',
         '    steps:',
-        '      - run: trufflehog git',
+        '      - uses: actions/checkout@v4',
+        '      - run: trufflehog git file://.',
+      ].join('\n'),
+    });
+    const sourceLess = await gitFixture({
+      '.github/workflows/security.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: trufflehog git --fail',
+      ].join('\n'),
+    });
+    const unrelatedSource = await gitFixture({
+      '.github/workflows/security.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: trufflehog filesystem /tmp/unrelated --fail',
       ].join('\n'),
     });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const blockingReport = await assess(blocking, benchmark, controls, 'pr-creation');
       const advisoryReport = await assess(advisory, benchmark, controls, 'pr-creation');
+      const sourceLessReport = await assess(sourceLess, benchmark, controls, 'pr-creation');
+      const unrelatedSourceReport = await assess(
+        unrelatedSource,
+        benchmark,
+        controls,
+        'pr-creation',
+      );
       expect(controlStatus(blockingReport, 'ADRB-SEC-003')?.status).toBe('met');
       expect(controlStatus(advisoryReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(sourceLessReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(unrelatedSourceReport, 'ADRB-SEC-003')?.status).toBe('unknown');
     } finally {
       await rm(blocking, { recursive: true, force: true });
       await rm(advisory, { recursive: true, force: true });
+      await rm(sourceLess, { recursive: true, force: true });
+      await rm(unrelatedSource, { recursive: true, force: true });
+    }
+  });
+
+  it('requires repository contents before repository-bound CI commands execute', async () => {
+    const configurations: Array<Record<string, string>> = [
+      {
+        '.github/workflows/no-checkout.yml': [
+          'on: [pull_request]',
+          'jobs:',
+          '  scan:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - run: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.github/workflows/late-checkout.yml': [
+          'on: [pull_request]',
+          'jobs:',
+          '  scan:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - run: gitleaks detect',
+          '      - uses: actions/checkout@v4',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'variables:',
+          '  GIT_STRATEGY: none',
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        'azure-pipelines.yml': [
+          'pr: [main]',
+          'steps:',
+          '  - checkout: none',
+          '  - script: gitleaks detect',
+        ].join('\n'),
+      },
+    ];
+    const repositories = await Promise.all(configurations.map(gitFixture));
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const statuses: Array<{ control: string | undefined; repository: string | undefined }> = [];
+      for (const repository of repositories) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        const security = controlStatus(report, 'ADRB-SEC-003');
+        statuses.push({ control: security?.status, repository: security?.evidence[0]?.status });
+      }
+      expect(statuses).toEqual(
+        configurations.map(() => ({ control: 'unknown', repository: 'not_met' })),
+      );
+    } finally {
+      await Promise.all(
+        repositories.map(async (repository) => rm(repository, { recursive: true, force: true })),
+      );
     }
   });
 
@@ -720,6 +816,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: npm run agent-doc-check',
         '      - run: npm test',
         '      - run: npm run typecheck',
@@ -731,6 +828,9 @@ describe('v0.4 evidence calibration', () => {
       }),
       'scripts/check-agent-docs.js': [
         "// readFileSync('AGENTS.md'); throw new Error('invalid guidance');",
+        "const target = 'agent guidance';",
+        "const reader = 'readFileSync';",
+        "const failure = 'throw new Error';",
         'export const validatesAgentGuidance = true;',
       ].join('\n'),
       '.github/workflows/verify.yml': [
@@ -739,6 +839,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: npm run agent-doc-check',
       ].join('\n'),
     });
@@ -798,6 +899,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: sudo npm test',
         '      - run: npx npm test',
         '      - run: mypy .',
@@ -824,6 +926,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: npm --prefix packages/noop test',
         '      - run: mypy .',
       ].join('\n'),
@@ -835,6 +938,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: pnpm exec vitest',
         '      - run: npm exec eslint .',
       ].join('\n'),
@@ -859,6 +963,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: pytest --fixtures',
         '      - run: pytest --fixtures=true',
         '      - run: pytest --markers',
@@ -885,6 +990,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: |',
         '          pytest',
         '          mypy .',
@@ -937,6 +1043,7 @@ describe('v0.4 evidence calibration', () => {
         '  tests:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: pytest',
       ].join('\n'),
       '.github/workflows/static-analysis.yml': [
@@ -945,6 +1052,7 @@ describe('v0.4 evidence calibration', () => {
         '  static-analysis:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: mypy .',
       ].join('\n'),
     });
@@ -977,6 +1085,7 @@ describe('v0.4 evidence calibration', () => {
         '  verify:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: npm --silent run test',
         '      - run: npm --silent run lint',
       ].join('\n'),
@@ -1250,6 +1359,14 @@ describe('v0.4 evidence calibration', () => {
           '  only:',
           '    refs: [merge_requests]',
           '    changes: [docs/**]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  when: on_failure',
           '  script: gitleaks detect',
         ].join('\n'),
       },

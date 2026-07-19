@@ -25,11 +25,17 @@ when enforcement lives outside pull-request CI. Unsupported provider conditions 
 non-literal blocking override fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
 are not step actions, and invalid steps that combine `uses` with `run` are rejected. Provider path
 filters and GitLab rules with unparsed gating fields fail closed. GitLab jobs with unresolved
-inheritance, `except` conditions, or non-blocking defaults also fail closed. Multi-statement shell forms qualify
+inheritance, `except` conditions, non-blocking defaults, disabled source checkout, or failure-only
+job disposition also fail closed. Repository-bound commands qualify only after the provider has
+made the assessed repository available: GitHub requires a preceding `actions/checkout` step,
+GitLab must retain its clone/fetch checkout, and Azure must retain its default checkout or execute
+`checkout: self` before the command. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
 step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
-source file with adapter-declared guidance-target, read/inspection, and blocking-failure content
-groups; a non-empty no-op script is insufficient. Verification requires both a test command class
+source file with adapter-declared executable patterns that bind guidance inspection to a blocking
+failure path; comments, inert string literals, and non-empty no-op scripts are insufficient.
+Scanner modes that require a source target must bind that target to the assessed checkout rather
+than an arbitrary path. Verification requires both a test command class
 and a static-analysis command class, aggregated across fail-fast multiline steps and auto-loaded CI
 entry points. Adapters may declare tool-specific listing/discovery arguments that cannot establish
 execution. Scanner tools may require the final effective command to carry the step exit status

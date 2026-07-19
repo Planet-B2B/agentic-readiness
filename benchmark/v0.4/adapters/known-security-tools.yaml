@@ -15,7 +15,20 @@ extensions:
         requires_final_exit_status: true
         commands:
           - executables: [trufflehog]
-            argument_groups: [[git, filesystem], [--fail]]
+            argument_groups:
+              - [git, filesystem]
+              - [--fail]
+              - [
+                  '.',
+                  ./,
+                  'file://.',
+                  'file://./',
+                  '$GITHUB_WORKSPACE',
+                  '${GITHUB_WORKSPACE}',
+                  '$CI_PROJECT_DIR',
+                  '${CI_PROJECT_DIR}',
+                  '$(Build.SourcesDirectory)',
+                ]
             prohibited_arguments: [--fail=false]
             prohibited_argument_sequences: [[--fail, 'false']]
       - id: git-secrets

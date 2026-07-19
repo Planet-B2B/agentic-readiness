@@ -721,7 +721,7 @@ async function repositoryCommandBindings(
 }
 
 function isRepositoryCommandPath(value: string): boolean {
-  return /(?:^|\/)scripts?\/|^\.{0,2}\//i.test(value);
+  return /(?:^|\/)scripts?\/|^\.{1,2}\/.+/i.test(value);
 }
 
 function normalizeCommandPath(value: string): string {
@@ -755,7 +755,19 @@ function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvo
   if (events.size === 0) return [];
   const steps = asArray(job.steps);
   if (steps.length === 0 || !hasGithubRunner(job['runs-on'])) return [];
-  return steps.flatMap((step) => githubStepInvocations(step, events));
+  const checkoutEvents = new Set<string>();
+  return steps.flatMap((stepValue) => {
+    const step = asRecord(stepValue);
+    if (!step || isDisabledCiNode(step)) return [];
+    const stepEvents = githubConditionEvents(step.if, events);
+    if (stepEvents.size === 0) return [];
+    if (isGithubCheckoutStep(step)) {
+      stepEvents.forEach((event) => checkoutEvents.add(event));
+      return [];
+    }
+    if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
+    return githubStepInvocations(step, stepEvents);
+  });
 }
 
 function hasGithubRunner(value: unknown): boolean {
@@ -763,6 +775,11 @@ function hasGithubRunner(value: unknown): boolean {
   return (
     Array.isArray(value) && value.some((entry) => typeof entry === 'string' && entry.length > 0)
   );
+}
+
+function isGithubCheckoutStep(step: Record<string, unknown>): boolean {
+  if (step.run !== undefined || typeof step.uses !== 'string') return false;
+  return /^actions\/checkout@[^@\s]+$/i.test(step.uses.trim());
 }
 
 function githubStepInvocations(value: unknown, parentEvents: Set<string>): CiInvocation[] {
@@ -791,7 +808,7 @@ function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvo
   if (hasWorkflowRules && !workflowAllowsMergeRequests) return [];
   if (hasRiskyGitlabDefaults(document.default)) return [];
   return Object.entries(document).flatMap(([name, value]) =>
-    gitlabJobInvocations(name, value, workflowAllowsMergeRequests),
+    gitlabJobInvocations(name, value, workflowAllowsMergeRequests, document.variables),
   );
 }
 
@@ -799,17 +816,41 @@ function gitlabJobInvocations(
   name: string,
   value: unknown,
   workflowAllowsMergeRequests: boolean,
+  globalVariables: unknown,
 ): CiInvocation[] {
   if (name.startsWith('.') || gitlabReservedKeys.has(name)) return [];
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
   if (job.extends !== undefined || job.inherit !== undefined || job.except !== undefined) return [];
+  if (!isSupportedBlockingGitlabWhen(job.when)) return [];
+  if (!gitlabRepositoryAvailable(globalVariables, job.variables)) return [];
   const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== undefined;
   const jobAllowsMergeRequests =
     hasGitlabMergeRequestRule(job.rules) ||
     hasUnconditionallyNamedTrigger(job.only, ['merge_requests']);
   if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) return [];
   return stringValues(job.script).map((command) => ({ kind: 'command', value: command }));
+}
+
+function isSupportedBlockingGitlabWhen(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (typeof value === 'string' && ['always', 'on_success'].includes(value.toLowerCase()))
+  );
+}
+
+function gitlabRepositoryAvailable(globalValue: unknown, jobValue: unknown): boolean {
+  const globalVariables = asRecord(globalValue);
+  const jobVariables = asRecord(jobValue);
+  const strategy = jobVariables?.git_strategy ?? globalVariables?.git_strategy;
+  const checkout = jobVariables?.git_checkout ?? globalVariables?.git_checkout;
+  if (checkout === false || (typeof checkout === 'string' && checkout.toLowerCase() === 'false')) {
+    return false;
+  }
+  return (
+    strategy === undefined ||
+    (typeof strategy === 'string' && ['clone', 'fetch'].includes(strategy.toLowerCase()))
+  );
 }
 
 function hasRiskyGitlabDefaults(value: unknown): boolean {
@@ -834,11 +875,11 @@ function collectAzureInvocations(
   if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
   if (kind === 'step') return azureStepInvocations(node);
   if (kind === 'stage') return azureChildInvocations(node.jobs, 'job');
-  if (kind === 'job') return azureChildInvocations(node.steps, 'step');
+  if (kind === 'job') return azureStepsInvocations(node.steps);
   return [
     ...azureChildInvocations(node.stages, 'stage'),
     ...azureChildInvocations(node.jobs, 'job'),
-    ...azureChildInvocations(node.steps, 'step'),
+    ...azureStepsInvocations(node.steps),
   ];
 }
 
@@ -855,6 +896,26 @@ function azureStepInvocations(node: Record<string, unknown>): CiInvocation[] {
   );
   if (commandFields.length !== 1) return [];
   return [{ kind: 'command', value: node[commandFields[0] ?? ''] as string }];
+}
+
+function azureStepsInvocations(value: unknown): CiInvocation[] {
+  const steps = asArray(value);
+  let repositoryAvailable = !steps.some((stepValue) => {
+    const step = asRecord(stepValue);
+    return step !== null && Object.hasOwn(step, 'checkout');
+  });
+  return steps.flatMap((stepValue) => {
+    const step = asRecord(stepValue);
+    if (!step || isDisabledCiNode(step) || !azureConditionAllowsPullRequest(step.condition)) {
+      return [];
+    }
+    if (Object.hasOwn(step, 'checkout')) {
+      repositoryAvailable =
+        typeof step.checkout === 'string' && step.checkout.toLowerCase() === 'self';
+      return [];
+    }
+    return repositoryAvailable ? azureStepInvocations(step) : [];
+  });
 }
 
 function hasNamedTrigger(value: unknown, names: string[]): boolean {
@@ -1206,7 +1267,12 @@ function commandSourceMatches(
   arguments_: string[],
   bindings: RepositoryCommandBindings,
 ): boolean {
-  if (signature.source_content_groups.length === 0) return true;
+  if (
+    signature.source_content_groups.length === 0 &&
+    signature.source_pattern_groups.length === 0
+  ) {
+    return true;
+  }
   const sourcePaths = signature.argument_groups
     .flat()
     .filter(isRepositoryCommandPath)
@@ -1214,11 +1280,17 @@ function commandSourceMatches(
     .filter((path) => arguments_.some((argument) => normalizeCommandPath(argument) === path));
   return sourcePaths.some((path) => {
     const source = bindings.commandSources.get(path);
+    if (source === undefined) return false;
+    const uncommented = stripSourceComments(source, path);
     return (
-      source !== undefined &&
       sourceGroupsAreCoLocated(
-        stripSourceComments(source, path),
+        uncommented,
         signature.source_content_groups,
+        signature.source_max_span_lines,
+      ) &&
+      sourcePatternGroupsAreCoLocated(
+        uncommented,
+        signature.source_pattern_groups,
         signature.source_max_span_lines,
       )
     );
@@ -1348,8 +1420,9 @@ function sourceGroupsAreCoLocated(
   const counts = groups.map(() => 0);
   const lines = source.split(/\r?\n/);
   const update = (line: string, direction: 1 | -1) => {
+    const normalizedLine = line.toLowerCase();
     groups.forEach((terms, index) => {
-      if (terms.some((term) => line.includes(term.toLowerCase()))) {
+      if (terms.some((term) => normalizedLine.includes(term.toLowerCase()))) {
         counts[index] = (counts[index] ?? 0) + direction;
       }
     });
@@ -1360,6 +1433,59 @@ function sourceGroupsAreCoLocated(
     if (counts.every((count) => count > 0)) return true;
   }
   return false;
+}
+
+function sourcePatternGroupsAreCoLocated(
+  source: string,
+  groups: string[][],
+  maxSpanLines: number,
+): boolean {
+  if (groups.length === 0) return true;
+  const counts = groups.map(() => 0);
+  const lines = source.split(/\r?\n/);
+  const update = (line: string, direction: 1 | -1) => {
+    groups.forEach((patterns, index) => {
+      if (patterns.some((pattern) => executableSourcePatternMatches(line, pattern))) {
+        counts[index] = (counts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? '', 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? '', -1);
+    if (counts.every((count) => count > 0)) return true;
+  }
+  return false;
+}
+
+function executableSourcePatternMatches(line: string, pattern: string): boolean {
+  const expression = new RegExp(pattern, 'giu');
+  for (const match of line.matchAll(expression)) {
+    if (!sourceIndexIsQuoted(line, match.index)) return true;
+  }
+  return false;
+}
+
+function sourceIndexIsQuoted(line: string, targetIndex: number): boolean {
+  let quote = '';
+  let escaped = false;
+  for (let index = 0; index < targetIndex; index += 1) {
+    const character = line[index] ?? '';
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = '';
+    } else if (['"', "'", '`'].includes(character)) {
+      quote = character;
+    }
+  }
+  return quote.length > 0;
 }
 
 function commandArgumentMatches(

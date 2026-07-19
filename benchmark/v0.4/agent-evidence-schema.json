@@ -48,6 +48,13 @@
         },
         "allOf": [
           {
+            "if": {
+              "required": ["error"],
+              "properties": { "error": { "type": "string" } }
+            },
+            "then": { "properties": { "status": { "const": "unknown" } } }
+          },
+          {
             "if": { "properties": { "scope": { "const": "repository" } } },
             "then": {
               "properties": {

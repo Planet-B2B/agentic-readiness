@@ -52,6 +52,11 @@
   negating policy labels, and reject malformed Azure stage-level steps.
 - Exclude source comments from validation-script structure and reject every explicit Gitleaks
   exit-code override that cannot be proven blocking.
+- Require repository checkout before repository-bound CI evidence, reject GitLab jobs that run only
+  after failure, bind TruffleHog scans to the assessed checkout, and match validator behavior with
+  executable source patterns instead of inert strings.
+- Align the published agent-evidence JSON schema with the runtime rule that collection errors may
+  accompany only `unknown` claims.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

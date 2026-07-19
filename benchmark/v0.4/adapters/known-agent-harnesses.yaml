@@ -39,24 +39,31 @@ extensions:
                   scripts/validate-agent-docs.js,
                   scripts/validate-agent-docs.ts,
                 ]
-            source_content_groups:
-              - [agents.md, agent guidance, agent instructions]
-              - [readfilesync, readfile, read file]
-              - [throw new error, process.exit(1, process.exitcode = 1]
+            source_pattern_groups:
+              - [
+                  '\b(?:readfilesync|readfile)\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
+                ]
+              - [
+                  '\bthrow\s+new\s+error\s*\(',
+                  '\bprocess\.exit\s*\(\s*[1-9]',
+                  '\bprocess\.exitcode\s*=\s*[1-9]',
+                ]
           - executables: [bash, sh]
             argument_groups:
               - [scripts/check-agent-docs.sh, scripts/validate-agent-docs.sh]
-            source_content_groups:
-              - [agents.md, agent guidance, agent instructions]
-              - [grep, test -]
-              - [exit 1, return 1, test -]
+            source_pattern_groups:
+              - ['\b(?:grep|test)\b[^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))']
+              - ['\b(?:exit|return)\s+[1-9]']
           - executables: [python, python3]
             argument_groups:
               - [scripts/check_agent_docs.py, scripts/validate_agent_docs.py]
-            source_content_groups:
-              - [agents.md, agent guidance, agent instructions]
-              - [read_text, read text, open(]
-              - [raise, sys.exit(1]
+            source_pattern_groups:
+              - [
+                  '\bopen\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
+                  '\bpath\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))[^\n]*\)\s*\.\s*read_text\s*\(',
+                  '\bread_text\s*\([^\n]*(?:agents\.md|agent[-_ ](?:guidance|instructions))',
+                ]
+              - ['\braise\b', '\bsys\.exit\s*\(\s*[1-9]']
   - control_id: ADRB-ENV-001
     evidence_index: 0
     files:

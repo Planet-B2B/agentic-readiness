@@ -3,6 +3,17 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Executed commands still need their assessed input
+
+**Context.** Automated review found that a CI command could run before checkout, with provider
+checkout disabled, against an unrelated scanner target, or only after another job failed; inert
+source strings could also imitate validator behavior, and the published evidence schema missed a
+runtime status invariant.
+
+**Rule.** Bind structural evidence to both executable behavior and the assessed repository state;
+track provider checkout and blocking dispositions in execution order, require scanner targets to
+resolve to that checkout, and keep published evidence schemas identical to runtime validation.
+
 ## 2026-07-18 — Static proof must exclude inert text and unresolved context
 
 **Context.** Automated review found that comments could fake validation structure, package context

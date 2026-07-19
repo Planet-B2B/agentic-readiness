@@ -93,10 +93,23 @@ const CiProviderSchema = z.object({
   files: z.array(z.string().min(1)).min(1),
 });
 
+const SourcePatternSchema = z
+  .string()
+  .min(1)
+  .refine((pattern) => {
+    try {
+      new RegExp(pattern, 'u');
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Source patterns must be valid regular expressions');
+
 const CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
   argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
   source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
   source_max_span_lines: z.number().int().positive().max(200).default(120),
   prohibited_arguments: z.array(z.string().min(1)).default([]),
   prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([]),
