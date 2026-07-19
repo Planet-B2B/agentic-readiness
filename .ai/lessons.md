@@ -3,6 +3,26 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Compose provider gates and preserve semantic context
+
+**Context.** Automated review found that a job gate could override a denied GitLab workflow, package
+wrappers could bypass script binding, owner headings changed contact meaning, and mixed-scope reports
+displayed an unresolved alternative instead of the evidence that passed.
+
+**Rule.** Require every provider gate in the execution chain, re-bind wrapped commands at the actual
+executable, retain document-section context during structural parsing, and derive presentation scope
+from the evidence that resolved the control.
+
+## 2026-07-18 — Portable outcomes and executable behavior are separate contracts
+
+**Context.** Automated review found host/tool aliases in portable controls, no-op validation scripts
+earning structural evidence, list-only test modes counting as execution, and a combined budget/retry
+group hiding one required containment component.
+
+**Rule.** Keep portable controls convention-neutral, put aliases in versioned adapters, require
+executed custom scripts to expose their validation and failure structure, and model every
+independently required outcome as its own evidence group.
+
 ## 2026-07-18 — Keep evidence parsers structurally reviewable
 
 **Context.** Sonar review found that ownership regexes and monolithic provider/command parsers made

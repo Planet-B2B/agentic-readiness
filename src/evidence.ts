@@ -70,6 +70,15 @@ const nonExecutingCommandArguments = new Set([
   'list',
   'version',
 ]);
+const packageOptionsWithValues = new Set([
+  '--cwd',
+  '--dir',
+  '--filter',
+  '--prefix',
+  '--workspace',
+  '-c',
+  '-w',
+]);
 
 async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
   const found = await fg(patterns, {
@@ -170,20 +179,39 @@ function ownershipEntries(path: string, text: string): number {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'));
+    .filter((line) => line.length > 0);
 
   if (name === 'codeowners') {
-    return lines.filter((line) => {
-      const fields = line.split(/\s+/);
-      return fields.length >= 2 && fields.slice(1).some(isOwnerContact);
-    }).length;
+    return lines
+      .filter((line) => !line.startsWith('#'))
+      .filter((line) => {
+        const fields = line.split(/\s+/);
+        return fields.length >= 2 && fields.slice(1).some(isOwnerContact);
+      }).length;
   }
 
   if (['owners', 'owners.md', 'maintainers', 'maintainers.md'].includes(name)) {
-    return lines.filter(isConventionalOwnerListEntry).length;
+    return conventionalOwnershipEntries(lines);
   }
 
-  return markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+  const contentLines = lines.filter((line) => !line.startsWith('#'));
+  return markdownOwnershipRows(contentLines) + explicitOwnershipMappings(contentLines);
+}
+
+function conventionalOwnershipEntries(lines: string[]): number {
+  const activeLines: string[] = [];
+  let inactiveSection = false;
+  let listEntries = 0;
+  for (const line of lines) {
+    if (line.startsWith('#')) {
+      inactiveSection = /\b(?:former|inactive|past|retired)\b/i.test(line);
+      continue;
+    }
+    if (inactiveSection) continue;
+    activeLines.push(line);
+    if (isConventionalOwnerListEntry(line)) listEntries += 1;
+  }
+  return listEntries + markdownOwnershipRows(activeLines) + explicitOwnershipMappings(activeLines);
 }
 
 function markdownOwnershipRows(lines: string[]): number {
@@ -630,6 +658,7 @@ interface CiInvocation {
 
 interface RepositoryCommandBindings {
   availableCommandPaths: Set<string>;
+  commandSources: Map<string, string>;
   packageScripts: Map<string, string>;
 }
 
@@ -651,18 +680,23 @@ async function repositoryCommandBindings(
       ),
     ),
   ];
-  const availableCommandPaths = new Set(
-    (await nonEmptyMatches(context, commandPaths, 1)).map(normalizeCommandPath),
+  const commandSources = new Map(
+    (await readSearchableFiles(context, commandPaths)).map(({ path, text }) => [
+      normalizeCommandPath(path),
+      text,
+    ]),
   );
+  const availableCommandPaths = new Set(commandSources.keys());
   const packageFile = (await readSearchableFiles(context, ['package.json'])).find(
     ({ path }) => path === 'package.json',
   );
-  if (!packageFile) return { availableCommandPaths, packageScripts: new Map() };
+  if (!packageFile) return { availableCommandPaths, commandSources, packageScripts: new Map() };
   try {
     const document = asRecord(JSON.parse(packageFile.text));
     const scripts = asRecord(document?.scripts);
     return {
       availableCommandPaths,
+      commandSources,
       packageScripts: new Map(
         Object.entries(scripts ?? {})
           .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
@@ -670,7 +704,7 @@ async function repositoryCommandBindings(
       ),
     };
   } catch {
-    return { availableCommandPaths, packageScripts: new Map() };
+    return { availableCommandPaths, commandSources, packageScripts: new Map() };
   }
 }
 
@@ -740,7 +774,9 @@ function invocationFromField(
 
 function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
   const workflow = asRecord(document.workflow);
+  const hasWorkflowRules = asArray(workflow?.rules).length > 0;
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
+  if (hasWorkflowRules && !workflowAllowsMergeRequests) return [];
   if (hasRiskyGitlabDefaults(document.default)) return [];
   const reserved = new Set([
     'after_script',
@@ -765,7 +801,8 @@ function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvo
     const jobAllowsMergeRequests =
       hasGitlabMergeRequestRule(job.rules) ||
       hasUnconditionallyNamedTrigger(job.only, ['merge_requests']);
-    if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) continue;
+    if (hasJobTriggerRules && !jobAllowsMergeRequests) continue;
+    if (!hasJobTriggerRules && !workflowAllowsMergeRequests) continue;
     for (const command of stringValues(job.script)) {
       invocations.push({ kind: 'command', value: command });
     }
@@ -1001,7 +1038,7 @@ function commandTextMatchesTool(
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
 ): boolean {
-  return shellStatements(value).some((statement) => {
+  return shellStatements(value, tool.requires_final_exit_status).some((statement) => {
     if (
       statement.includes('||') ||
       /(^|[^|])\|(?!\|)/.test(statement) ||
@@ -1042,8 +1079,16 @@ function commandMatchesTool(
     ),
   );
   if (executableIndex < 0 || !isSupportedExecutablePosition(tokens, executableIndex)) return false;
+  const wrappedPackageMatch = packageScriptMatchesTool(
+    tokens.slice(executableIndex),
+    tool,
+    bindings,
+    visitedScripts,
+  );
+  if (wrappedPackageMatch !== null) return wrappedPackageMatch;
   const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
   const executable = executableIdentity(tokens[executableIndex] ?? '');
+  if (hasProhibitedArguments(tool, arguments_)) return false;
   if (tool.standalone_executables.some((standalone) => standalone.toLowerCase() === executable))
     return true;
   return tool.commands
@@ -1099,22 +1144,82 @@ function commandSignatureMatches(
   arguments_: string[],
   bindings: RepositoryCommandBindings,
 ): boolean {
-  if (
-    signature.prohibited_arguments.some((argument) =>
-      arguments_.includes(argument.toLowerCase()),
-    ) ||
-    signature.prohibited_argument_sequences.some((sequence) =>
+  if (hasProhibitedArguments(signature, arguments_)) return false;
+  const argumentsMatch = signature.argument_groups.every((group) =>
+    group.some((argument) => commandArgumentMatches(argument, arguments_, bindings)),
+  );
+  return argumentsMatch && commandSourceMatches(signature, arguments_, bindings);
+}
+
+interface ProhibitedCommandArguments {
+  prohibited_arguments: string[];
+  prohibited_argument_sequences: string[][];
+}
+
+function hasProhibitedArguments(
+  configuration: ProhibitedCommandArguments,
+  arguments_: string[],
+): boolean {
+  return (
+    configuration.prohibited_arguments.some((argument) => {
+      const prohibited = argument.toLowerCase();
+      return arguments_.some(
+        (actual) => actual === prohibited || actual.startsWith(`${prohibited}=`),
+      );
+    }) ||
+    configuration.prohibited_argument_sequences.some((sequence) =>
       containsArgumentSequence(
         arguments_,
         sequence.map((argument) => argument.toLowerCase()),
       ),
     )
-  ) {
-    return false;
-  }
-  return signature.argument_groups.every((group) =>
-    group.some((argument) => commandArgumentMatches(argument, arguments_, bindings)),
   );
+}
+
+function commandSourceMatches(
+  signature: CiTool['commands'][number],
+  arguments_: string[],
+  bindings: RepositoryCommandBindings,
+): boolean {
+  if (signature.source_content_groups.length === 0) return true;
+  const sourcePaths = signature.argument_groups
+    .flat()
+    .filter(isRepositoryCommandPath)
+    .map(normalizeCommandPath)
+    .filter((path) => arguments_.some((argument) => normalizeCommandPath(argument) === path));
+  return sourcePaths.some((path) => {
+    const source = bindings.commandSources.get(path);
+    return (
+      source !== undefined &&
+      sourceGroupsAreCoLocated(
+        source,
+        signature.source_content_groups,
+        signature.source_max_span_lines,
+      )
+    );
+  });
+}
+
+function sourceGroupsAreCoLocated(
+  source: string,
+  groups: string[][],
+  maxSpanLines: number,
+): boolean {
+  const counts = groups.map(() => 0);
+  const lines = source.split(/\r?\n/);
+  const update = (line: string, direction: 1 | -1) => {
+    groups.forEach((terms, index) => {
+      if (terms.some((term) => line.includes(term.toLowerCase()))) {
+        counts[index] = (counts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? '', 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? '', -1);
+    if (counts.every((count) => count > 0)) return true;
+  }
+  return false;
 }
 
 function commandArgumentMatches(
@@ -1158,12 +1263,27 @@ function packageScriptInvocation(tokens: string[]): { manager: string; task: str
   const manager = executableIdentity(tokens[0] ?? '');
   if (!['bun', 'npm', 'pnpm', 'yarn'].includes(manager)) return null;
   const arguments_ = tokens.slice(1);
-  if (['dlx', 'exec', 'x'].includes(arguments_[0]?.toLowerCase() ?? '')) return null;
-  let index = 0;
-  if (arguments_[index]?.toLowerCase() === 'run') index += 1;
-  while (arguments_[index]?.startsWith('-')) index += 1;
+  let index = skipPackageOptions(arguments_, 0);
+  const subcommand = arguments_[index]?.toLowerCase() ?? '';
+  if (['dlx', 'exec', 'x'].includes(subcommand)) return null;
+  if (subcommand === 'run') index = skipPackageOptions(arguments_, index + 1);
   const task = arguments_[index]?.toLowerCase();
   return task ? { manager, task } : null;
+}
+
+function skipPackageOptions(arguments_: string[], start: number): number {
+  let index = start;
+  while (index < arguments_.length) {
+    const argument = arguments_[index]?.toLowerCase() ?? '';
+    if (argument === '--') {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith('-')) break;
+    const option = argument.split('=')[0] ?? argument;
+    index += packageOptionsWithValues.has(option) && !argument.includes('=') ? 2 : 1;
+  }
+  return index;
 }
 
 function executableIdentity(value: string): string {
@@ -1176,12 +1296,13 @@ function executableIdentity(value: string): string {
   );
 }
 
-function shellStatements(value: string): string[] {
+function shellStatements(value: string, requiresFinalExitStatus: boolean): string[] {
   if (value.includes(';')) return [];
   const statements = value
     .split(/\r?\n/)
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0 && !statement.startsWith('#'));
+  if (!requiresFinalExitStatus) return statements;
   return statements.length > 0 ? [statements.at(-1) ?? ''] : [];
 }
 

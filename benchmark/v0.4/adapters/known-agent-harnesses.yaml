@@ -39,12 +39,24 @@ extensions:
                   scripts/validate-agent-docs.js,
                   scripts/validate-agent-docs.ts,
                 ]
+            source_content_groups:
+              - [agents.md, agent guidance, agent instructions]
+              - [readfilesync, readfile, read file]
+              - [throw new error, process.exit(1, process.exitcode = 1]
           - executables: [bash, sh]
             argument_groups:
               - [scripts/check-agent-docs.sh, scripts/validate-agent-docs.sh]
+            source_content_groups:
+              - [agents.md, agent guidance, agent instructions]
+              - [grep, test -]
+              - [exit 1, return 1, test -]
           - executables: [python, python3]
             argument_groups:
               - [scripts/check_agent_docs.py, scripts/validate_agent_docs.py]
+            source_content_groups:
+              - [agents.md, agent guidance, agent instructions]
+              - [read_text, read text, open(]
+              - [raise, sys.exit(1]
   - control_id: ADRB-ENV-001
     evidence_index: 0
     files:

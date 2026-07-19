@@ -74,8 +74,8 @@ controls:
     evidence:
       - type: content_terms
         scope: repository
-        files: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml]
-        terms: [npm ci, frozen-lockfile, uv sync, lockfile, checkout, test, typecheck]
+        files: [scripts/**, Makefile]
+        terms: [lockfile, locked dependencies, clean environment, clean checkout, test, typecheck]
         min_terms: 2
         max_span_lines: 160
     remediation: Make CI install locked dependencies from a clean checkout and run the documented verification path.

@@ -60,7 +60,7 @@ controls:
     evidence:
       - type: content_terms
         scope: repository
-        files: [.github/workflows/**, scripts/**, package.json, Makefile]
+        files: [scripts/**, package.json, Makefile]
         terms: [curator, curation, knowledge lint, stale, contradiction, duplicate]
         min_terms: 2
         required_any_terms: [curator, curation, knowledge lint, contradiction]

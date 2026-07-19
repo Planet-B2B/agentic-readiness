@@ -1,6 +1,18 @@
 id: known-ci-providers
 benchmark_version: 0.4.0
 extensions:
+  - control_id: ADRB-ENV-003
+    evidence_index: 0
+    files:
+      [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml, azure-pipelines.yaml]
+  - control_id: ADRB-LRN-003
+    evidence_index: 0
+    files:
+      [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml, azure-pipelines.yaml]
+  - control_id: ADRB-SPC-003
+    evidence_index: 0
+    files:
+      [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, azure-pipelines.yml, azure-pipelines.yaml]
   - control_id: ADRB-CTX-003
     evidence_index: 0
     ci_providers:

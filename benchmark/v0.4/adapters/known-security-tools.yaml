@@ -5,19 +5,22 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: gitleaks
+        requires_final_exit_status: true
         commands:
           - executables: [gitleaks]
-            argument_groups: [[detect, protect]]
+            argument_groups: [[detect]]
             prohibited_arguments: [--exit-code=0]
             prohibited_argument_sequences: [[--exit-code, '0']]
         actions: [gitleaks/gitleaks-action]
       - id: trufflehog
+        requires_final_exit_status: true
         commands:
           - executables: [trufflehog]
             argument_groups: [[git, filesystem], [--fail]]
             prohibited_arguments: [--fail=false]
             prohibited_argument_sequences: [[--fail, 'false']]
       - id: git-secrets
+        requires_final_exit_status: true
         commands:
           - executables: [git-secrets]
             argument_groups: [[--scan, --scan-history]]

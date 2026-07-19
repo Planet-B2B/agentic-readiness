@@ -68,11 +68,19 @@ human authority. Directly negated authority statements do not count as positive 
 negation appears before or after the matched phrase, and
 explicit mappings require a recognized repository-wide target or path/component target rather than
 arbitrary or punctuation-only syntax.
+`ADRB-RES-002` requires resource budgets and retry bounds as independent co-located components;
+neither substitutes for the other.
 Mechanical Level 3 context and testing controls require structurally recognized CI commands;
 comments, documentation, and command-name keywords do not establish execution. `ADRB-TST-003`
 requires independent test and static-analysis command classes aggregated across the assessed CI
 entry points. Root package-manager tasks must
-resolve to tracked script definitions whose command bodies establish the applicable command class.
+resolve to tracked script definitions whose command bodies establish the applicable command class,
+including when supported wrappers or global package-manager options precede the invocation.
+Custom guidance validators additionally require adapter-declared validation structures in the
+executed tracked source; file presence alone does not establish behavior. Tool-specific discovery or
+listing modes do not count as execution. Fail-fast multiline verification steps may contribute each
+command, while scanners configured to require final exit-status propagation contribute only from the
+final effective command.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome
 controls cannot be inferred from repository keywords.
@@ -88,6 +96,8 @@ Controls require every evidence check by default. A v0.4 control may explicitly 
 repository-only run remains `unknown` when the repository alternative is absent and an external
 alternative has not been collected; it does not infer either a platform pass or a platform failure.
 The report shows every alternative and its provenance.
+Established-control tables display the scope of the evidence that resolved the control rather than
+an unresolved alternative scope.
 
 Level 4 requires time-series or outcome evidence and an improvement decision influenced by it. The
 existence of a dashboard is insufficient.

@@ -16,24 +16,28 @@ command-bearing `ci_command` evidence. Adapters may add harness paths to those c
 provider discovery rules and recognized command definitions to `ci_command`. A command class uses
 full owner/repository action identities, explicit executable signatures with independently required
 argument groups and prohibited non-blocking modes, or semantically specific standalone executables.
-Executables and arguments from different signatures never combine. GitHub action invocations also require an explicit
-non-empty `@ref`. Names alone never turn comments, version/help commands, display commands, disabled or
-non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
+Executables and arguments from different signatures never combine. GitHub action invocations also
+require an explicit non-empty `@ref`. Names alone never turn comments, version/help commands,
+display commands, disabled or non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
 into enforced evidence. Push-only, post-close, or path-gated execution does not establish the
 repository-wide before-integration outcome; the external platform alternative remains available
 when enforcement lives outside pull-request CI. Unsupported provider conditions and any configured
-non-literal blocking override
-fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
+non-literal blocking override fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
 are not step actions, and invalid steps that combine `uses` with `run` are rejected. Provider path
 filters and GitLab rules with unparsed gating fields fail closed. GitLab jobs with unresolved
 inheritance, `except` conditions, or non-blocking defaults also fail closed. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
-step result. Agent-guidance integrity requires a recognized validation command; verification
-requires both a test command class and a static-analysis command class, aggregated across all
-contributing auto-loaded CI entry points. Repository-specific command
+step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
+source file with adapter-declared guidance-target, read/inspection, and blocking-failure content
+groups; a non-empty no-op script is insufficient. Verification requires both a test command class
+and a static-analysis command class, aggregated across fail-fast multiline steps and auto-loaded CI
+entry points. Adapters may declare tool-specific listing/discovery arguments that cannot establish
+execution. Scanner tools may require the final effective command to carry the step exit status
+without imposing that restriction on ordinary fail-fast verification steps. Repository-specific command
 surfaces that are not recognized may use eligible source-backed agent evidence instead of keyword
 inference. Package-manager task invocations are resolved through the tracked root `package.json` and
-must bind to a recognized executable command; referenced repository validation scripts must exist as
+must bind to a recognized executable command even through supported wrappers and global options;
+referenced repository validation scripts must exist as
 non-empty assessed files. A plausible task name, missing path, collection-only test mode, or
 configuration-display mode is insufficient.
 Deterministic provider discovery is limited to auto-loaded entry points: direct GitHub workflow

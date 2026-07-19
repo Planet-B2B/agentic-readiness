@@ -96,6 +96,8 @@ const CiProviderSchema = z.object({
 const CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
   argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  source_max_span_lines: z.number().int().positive().max(200).default(120),
   prohibited_arguments: z.array(z.string().min(1)).default([]),
   prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([]),
 });
@@ -106,6 +108,9 @@ const CiToolSchema = z
     commands: z.array(CiCommandSignatureSchema).default([]),
     standalone_executables: z.array(z.string().min(1)).default([]),
     actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([]),
+    prohibited_arguments: z.array(z.string().min(1)).default([]),
+    prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([]),
+    requires_final_exit_status: z.boolean().default(false),
   })
   .superRefine((tool, context) => {
     const commandConfigured = tool.commands.length > 0 || tool.standalone_executables.length > 0;

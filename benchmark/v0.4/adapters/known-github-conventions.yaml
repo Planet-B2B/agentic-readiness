@@ -1,6 +1,27 @@
 id: known-github-conventions
 benchmark_version: 0.4.0
 extensions:
+  - control_id: ADRB-GOV-001
+    evidence_index: 0
+    files: [.github/pull_request_template.md, .github/PULL_REQUEST_TEMPLATE/**]
   - control_id: ADRB-GOV-002
     evidence_index: 0
     patterns: [.github/CODEOWNERS, .github/OWNERS]
+  - control_id: ADRB-GOV-002
+    evidence_index: 1
+    files: [.github/pull_request_template.md]
+  - control_id: ADRB-RES-001
+    evidence_index: 0
+    files: [.github/SECURITY.md]
+  - control_id: ADRB-SEC-001
+    evidence_index: 0
+    files: [.github/SECURITY.md]
+  - control_id: ADRB-SEC-006
+    evidence_index: 0
+    files: [.github/SECURITY.md]
+  - control_id: ADRB-SPC-001
+    evidence_index: 0
+    patterns: [.github/ISSUE_TEMPLATE/**]
+  - control_id: ADRB-SPC-002
+    evidence_index: 0
+    files: [.github/ISSUE_TEMPLATE/**]

@@ -8,6 +8,12 @@ const statusIcon: Record<ControlResult['status'], string> = {
 };
 
 function controlScope(control: ControlResult): EvidenceScope {
+  if (control.confidence === 'repository-detected') return 'repository';
+  if (control.confidence === 'agent-collected' && control.agent_evidence?.status === 'met') {
+    return control.agent_evidence.scope;
+  }
+  const establishedEvidence = control.evidence.find(({ status }) => status === 'met');
+  if (establishedEvidence) return establishedEvidence.scope;
   return control.evidence.find(({ scope }) => scope !== 'repository')?.scope ?? 'repository';
 }
 

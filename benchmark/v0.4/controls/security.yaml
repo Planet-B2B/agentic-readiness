@@ -13,7 +13,6 @@ controls:
         files:
           [
             SECURITY.md,
-            .github/SECURITY.md,
             AGENTS.md,
             Agents.md,
             agents.md,
@@ -83,7 +82,7 @@ controls:
     evidence:
       - type: content_terms
         scope: repository
-        files: [SECURITY.md, .github/SECURITY.md, docs/security/**, docs/contributing/**]
+        files: [SECURITY.md, docs/security/**, docs/contributing/**]
         terms: [report, vulnerability, security contact, escalation, incident]
         min_terms: 2
         max_span_lines: 80

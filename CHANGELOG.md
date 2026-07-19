@@ -39,6 +39,15 @@
 - Model independently required and prohibited command arguments, require TruffleHog failure mode,
   and remove non-blocking scanner signatures from deterministic secret-scan evidence.
 - Reject negation after a semantic term and inactive or explicitly absent ownership contacts.
+- Require resource budgets and retry bounds as separate containment components.
+- Require structural validation behavior in executed agent-guidance scripts, reject standalone test
+  discovery/listing modes, and preserve fail-fast verification commands in multiline CI steps.
+- Move repository-host, CI-provider, and environment-tool aliases out of portable controls and into
+  versioned adapters.
+- Require both GitLab workflow and job gates to admit merge requests, restrict Gitleaks CI evidence
+  to checkout/history detection, and preserve package-task binding through wrappers and global flags.
+- Parse mappings inside conventional ownership files, reject former-owner sections, and report the
+  scope that actually established mixed-scope controls.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

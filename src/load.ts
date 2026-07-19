@@ -161,6 +161,22 @@ function applyDetectorAdapter(
             ]),
           ],
           actions: [...new Set([...(tool?.actions ?? []), ...extensionTool.actions])],
+          prohibited_arguments: [
+            ...new Set([
+              ...(tool?.prohibited_arguments ?? []),
+              ...extensionTool.prohibited_arguments,
+            ]),
+          ],
+          prohibited_argument_sequences: [
+            ...new Map(
+              [
+                ...(tool?.prohibited_argument_sequences ?? []),
+                ...extensionTool.prohibited_argument_sequences,
+              ].map((sequence) => [JSON.stringify(sequence), sequence]),
+            ).values(),
+          ],
+          requires_final_exit_status:
+            (tool?.requires_final_exit_status ?? false) || extensionTool.requires_final_exit_status,
         });
       }
       check.tools = [...tools.values()];

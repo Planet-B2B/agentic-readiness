@@ -53,10 +53,24 @@ describe('benchmark catalog', () => {
       await Promise.all(controlPaths.map(async (path) => readFile(path, 'utf8')))
     ).join('\n');
     expect(controlSource).not.toMatch(
-      /CLAUDE|\.claude|\.codex|\.cursor|opencode|copilot|\.kiro|gitleaks|trufflehog/,
+      /CLAUDE|\.claude|\.codex|\.cursor|opencode|copilot|\.kiro|gitleaks|trufflehog|\.github|\.gitlab|Jenkinsfile|azure-pipelines|npm ci|frozen-lockfile|uv sync/,
     );
 
     const { controls } = await loadBenchmark(root);
+    const environmentCi = controls
+      .find(({ id }) => id === 'ADRB-ENV-003')
+      ?.evidence.find(({ type }) => type === 'content_terms');
+    expect(environmentCi?.type === 'content_terms' ? environmentCi.files : []).toEqual(
+      expect.arrayContaining([
+        '.github/workflows/**',
+        '.gitlab-ci.yml',
+        'Jenkinsfile',
+        'azure-pipelines.yml',
+      ]),
+    );
+    expect(environmentCi?.type === 'content_terms' ? environmentCi.terms : []).toEqual(
+      expect.arrayContaining(['npm ci', 'frozen-lockfile', 'uv sync']),
+    );
     const contextEntry = controls.find(({ id }) => id === 'ADRB-CTX-001');
     const pathCheck = contextEntry?.evidence.find(({ type }) => type === 'path_any');
     expect(pathCheck && 'patterns' in pathCheck ? pathCheck.patterns : []).toContain(
@@ -70,7 +84,9 @@ describe('benchmark catalog', () => {
         commands: [
           {
             executables: ['gitleaks'],
-            argument_groups: [['detect', 'protect']],
+            argument_groups: [['detect']],
+            source_content_groups: [],
+            source_max_span_lines: 120,
             prohibited_arguments: ['--exit-code=0'],
             prohibited_argument_sequences: [['--exit-code', '0']],
           },
@@ -119,12 +135,16 @@ describe('benchmark catalog', () => {
     expect(staticCommands.find(({ executables }) => executables.includes('cargo'))).toEqual({
       executables: ['cargo'],
       argument_groups: [['clippy', 'check']],
+      source_content_groups: [],
+      source_max_span_lines: 120,
       prohibited_arguments: [],
       prohibited_argument_sequences: [],
     });
     expect(staticCommands.find(({ executables }) => executables.includes('go'))).toEqual({
       executables: ['go'],
       argument_groups: [['vet']],
+      source_content_groups: [],
+      source_max_span_lines: 120,
       prohibited_arguments: [],
       prohibited_argument_sequences: [],
     });

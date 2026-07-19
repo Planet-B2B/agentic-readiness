@@ -28,7 +28,6 @@ controls:
             docs/operations/**,
             docs/agentic/**,
             runbooks/**,
-            .github/**,
           ]
         terms: [rollback, revert, recovery, incident, restore]
         min_terms: 2
@@ -84,20 +83,10 @@ controls:
                 edit only,
                 do not edit,
               ]
-          - id: resource-or-retry-bounds
-            terms:
-              [
-                budget,
-                token limit,
-                time limit,
-                tool call limit,
-                wall clock limit,
-                retry limit,
-                retry budget,
-                max retries,
-                bounded retries,
-                maximum attempts,
-              ]
+          - id: resource-bounds
+            terms: [budget, token limit, time limit, tool call limit, wall clock limit]
+          - id: retry-bounds
+            terms: [retry limit, retry budget, max retries, bounded retries, maximum attempts]
           - id: stop-trigger
             terms:
               [
@@ -134,7 +123,7 @@ controls:
                 recovery responsibility,
                 on-call owner,
               ]
-        min_groups: 5
+        min_groups: 6
         max_span_lines: 120
         max_files_per_pattern: 50
     remediation: Add bounded scope, budget, retry, stop, escalation, and recovery requirements to task preflight.

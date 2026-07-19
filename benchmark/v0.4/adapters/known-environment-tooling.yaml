@@ -1,0 +1,6 @@
+id: known-environment-tooling
+benchmark_version: 0.4.0
+extensions:
+  - control_id: ADRB-ENV-003
+    evidence_index: 0
+    terms: [npm ci, frozen-lockfile, uv sync]

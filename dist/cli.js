@@ -92,6 +92,8 @@ var CiProviderSchema = z.object({
 var CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
   argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
+  source_max_span_lines: z.number().int().positive().max(200).default(120),
   prohibited_arguments: z.array(z.string().min(1)).default([]),
   prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([])
 });
@@ -99,7 +101,10 @@ var CiToolSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   commands: z.array(CiCommandSignatureSchema).default([]),
   standalone_executables: z.array(z.string().min(1)).default([]),
-  actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([])
+  actions: z.array(z.string().regex(/^[^/@\s]+\/[^/@\s]+$/)).default([]),
+  prohibited_arguments: z.array(z.string().min(1)).default([]),
+  prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([]),
+  requires_final_exit_status: z.boolean().default(false)
 }).superRefine((tool, context) => {
   const commandConfigured = tool.commands.length > 0 || tool.standalone_executables.length > 0;
   if (!commandConfigured && tool.actions.length === 0) {
@@ -435,7 +440,22 @@ function applyDetectorAdapter(benchmark, controls, adapter) {
               ...extensionTool.standalone_executables
             ])
           ],
-          actions: [.../* @__PURE__ */ new Set([...tool?.actions ?? [], ...extensionTool.actions])]
+          actions: [.../* @__PURE__ */ new Set([...tool?.actions ?? [], ...extensionTool.actions])],
+          prohibited_arguments: [
+            .../* @__PURE__ */ new Set([
+              ...tool?.prohibited_arguments ?? [],
+              ...extensionTool.prohibited_arguments
+            ])
+          ],
+          prohibited_argument_sequences: [
+            ...new Map(
+              [
+                ...tool?.prohibited_argument_sequences ?? [],
+                ...extensionTool.prohibited_argument_sequences
+              ].map((sequence) => [JSON.stringify(sequence), sequence])
+            ).values()
+          ],
+          requires_final_exit_status: (tool?.requires_final_exit_status ?? false) || extensionTool.requires_final_exit_status
         });
       }
       check.tools = [...tools.values()];
@@ -594,6 +614,12 @@ var statusIcon = {
   not_applicable: "N/A"
 };
 function controlScope(control) {
+  if (control.confidence === "repository-detected") return "repository";
+  if (control.confidence === "agent-collected" && control.agent_evidence?.status === "met") {
+    return control.agent_evidence.scope;
+  }
+  const establishedEvidence = control.evidence.find(({ status }) => status === "met");
+  if (establishedEvidence) return establishedEvidence.scope;
   return control.evidence.find(({ scope }) => scope !== "repository")?.scope ?? "repository";
 }
 function safeText(value) {
@@ -945,6 +971,15 @@ var nonExecutingCommandArguments = /* @__PURE__ */ new Set([
   "list",
   "version"
 ]);
+var packageOptionsWithValues = /* @__PURE__ */ new Set([
+  "--cwd",
+  "--dir",
+  "--filter",
+  "--prefix",
+  "--workspace",
+  "-c",
+  "-w"
+]);
 async function matches(context, patterns) {
   const found = await fg2(patterns, {
     cwd: context.metadata.root,
@@ -1017,17 +1052,33 @@ async function evaluateOwnershipMap(context, check) {
 }
 function ownershipEntries(path, text) {
   const name = basename(path).toLowerCase();
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && !line.startsWith("#"));
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
   if (name === "codeowners") {
-    return lines.filter((line) => {
+    return lines.filter((line) => !line.startsWith("#")).filter((line) => {
       const fields = line.split(/\s+/);
       return fields.length >= 2 && fields.slice(1).some(isOwnerContact);
     }).length;
   }
   if (["owners", "owners.md", "maintainers", "maintainers.md"].includes(name)) {
-    return lines.filter(isConventionalOwnerListEntry).length;
+    return conventionalOwnershipEntries(lines);
   }
-  return markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+  const contentLines = lines.filter((line) => !line.startsWith("#"));
+  return markdownOwnershipRows(contentLines) + explicitOwnershipMappings(contentLines);
+}
+function conventionalOwnershipEntries(lines) {
+  const activeLines = [];
+  let inactiveSection = false;
+  let listEntries = 0;
+  for (const line of lines) {
+    if (line.startsWith("#")) {
+      inactiveSection = /\b(?:former|inactive|past|retired)\b/i.test(line);
+      continue;
+    }
+    if (inactiveSection) continue;
+    activeLines.push(line);
+    if (isConventionalOwnerListEntry(line)) listEntries += 1;
+  }
+  return listEntries + markdownOwnershipRows(activeLines) + explicitOwnershipMappings(activeLines);
 }
 function markdownOwnershipRows(lines) {
   let entries = 0;
@@ -1347,24 +1398,29 @@ async function repositoryCommandBindings(context, tools) {
       )
     )
   ];
-  const availableCommandPaths = new Set(
-    (await nonEmptyMatches(context, commandPaths, 1)).map(normalizeCommandPath)
+  const commandSources = new Map(
+    (await readSearchableFiles(context, commandPaths)).map(({ path, text }) => [
+      normalizeCommandPath(path),
+      text
+    ])
   );
+  const availableCommandPaths = new Set(commandSources.keys());
   const packageFile = (await readSearchableFiles(context, ["package.json"])).find(
     ({ path }) => path === "package.json"
   );
-  if (!packageFile) return { availableCommandPaths, packageScripts: /* @__PURE__ */ new Map() };
+  if (!packageFile) return { availableCommandPaths, commandSources, packageScripts: /* @__PURE__ */ new Map() };
   try {
     const document = asRecord(JSON.parse(packageFile.text));
     const scripts = asRecord(document?.scripts);
     return {
       availableCommandPaths,
+      commandSources,
       packageScripts: new Map(
         Object.entries(scripts ?? {}).filter((entry) => typeof entry[1] === "string").map(([name, command]) => [name.toLowerCase(), command])
       )
     };
   } catch {
-    return { availableCommandPaths, packageScripts: /* @__PURE__ */ new Map() };
+    return { availableCommandPaths, commandSources, packageScripts: /* @__PURE__ */ new Map() };
   }
 }
 function isRepositoryCommandPath(value) {
@@ -1419,7 +1475,9 @@ function invocationFromField(node, field, kind) {
 }
 function gitlabIntegrationInvocations(document) {
   const workflow = asRecord(document.workflow);
+  const hasWorkflowRules = asArray(workflow?.rules).length > 0;
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
+  if (hasWorkflowRules && !workflowAllowsMergeRequests) return [];
   if (hasRiskyGitlabDefaults(document.default)) return [];
   const reserved = /* @__PURE__ */ new Set([
     "after_script",
@@ -1442,7 +1500,8 @@ function gitlabIntegrationInvocations(document) {
       continue;
     const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
     const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasUnconditionallyNamedTrigger(job.only, ["merge_requests"]);
-    if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) continue;
+    if (hasJobTriggerRules && !jobAllowsMergeRequests) continue;
+    if (!hasJobTriggerRules && !workflowAllowsMergeRequests) continue;
     for (const command of stringValues(job.script)) {
       invocations.push({ kind: "command", value: command });
     }
@@ -1635,7 +1694,7 @@ function invocationMatchesTool(invocation, tool, bindings) {
   return commandTextMatchesTool(invocation.value, tool, bindings, /* @__PURE__ */ new Set());
 }
 function commandTextMatchesTool(value, tool, bindings, visitedScripts) {
-  return shellStatements(value).some((statement) => {
+  return shellStatements(value, tool.requires_final_exit_status).some((statement) => {
     if (statement.includes("||") || /(^|[^|])\|(?!\|)/.test(statement) || /(^|[^&])&(?!&)/.test(statement)) {
       return false;
     }
@@ -1666,8 +1725,16 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
     )
   );
   if (executableIndex < 0 || !isSupportedExecutablePosition(tokens, executableIndex)) return false;
+  const wrappedPackageMatch = packageScriptMatchesTool(
+    tokens.slice(executableIndex),
+    tool,
+    bindings,
+    visitedScripts
+  );
+  if (wrappedPackageMatch !== null) return wrappedPackageMatch;
   const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
   const executable = executableIdentity(tokens[executableIndex] ?? "");
+  if (hasProhibitedArguments(tool, arguments_)) return false;
   if (tool.standalone_executables.some((standalone) => standalone.toLowerCase() === executable))
     return true;
   return tool.commands.filter(
@@ -1704,19 +1771,53 @@ function isSupportedExecutablePosition(tokens, executableIndex) {
   return /^python(?:3(?:\.\d+)?)?$/i.test(wrapper) && wrapperCommand === "-m";
 }
 function commandSignatureMatches(signature, arguments_, bindings) {
-  if (signature.prohibited_arguments.some(
-    (argument) => arguments_.includes(argument.toLowerCase())
-  ) || signature.prohibited_argument_sequences.some(
+  if (hasProhibitedArguments(signature, arguments_)) return false;
+  const argumentsMatch = signature.argument_groups.every(
+    (group) => group.some((argument) => commandArgumentMatches(argument, arguments_, bindings))
+  );
+  return argumentsMatch && commandSourceMatches(signature, arguments_, bindings);
+}
+function hasProhibitedArguments(configuration, arguments_) {
+  return configuration.prohibited_arguments.some((argument) => {
+    const prohibited = argument.toLowerCase();
+    return arguments_.some(
+      (actual) => actual === prohibited || actual.startsWith(`${prohibited}=`)
+    );
+  }) || configuration.prohibited_argument_sequences.some(
     (sequence) => containsArgumentSequence(
       arguments_,
       sequence.map((argument) => argument.toLowerCase())
     )
-  )) {
-    return false;
-  }
-  return signature.argument_groups.every(
-    (group) => group.some((argument) => commandArgumentMatches(argument, arguments_, bindings))
   );
+}
+function commandSourceMatches(signature, arguments_, bindings) {
+  if (signature.source_content_groups.length === 0) return true;
+  const sourcePaths = signature.argument_groups.flat().filter(isRepositoryCommandPath).map(normalizeCommandPath).filter((path) => arguments_.some((argument) => normalizeCommandPath(argument) === path));
+  return sourcePaths.some((path) => {
+    const source = bindings.commandSources.get(path);
+    return source !== void 0 && sourceGroupsAreCoLocated(
+      source,
+      signature.source_content_groups,
+      signature.source_max_span_lines
+    );
+  });
+}
+function sourceGroupsAreCoLocated(source, groups, maxSpanLines) {
+  const counts = groups.map(() => 0);
+  const lines = source.split(/\r?\n/);
+  const update = (line, direction) => {
+    groups.forEach((terms, index) => {
+      if (terms.some((term) => line.includes(term.toLowerCase()))) {
+        counts[index] = (counts[index] ?? 0) + direction;
+      }
+    });
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    update(lines[index] ?? "", 1);
+    if (index >= maxSpanLines) update(lines[index - maxSpanLines] ?? "", -1);
+    if (counts.every((count) => count > 0)) return true;
+  }
+  return false;
 }
 function commandArgumentMatches(argument, actualArguments, bindings) {
   const normalizedArgument = argument.toLowerCase();
@@ -1743,19 +1844,34 @@ function packageScriptInvocation(tokens) {
   const manager = executableIdentity(tokens[0] ?? "");
   if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
   const arguments_ = tokens.slice(1);
-  if (["dlx", "exec", "x"].includes(arguments_[0]?.toLowerCase() ?? "")) return null;
-  let index = 0;
-  if (arguments_[index]?.toLowerCase() === "run") index += 1;
-  while (arguments_[index]?.startsWith("-")) index += 1;
+  let index = skipPackageOptions(arguments_, 0);
+  const subcommand = arguments_[index]?.toLowerCase() ?? "";
+  if (["dlx", "exec", "x"].includes(subcommand)) return null;
+  if (subcommand === "run") index = skipPackageOptions(arguments_, index + 1);
   const task = arguments_[index]?.toLowerCase();
   return task ? { manager, task } : null;
+}
+function skipPackageOptions(arguments_, start) {
+  let index = start;
+  while (index < arguments_.length) {
+    const argument = arguments_[index]?.toLowerCase() ?? "";
+    if (argument === "--") {
+      index += 1;
+      break;
+    }
+    if (!argument.startsWith("-")) break;
+    const option = argument.split("=")[0] ?? argument;
+    index += packageOptionsWithValues.has(option) && !argument.includes("=") ? 2 : 1;
+  }
+  return index;
 }
 function executableIdentity(value) {
   return value.split("/").at(-1)?.replace(/\.exe$/i, "").toLowerCase() ?? "";
 }
-function shellStatements(value) {
+function shellStatements(value, requiresFinalExitStatus) {
   if (value.includes(";")) return [];
   const statements = value.split(/\r?\n/).map((statement) => statement.trim()).filter((statement) => statement.length > 0 && !statement.startsWith("#"));
+  if (!requiresFinalExitStatus) return statements;
   return statements.length > 0 ? [statements.at(-1) ?? ""] : [];
 }
 function stringValues(value) {
