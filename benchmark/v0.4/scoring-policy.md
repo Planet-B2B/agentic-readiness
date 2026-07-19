@@ -108,6 +108,9 @@ Controls require every evidence check by default. A v0.4 control may explicitly 
 `evidence_mode: any` only when the checks are alternative ways to establish the same outcome. A
 repository-only run remains `unknown` when the repository alternative is absent and an external
 alternative has not been collected; it does not infer either a platform pass or a platform failure.
+Supplemental evidence resolves only alternatives with the same scope. A negative claim makes the
+control `not_met` only when every alternative is established negatively; any uncollected alternative
+keeps the control `unknown`.
 The report shows every alternative and its provenance.
 Established-control tables display the scope of the evidence that resolved the control rather than
 an unresolved alternative scope.

@@ -330,11 +330,11 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
-  it('rejects CODEOWNERS prose with a contact embedded among non-owner fields', async () => {
+  it('rejects malformed CODEOWNERS owner fields and punctuation-only targets', async () => {
     const repository = await gitFixture({
       'CONTRIBUTING.md':
         'The required reviewer provides human approval and maintainers retain merge authority.\n',
-      CODEOWNERS: '* contact @platform-team for review\n',
+      CODEOWNERS: ['* contact @platform-team for review', '--- @platform-team'].join('\n'),
     });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
@@ -666,6 +666,54 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('resolves negative agent evidence only against its matching alternative', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture repository' });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const gitHead = execFileSync('git', ['-C', repository, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
+      const evidence = (scope: 'repository' | 'platform'): AgentEvidenceFile => ({
+        schema_version: '0.4.0',
+        benchmark_version: '0.4.0',
+        target: {
+          repository: 'https://example.invalid/acme/repository.git',
+          git_head: gitHead,
+        },
+        collector: { name: 'fixture-negative-adapter', version: '1.0.0' },
+        claims: {
+          'ADRB-SEC-003': {
+            status: 'not_met',
+            scope,
+            summary: `${scope} secret scanning is confirmed absent.`,
+            references:
+              scope === 'repository'
+                ? ['repo:README.md#L1']
+                : ['https://example.invalid/settings/security/secret-scanning'],
+            collected_at: '2026-07-18T10:00:00.000Z',
+            expires_at: '2026-08-17T10:00:00.000Z',
+            error: null,
+          },
+        },
+      });
+      const repositoryNegative = await assess(repository, benchmark, controls, 'pr-creation', {
+        agentEvidence: evidence('repository'),
+        now: new Date('2026-07-18T12:00:00.000Z'),
+      });
+      const platformNegative = await assess(repository, benchmark, controls, 'pr-creation', {
+        agentEvidence: evidence('platform'),
+        now: new Date('2026-07-18T12:00:00.000Z'),
+      });
+
+      expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.confidence).toBe('agent-collected');
+      expect(controlStatus(platformNegative, 'ADRB-SEC-003')?.status).toBe('not_met');
+      expect(controlStatus(platformNegative, 'ADRB-SEC-003')?.confidence).toBe('agent-collected');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('recognizes enabled merge-request scanners in GitLab and Azure pipelines', async () => {
     const gitlab = await gitFixture({
       '.gitlab-ci.yml': [
@@ -979,6 +1027,7 @@ describe('v0.4 evidence calibration', () => {
         'The budget is not set and the retry limit is prohibited.',
         'The stop condition is forbidden and escalation is not available.',
         'The recovery owner is not assigned.',
+        'The recovery owner is TBD and the rollback owner is unknown.',
       ].join('\n'),
     });
     try {
@@ -2099,6 +2148,7 @@ describe('v0.4 evidence calibration', () => {
         '      - run: gitleaks detect --exit-code=$CODE',
         '      - run: gitleaks detect --source /tmp/empty',
         '      - run: gitleaks detect --source=/tmp/empty',
+        '      - run: gitleaks detect --log-opts=--max-count=1',
         '      - run: gitleaks protect',
         '      - run: trufflehog git',
         '      - run: trufflehog git --fail=false',

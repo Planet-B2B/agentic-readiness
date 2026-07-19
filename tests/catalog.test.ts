@@ -93,7 +93,7 @@ describe('benchmark catalog', () => {
             source_pattern_groups: [],
             source_max_span_lines: 120,
             required_argument_prefixes: [],
-            prohibited_arguments: ['--exit-code', '--source'],
+            prohibited_arguments: ['--exit-code', '--log-opts', '--source'],
             prohibited_argument_sequences: [],
           },
         ],

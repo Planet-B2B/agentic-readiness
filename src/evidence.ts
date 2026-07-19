@@ -257,6 +257,7 @@ function ownershipEntries(path: string, text: string): number {
         const fields = line.split(/\s+/);
         return (
           fields.length >= 2 &&
+          isCodeownersTarget(fields[0] ?? '') &&
           fields.slice(1).every((field) => isOwnerHandle(field) || isExactEmailContact(field))
         );
       }).length;
@@ -429,6 +430,19 @@ function isOwnershipTarget(value: string): boolean {
     return /[a-z0-9_-]/i.test(target.replace(/^\.{0,2}\//, ''));
   }
   return /^[a-z0-9_.-]+\.[a-z0-9]{1,10}$/i.test(target);
+}
+
+function isCodeownersTarget(value: string): boolean {
+  const target = value.trim();
+  if (['*', '**', '/*', '/**'].includes(target)) return true;
+  return (
+    target.length > 0 &&
+    target.length <= 200 &&
+    !target.startsWith('!') &&
+    !target.includes('@') &&
+    /^[^\s]+$/.test(target) &&
+    /[a-z0-9_]/i.test(target)
+  );
 }
 
 function parseOwnershipMapping(line: string): { owner: string; target: string } | null {
@@ -2239,6 +2253,7 @@ function containsPositiveTerm(text: string, term: string): boolean {
       !hasNegativePrefix(prefix) &&
       !hasNegativeSuffix(suffix) &&
       !hasExplicitlyUnboundedQualifier(prefix, suffix) &&
+      !hasPlaceholderQualifier(prefix, suffix) &&
       !hasNonHumanAuthorityPrefix(prefix, term)
     ) {
       return true;
@@ -2253,6 +2268,19 @@ function hasExplicitlyUnboundedQualifier(prefix: string, suffix: string): boolea
     /^\s*(?:(?:is|are|remains?|stays?|=|:)\s*)?(?:explicitly\s+)?(?:unbounded|unlimited)\b/i.test(
       suffix,
     );
+  return precedingQualifier || followingQualifier;
+}
+
+function hasPlaceholderQualifier(prefix: string, suffix: string): boolean {
+  const placeholder =
+    '(?:n\\s*\\/\\s*a|none|pending|tbd|to\\s+be\\s+(?:assigned|determined)|unassigned|unknown|vacant)';
+  const precedingQualifier = new RegExp(`\\b${placeholder}(?:\\s+[a-z0-9_-]+){0,2}\\s*$`, 'i').test(
+    prefix,
+  );
+  const followingQualifier = new RegExp(
+    `^\\s*(?:(?:is|are|remains?|stays?|=|:)\\s*)?(?:explicitly\\s+)?${placeholder}\\b`,
+    'i',
+  ).test(suffix);
   return precedingQualifier || followingQualifier;
 }
 
@@ -2442,6 +2470,49 @@ function supplementalResolution(
   return null;
 }
 
+function alternativeSupplementalResolution(
+  evidence: EvidenceResult[],
+  attestation: Attestation | null,
+  agentEvidence: AgentEvidenceClaim | null,
+): ControlResolution {
+  if (attestation?.status === 'not_applicable') {
+    return { confidence: 'attested', status: 'not_applicable' };
+  }
+  const statuses = evidence.map(({ status }) => status);
+  const agentIndexes = agentEvidence
+    ? evidence.flatMap(({ scope }, index) => (scope === agentEvidence.scope ? [index] : []))
+    : [];
+  const attestationIndexes = evidence.flatMap(({ type }, index) =>
+    type === 'manual' ? [index] : [],
+  );
+  const supplementalConflict =
+    agentEvidence !== null &&
+    agentEvidence.status !== 'unknown' &&
+    attestation !== null &&
+    attestation.status !== 'unknown' &&
+    attestationIndexes.some((index) => evidence[index]?.scope === agentEvidence.scope) &&
+    agentEvidence.status !== attestation.status;
+  if (supplementalConflict) return { confidence: 'none', status: 'unknown' };
+
+  if (agentEvidence) {
+    for (const index of agentIndexes) statuses[index] = agentEvidence.status;
+  }
+  for (const index of attestationIndexes) {
+    if (attestation) statuses[index] = attestation.status;
+  }
+
+  const agentContributed = agentEvidence !== null && agentIndexes.length > 0;
+  const attestationContributed = attestation !== null && attestationIndexes.length > 0;
+  const confidence: ControlResolution['confidence'] = agentContributed
+    ? 'agent-collected'
+    : attestationContributed
+      ? 'attested'
+      : 'none';
+  if (statuses.some((status) => status === 'met')) return { confidence, status: 'met' };
+  if (statuses.every((status) => status === 'not_met')) return { confidence, status: 'not_met' };
+  return { confidence, status: 'unknown' };
+}
+
 function resolveControl(
   control: Control,
   evidence: EvidenceResult[],
@@ -2451,6 +2522,9 @@ function resolveControl(
   const checksPassed = evidenceChecksPass(control, evidence);
   if (repositoryEvidencePasses(control, evidence, checksPassed)) {
     return { confidence: 'repository-detected', status: 'met' };
+  }
+  if (control.evidence_mode === 'any') {
+    return alternativeSupplementalResolution(evidence, attestation, agentEvidence);
   }
   const supplemental = supplementalResolution(attestation, agentEvidence);
   if (supplemental) return supplemental;

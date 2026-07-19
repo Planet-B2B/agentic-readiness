@@ -95,6 +95,8 @@
 - Require every CODEOWNERS owner field to be a valid contact and reject explicitly unlimited
   resource budgets or unbounded retries as containment evidence.
 - Exclude uncalled expression-bodied JavaScript arrow functions from structural validator evidence.
+- Validate CODEOWNERS targets, reject placeholder containment owners and partial-history Gitleaks
+  scans, and keep negative agent evidence scoped to its matching alternative.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

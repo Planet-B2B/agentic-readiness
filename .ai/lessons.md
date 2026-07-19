@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Alternative evidence and structured placeholders stay scoped
+
+**Context.** Automated review found punctuation-only CODEOWNERS targets, placeholder recovery
+owners, restricted-history secret scans, and repository-negative claims that incorrectly resolved
+an uncollected platform alternative.
+
+**Rule.** Validate both sides of structural mappings, reject unresolved placeholders and scan-range
+restrictions, and apply supplemental evidence only to the alternative scope it establishes.
+
 ## 2026-07-19 — Reachability includes every supported function form
 
 **Context.** Automated review found that uncalled expression-bodied JavaScript arrow functions were
