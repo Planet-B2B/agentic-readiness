@@ -32,7 +32,9 @@ job disposition also fail closed. Repository-bound commands qualify only after t
 made the assessed repository available: GitHub requires a preceding `actions/checkout` step,
 GitLab must retain its clone/fetch checkout, and Azure must retain its default checkout or execute
 `checkout: self` before the command. GitHub checkout inputs that select another repository, ref,
-path, sparse subset, or object filter cannot establish this state. Multi-statement shell forms qualify
+path, sparse subset, or object filter cannot establish this state, and a later non-target checkout
+clears earlier target proof for the affected event. GitHub run working directories and explicit
+directory-changing shell commands must remain at the assessed checkout root. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
 step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
@@ -52,7 +54,9 @@ context-changing package/workspace flags fail closed unless their selected manif
 while recognized nested package-exec targets are evaluated at their executable position. Package
 manager built-ins are not treated as same-named scripts: npm resolves arbitrary task names only
 through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible.
-Arguments forwarded to a package task fail closed unless their effect is structurally resolved. Source
+Arguments forwarded to a package task fail closed unless their effect is structurally resolved.
+Package task lookup preserves the manifest's case-sensitive script identity. Backslash/backtick
+continuations and heredocs fail closed rather than treating their physical lines as commands. Source
 validation excludes language comments before checking bounded structural groups, and referenced
 repository validation scripts must exist as non-empty assessed files. A plausible task name,
 missing path, collection-only test mode, or

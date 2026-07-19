@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Execution state changes over time and across syntax layers
+
+**Context.** Automated review found that later checkout steps could invalidate earlier repository
+proof, working-directory changes and multiline shell syntax could redirect or imitate commands, and
+case-folding could bind a package task that CI would not execute.
+
+**Rule.** Track repository and directory state in execution order, fail closed on unsupported shell
+structures, and preserve case-sensitive identities until the platform-specific lookup is complete.
+
 ## 2026-07-18 — Preserve target and arguments through every execution layer
 
 **Context.** Automated review found that a checkout action could select another repository or ref,

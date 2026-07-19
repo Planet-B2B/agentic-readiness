@@ -427,6 +427,7 @@ async function readSearchableFiles(
   context: RepositoryContext,
   patterns: string[],
   maxFilesPerPattern?: number,
+  preserveCase = false,
 ): Promise<Array<{ path: string; text: string }>> {
   const root = context.metadata.root;
   const paths = maxFilesPerPattern
@@ -449,10 +450,10 @@ async function readSearchableFiles(
       ) {
         continue;
       }
-      const text = (await readFile(canonicalPath, 'utf8')).toLowerCase();
-      if (isGeneratedAssessment(text)) continue;
+      const rawText = await readFile(canonicalPath, 'utf8');
+      if (isGeneratedAssessment(rawText)) continue;
       totalBytes += metadata.size;
-      files.push({ path, text });
+      files.push({ path, text: preserveCase ? rawText : rawText.toLowerCase() });
     } catch {
       // Races, unreadable files, and binary content are unavailable evidence.
     }
@@ -487,7 +488,9 @@ async function prioritizedMatches(
 
 function isGeneratedAssessment(text: string): boolean {
   const normalized = text.trimStart();
-  if (normalized.startsWith('# agentic development readiness assessment')) return true;
+  if (normalized.toLowerCase().startsWith('# agentic development readiness assessment')) {
+    return true;
+  }
   if (!normalized.startsWith('{')) return false;
 
   try {
@@ -654,7 +657,7 @@ async function evaluateCiCommand(
 ): Promise<EvidenceResult> {
   const bindings = await repositoryCommandBindings(context, check.tools);
   const patterns = check.providers.flatMap(({ files }) => files);
-  const files = await readSearchableFiles(context, patterns, check.max_files_per_pattern);
+  const files = await readSearchableFiles(context, patterns, check.max_files_per_pattern, true);
   const providerPaths = await Promise.all(
     check.providers.map(async (provider) => ({
       id: provider.id,
@@ -714,13 +717,13 @@ async function repositoryCommandBindings(
     ),
   ];
   const commandSources = new Map(
-    (await readSearchableFiles(context, commandPaths)).map(({ path, text }) => [
+    (await readSearchableFiles(context, commandPaths, undefined, true)).map(({ path, text }) => [
       normalizeCommandPath(path),
       text,
     ]),
   );
   const availableCommandPaths = new Set(commandSources.keys());
-  const packageFile = (await readSearchableFiles(context, ['package.json'])).find(
+  const packageFile = (await readSearchableFiles(context, ['package.json'], undefined, true)).find(
     ({ path }) => path === 'package.json',
   );
   if (!packageFile) return { availableCommandPaths, commandSources, packageScripts: new Map() };
@@ -733,7 +736,7 @@ async function repositoryCommandBindings(
       packageScripts: new Map(
         Object.entries(scripts ?? {})
           .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-          .map(([name, command]) => [name.toLowerCase(), command]),
+          .map(([name, command]) => [name, command]),
       ),
     };
   } catch {
@@ -776,18 +779,24 @@ function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvo
   if (events.size === 0) return [];
   const steps = asArray(job.steps);
   if (steps.length === 0 || !hasGithubRunner(job['runs-on'])) return [];
+  const runDefaults = githubRunDefaults(job.defaults);
+  if (!runDefaults.valid) return [];
   const checkoutEvents = new Set<string>();
   return steps.flatMap((stepValue) => {
     const step = asRecord(stepValue);
     if (!step || isDisabledCiNode(step)) return [];
     const stepEvents = githubConditionEvents(step.if, events);
     if (stepEvents.size === 0) return [];
-    if (isGithubCheckoutStep(step)) {
-      stepEvents.forEach((event) => checkoutEvents.add(event));
+    const checkout = githubCheckoutDisposition(step);
+    if (checkout) {
+      stepEvents.forEach((event) => {
+        if (checkout === 'target') checkoutEvents.add(event);
+        else checkoutEvents.delete(event);
+      });
       return [];
     }
     if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
-    return githubStepInvocations(step, stepEvents);
+    return githubStepInvocations(step, stepEvents, runDefaults.workingDirectory);
   });
 }
 
@@ -798,25 +807,59 @@ function hasGithubRunner(value: unknown): boolean {
   );
 }
 
-function isGithubCheckoutStep(step: Record<string, unknown>): boolean {
-  if (step.run !== undefined || typeof step.uses !== 'string') return false;
-  if (!/^actions\/checkout@[^@\s]+$/i.test(step.uses.trim())) return false;
-  if (step.with === undefined) return true;
+function githubCheckoutDisposition(step: Record<string, unknown>): 'other' | 'target' | null {
+  if (typeof step.uses !== 'string') return null;
+  if (!/^actions\/checkout@[^@\s]+$/i.test(step.uses.trim())) return null;
+  if (step.run !== undefined) return 'other';
+  if (step.with === undefined) return 'target';
   const inputs = asRecord(step.with);
-  if (!inputs) return false;
-  return !['filter', 'path', 'ref', 'repository', 'sparse-checkout'].some((field) =>
+  if (!inputs) return 'other';
+  return ['filter', 'path', 'ref', 'repository', 'sparse-checkout'].some((field) =>
     Object.hasOwn(inputs, field),
-  );
+  )
+    ? 'other'
+    : 'target';
 }
 
-function githubStepInvocations(value: unknown, parentEvents: Set<string>): CiInvocation[] {
+interface GitHubRunDefaults {
+  valid: boolean;
+  workingDirectory: unknown;
+}
+
+function githubRunDefaults(value: unknown): GitHubRunDefaults {
+  if (value === undefined) return { valid: true, workingDirectory: undefined };
+  const defaults = asRecord(value);
+  if (!defaults) return { valid: false, workingDirectory: undefined };
+  if (defaults.run === undefined) return { valid: true, workingDirectory: undefined };
+  const run = asRecord(defaults.run);
+  return run
+    ? { valid: true, workingDirectory: run['working-directory'] }
+    : { valid: false, workingDirectory: undefined };
+}
+
+function githubStepInvocations(
+  value: unknown,
+  parentEvents: Set<string>,
+  defaultWorkingDirectory: unknown,
+): CiInvocation[] {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (githubConditionEvents(step.if, parentEvents).size === 0) return [];
   if (step.uses !== undefined && step.run !== undefined) return [];
   const action = invocationFromField(step, 'uses', 'action');
-  const command = invocationFromField(step, 'run', 'command');
+  const command = githubWorkingDirectoryIsRoot(step['working-directory'] ?? defaultWorkingDirectory)
+    ? invocationFromField(step, 'run', 'command')
+    : null;
   return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
+}
+
+function githubWorkingDirectoryIsRoot(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '');
+  return ['.', './', '${{github.workspace}}', '$github_workspace', '${github_workspace}'].includes(
+    normalized,
+  );
 }
 
 function invocationFromField(
@@ -1161,6 +1204,7 @@ function commandTextMatchesTool(
     for (const rawCommand of commands) {
       const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, '').trim();
       if (/^(?:false|exit\s+[1-9]\d*)$/i.test(command)) return false;
+      if (/^(?:cd|chdir|pushd|popd|set-location)\b/i.test(command)) return false;
       if (commandMatchesTool(command, tool, bindings, visitedScripts)) return true;
     }
     return false;
@@ -1615,10 +1659,19 @@ function packageScriptInvocation(
         }
       : null;
   }
-  const task = arguments_[index]?.toLowerCase();
+  const task = packageTaskName(arguments_[index]);
   return task
     ? { hasForwardedArguments: hasForwardedPackageArguments(arguments_, index), manager, task }
     : null;
+}
+
+function packageTaskName(value: string | undefined): string | null {
+  if (!value) return null;
+  const quote = value[0];
+  if (value.length >= 2 && ['"', "'"].includes(quote ?? '') && value.at(-1) === quote) {
+    return value.slice(1, -1);
+  }
+  return value;
 }
 
 function hasForwardedPackageArguments(arguments_: string[], taskIndex: number): boolean {
@@ -1650,13 +1703,21 @@ function executableIdentity(value: string): string {
 }
 
 function shellStatements(value: string, requiresFinalExitStatus: boolean): string[] {
-  if (value.includes(';')) return [];
+  if (value.includes(';') || hasUnsupportedShellStructure(value)) return [];
   const statements = value
     .split(/\r?\n/)
     .map((statement) => statement.trim())
     .filter((statement) => statement.length > 0 && !statement.startsWith('#'));
   if (!requiresFinalExitStatus) return statements;
   return statements.length > 0 ? [statements.at(-1) ?? ''] : [];
+}
+
+function hasUnsupportedShellStructure(value: string): boolean {
+  if (value.includes('<<')) return true;
+  return value.split(/\r?\n/).some((line) => {
+    const trimmed = line.trimEnd();
+    return trimmed.endsWith('\\') || trimmed.endsWith('`');
+  });
 }
 
 function stringValues(value: unknown): string[] {

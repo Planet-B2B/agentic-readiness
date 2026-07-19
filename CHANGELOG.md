@@ -63,6 +63,9 @@
 - Reject alternate or partial GitHub checkout inputs and unresolved arguments forwarded to package
   tasks; align the RES-002 outcome with its independently required retry bounds and make every
   mature-fixture workflow task explicit.
+- Preserve case-sensitive package task identities, clear checkout proof when later checkout steps
+  replace the target, and reject unbound working directories, shell continuations, heredocs, and
+  command-level directory changes in deterministic CI evidence.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

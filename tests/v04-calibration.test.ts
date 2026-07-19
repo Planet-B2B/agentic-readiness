@@ -708,6 +708,34 @@ describe('v0.4 evidence calibration', () => {
         ].join('\n'),
       },
       {
+        '.github/workflows/replaced-checkout.yml': [
+          'on: [pull_request]',
+          'jobs:',
+          '  scan:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          '      - uses: actions/checkout@v4',
+          '        with:',
+          '          repository: another/example',
+          '      - run: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.github/workflows/other-directory.yml': [
+          'on: [pull_request]',
+          'jobs:',
+          '  scan:',
+          '    runs-on: ubuntu-latest',
+          '    defaults:',
+          '      run:',
+          '        working-directory: /tmp/unrelated',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          '      - run: gitleaks detect',
+        ].join('\n'),
+      },
+      {
         '.gitlab-ci.yml': [
           'variables:',
           '  GIT_STRATEGY: none',
@@ -945,6 +973,34 @@ describe('v0.4 evidence calibration', () => {
       );
     } finally {
       await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves explicit package task names with manifest case sensitivity', async () => {
+    const files = (task: string): Record<string, string> => ({
+      'package.json': JSON.stringify({ scripts: { lint: 'eslint .', Test: 'vitest run' } }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        `      - run: npm run ${task}`,
+        '      - run: npm run lint',
+      ].join('\n'),
+    });
+    const wrongCase = await gitFixture(files('test'));
+    const exactCase = await gitFixture(files('Test'));
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const wrongCaseReport = await assess(wrongCase, benchmark, controls, 'pr-creation');
+      const exactCaseReport = await assess(exactCase, benchmark, controls, 'pr-creation');
+      expect(controlStatus(wrongCaseReport, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(exactCaseReport, 'ADRB-TST-003')?.status).toBe('met');
+    } finally {
+      await rm(wrongCase, { recursive: true, force: true });
+      await rm(exactCase, { recursive: true, force: true });
     }
   });
 
@@ -1359,6 +1415,16 @@ describe('v0.4 evidence calibration', () => {
         '        run: gitleaks detect',
         '      - run: set +e; gitleaks detect; exit 0',
         '      - run: gitleaks detect & echo done',
+        '      - run: cd /tmp/unrelated && gitleaks detect',
+        '      - run: cd /tmp/unrelated && pytest && mypy .',
+        '      - run: |',
+        '          echo \\',
+        '          gitleaks detect',
+        '      - run: |',
+        '          cat <<EOF',
+        '          pytest',
+        '          mypy .',
+        '          EOF',
         "      - if: github.event_name == 'pull_request' && github.event_name == 'push'",
         '        run: gitleaks detect',
       ].join('\n'),
@@ -1424,6 +1490,7 @@ describe('v0.4 evidence calibration', () => {
       const security = controlStatus(report, 'ADRB-SEC-003');
       expect(security?.status).toBe('unknown');
       expect(security?.evidence[0]?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
