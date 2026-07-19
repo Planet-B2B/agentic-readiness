@@ -2352,6 +2352,7 @@ function commandSourceMatches(signature, arguments_, bindings) {
     const source = bindings.commandSources.get(path);
     if (source === void 0) return false;
     const uncommented = stripSourceComments(source, path);
+    if (hasUnresolvedJavascriptCallable(uncommented, path)) return false;
     if (hasObviouslyUnreachableBranch(uncommented, path)) return false;
     const executableSource = executableValidationSource(uncommented, path);
     return sourceGroupsAreCoLocated(
@@ -2410,6 +2411,14 @@ function topLevelSourceLines(lines, blocks) {
 function sourceFunctionBlocks(lines, path) {
   if (/\.py$/i.test(path)) return pythonFunctionBlocks(lines);
   return braceDelimitedFunctionBlocks(lines, /\.[cm]?[jt]sx?$/i.test(path));
+}
+function hasUnresolvedJavascriptCallable(source, path) {
+  if (!/\.[cm]?[jt]sx?$/i.test(path)) return false;
+  const method = String.raw`(?:^|[;{}])\s*(?:(?:abstract|async|get|override|private|protected|public|set|static)\s+)*(?!(?:catch|for|if|switch|while|with)\b)#?[a-z_$][a-z0-9_$]*\s*\([^)]*\)\s*\{`;
+  const propertyArrow = String.raw`(?:^|[,;{}])\s*[a-z_$][a-z0-9_$]*\s*:\s*(?:async\s*)?(?:\([^)]*\)|[a-z_$][a-z0-9_$]*)\s*=>`;
+  return source.split(/\r?\n/).some(
+    (line) => executableSourcePatternMatches(line, method) || executableSourcePatternMatches(line, propertyArrow)
+  );
 }
 function braceDelimitedFunctionBlocks(lines, javascript) {
   const blocks = [];
@@ -2971,9 +2980,11 @@ function supplementalResolution(attestation, agentEvidence) {
   if (agentEvidence && agentEvidence.status !== "unknown") {
     return { confidence: "agent-collected", status: agentEvidence.status };
   }
-  if (attestation) return { confidence: "attested", status: attestation.status };
-  if (agentEvidence?.status === "unknown") {
-    return { confidence: "agent-collected", status: "unknown" };
+  if (attestation && attestation.status !== "unknown") {
+    return { confidence: "attested", status: attestation.status };
+  }
+  if (agentEvidence?.status === "unknown" || attestation?.status === "unknown") {
+    return { confidence: "none", status: "unknown" };
   }
   return null;
 }
@@ -3342,9 +3353,7 @@ async function validateAgentEvidence(benchmark, catalog, context, evidence, now)
   }
   const expectedTarget = repositoryEvidenceTarget(context.metadata);
   if (evidence.target.repository !== expectedTarget.repository) {
-    throw new Error(
-      `Agent evidence target ${evidence.target.repository} does not match ${expectedTarget.repository}`
-    );
+    throw new Error("Agent evidence target does not match the assessed repository");
   }
   if (evidence.target.git_head !== expectedTarget.git_head) {
     throw new Error(

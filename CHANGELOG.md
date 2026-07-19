@@ -27,8 +27,8 @@
 - Validate ownership tables, mappings, contacts, CODEOWNERS targets and inline comments, while
   excluding retired, placeholder, bot-qualified, negated, or structurally ambiguous assignments.
 - Validate guidance, specification, and knowledge-maintenance scripts by reachable executable
-  behavior instead of filenames or inert source strings; make this repository's guidance check part
-  of `npm run check`.
+  behavior instead of filenames, inert source strings, or uncalled method bodies; make this
+  repository's guidance check part of `npm run check`.
 - Permit dated platform attestation for host-native secret scanning; bind v0.4 attestation files to
   one repository, reject unknown fields and malformed or unknown IDs, and keep platform scanning
   distinct from untrusted-input safeguards; reject future review dates and unresolved placeholders
@@ -36,7 +36,7 @@
 - Report required-check progress, stable blocker labels, actual mixed-evidence scope, and unresolved
   alternative controls separately from control-level confidence; attribute mixed-alternative
   results to the source that supplies the decisive status, and bind partial semantic summaries to
-  the selected reference.
+  the selected reference; serialize unresolved control confidence consistently as `none`.
 - Keep repository reads canonical, bounded, generated-output-safe, and linear for long source lines;
   constrain agent-document links to the checkout and align the published evidence schemas with
   runtime validation without echoing untrusted target values in diagnostics.

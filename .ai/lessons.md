@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Conformance proves reachability, artifact separation, and output parity
+
+**Context.** Exact-head review found that uncalled class/object method bodies could look executable,
+a traceability fixture could point both artifacts back to its specification, and unresolved
+supplemental confidence differed between JSON and Markdown.
+
+**Rule.** Fail closed on callable forms whose reachability is unresolved, constrain and separate
+traceability artifacts, and enforce report semantics in the structured result before rendering.
+
 ## 2026-07-19 — Validation errors do not echo untrusted evidence identifiers
 
 **Context.** Exact-head review found that a mismatched human-attestation target containing URL

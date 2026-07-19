@@ -349,9 +349,7 @@ async function validateAgentEvidence(
   }
   const expectedTarget = repositoryEvidenceTarget(context.metadata);
   if (evidence.target.repository !== expectedTarget.repository) {
-    throw new Error(
-      `Agent evidence target ${evidence.target.repository} does not match ${expectedTarget.repository}`,
-    );
+    throw new Error('Agent evidence target does not match the assessed repository');
   }
   if (evidence.target.git_head !== expectedTarget.git_head) {
     throw new Error(

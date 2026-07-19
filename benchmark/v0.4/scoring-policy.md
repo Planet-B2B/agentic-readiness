@@ -93,7 +93,9 @@ does not establish behavior. Specification-traceability and knowledge-curation c
 source-bound standard. A recognized specification validator binds an approved work-item reference
 to both implementation and verification artifacts; checking only for a heading is insufficient.
 Constant-false branches and validation functions without a top-level reachable call path fail closed.
-Required structural groups cannot combine across unreachable function bodies.
+Required structural groups cannot combine across unreachable function bodies. JavaScript/TypeScript
+class methods, object shorthand methods, and object arrow methods fail closed when the conservative
+collector cannot prove their invocation.
 Tool-specific discovery or listing modes do not count as execution. In a supported fail-fast shell,
 each multiline command may contribute because any failure gates the step; without fail-fast
 semantics, only the final effective foreground command may establish execution.
@@ -127,6 +129,8 @@ keeps the control `unknown`.
 The report shows every alternative and its provenance. Control confidence comes from the
 alternative that establishes the decisive pass or complete negative result; supplemental input on a
 different alternative does not relabel the result or its evidence-summary/profile dependency.
+An unresolved control always serializes control confidence as `none`; the supplemental input remains
+visible in its separately labelled claim fields.
 Established-control tables display the scope of the evidence that resolved the control rather than
 an unresolved alternative scope.
 

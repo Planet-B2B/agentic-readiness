@@ -97,6 +97,35 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('rejects specification metadata that reuses the spec as its own artifacts', async () => {
+    const repository = await gitDirectoryFixture(
+      resolve(import.meta.dirname, 'fixtures', 'mature'),
+    );
+    try {
+      await writeFile(
+        join(repository, 'specs', 'example.md'),
+        [
+          '# Requirements',
+          '',
+          'Work item: ADRB-DEMO-001',
+          'Implementation: specs/example.md',
+          'Verification: specs/example.md',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      const tsxCli = resolve(import.meta.dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs');
+      expect(() =>
+        execFileSync(process.execPath, [tsxCli, 'scripts/check-specs.ts'], {
+          cwd: repository,
+          stdio: 'pipe',
+        }),
+      ).toThrow();
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('reports semantic containment coverage without promoting a partial match', async () => {
     const repository = await gitFixture({
       'AGENTS.md': [
@@ -1522,6 +1551,44 @@ describe('v0.4 evidence calibration', () => {
       await rm(transitivelyCalled, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('fails closed on uncalled class and object method validators', async () => {
+    const source = (declaration: string) => ({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': declaration,
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
+    const classMethod = await gitFixture(
+      source(
+        "class Validator { run() { const guidance = readFileSync('AGENTS.md', 'utf8'); if (!guidance.includes('scope')) throw new Error('invalid'); } }",
+      ),
+    );
+    const objectMethod = await gitFixture(
+      source(
+        "const validator = { run() { const guidance = readFileSync('AGENTS.md', 'utf8'); if (!guidance.includes('scope')) throw new Error('invalid'); } };",
+      ),
+    );
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      for (const repository of [classMethod, objectMethod]) {
+        const report = await assess(repository, benchmark, controls, 'pr-creation');
+        expect(controlStatus(report, 'ADRB-CTX-003')?.status).toBe('not_met');
+      }
+    } finally {
+      await rm(classMethod, { recursive: true, force: true });
+      await rm(objectMethod, { recursive: true, force: true });
+    }
+  });
 
   it('does not award enforced maturity from keyword-bearing no-op files', async () => {
     const repository = await gitFixture({
@@ -2998,6 +3065,29 @@ describe('v0.4 evidence calibration', () => {
       );
       expect(mismatch?.message).toBe('Attestation target does not match the assessed repository');
       expect(mismatch?.message).not.toContain('secret-token');
+
+      const gitHead = execFileSync('git', ['-C', repository, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
+      const agentMismatch = await assess(repository, benchmark, controls, 'pr-creation', {
+        agentEvidence: {
+          schema_version: '0.4.0',
+          benchmark_version: '0.4.0',
+          target: {
+            repository: 'https://secret-token@example.invalid/other/repository.git',
+            git_head: gitHead,
+          },
+          collector: { name: 'fixture-target-reviewer', version: '1.0.0' },
+          claims: {},
+        },
+      }).then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+      );
+      expect(agentMismatch?.message).toBe(
+        'Agent evidence target does not match the assessed repository',
+      );
+      expect(agentMismatch?.message).not.toContain('secret-token');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -3033,12 +3123,24 @@ describe('v0.4 evidence calibration', () => {
           now: new Date('2026-07-19T12:00:00.000Z'),
         }),
       ).rejects.toThrow('future review date');
-      await expect(
-        assess(repository, benchmark, controls, 'pr-creation', {
-          attestations: attestation({ status: 'unknown', owner: 'TODO', evidence: 'TODO' }),
-          now: new Date('2026-07-19T12:00:00.000Z'),
-        }),
-      ).resolves.toBeDefined();
+      const unresolvedReport = await assess(repository, benchmark, controls, 'pr-creation', {
+        attestations: {
+          benchmark_version: '0.4.0',
+          target: { repository: 'https://example.invalid/acme/repository.git' },
+          attestations: {
+            'ADRB-GOV-003': {
+              status: 'unknown',
+              owner: 'TODO',
+              evidence: 'TODO',
+              reviewed_at: '2026-07-19',
+              expires_at: '2026-10-19',
+            },
+          },
+        },
+        now: new Date('2026-07-19T12:00:00.000Z'),
+      });
+      expect(controlStatus(unresolvedReport, 'ADRB-GOV-003')?.status).toBe('unknown');
+      expect(controlStatus(unresolvedReport, 'ADRB-GOV-003')?.confidence).toBe('none');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
