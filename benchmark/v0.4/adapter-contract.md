@@ -15,14 +15,18 @@ Portable v0.4 collectors may use semantic `content_groups`, structural `ownershi
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors plus
 provider discovery rules and recognized scanner definitions to `ci_command`. A scanner definition
 uses full owner/repository action identities or executable identities paired with scan-bearing
-arguments. Names alone never turn comments, version/help commands, display commands, disabled or
+arguments. GitHub action invocations also require an explicit non-empty `@ref`. Names alone never
+turn comments, version/help commands, display commands, disabled or
 non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
-into enforced evidence. Push-only or post-close execution does not establish the before-integration
-outcome; the external platform alternative remains available when enforcement lives outside
+into enforced evidence. Push-only, post-close, or path-gated execution does not establish the
+repository-wide before-integration outcome; the external platform alternative remains available
+when enforcement lives outside
 pull-request CI. Unsupported provider conditions and any configured non-literal blocking override
 fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
-are not step actions. Multi-statement shell forms qualify only when the scanner is the final
-effective statement and its exit status determines the step result.
+are not step actions, and invalid steps that combine `uses` with `run` are rejected. Provider path
+filters and GitLab rules with unparsed gating fields fail closed. Multi-statement shell forms qualify
+only when the scanner is the final effective foreground statement and its exit status determines the
+step result.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

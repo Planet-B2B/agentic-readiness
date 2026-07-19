@@ -240,6 +240,8 @@ describe('v0.4 evidence calibration', () => {
         '| packages/platform/** | TBD |',
         '| TBD | @platform-team |',
         '| - | @release-team |',
+        '| component TBD | @component-team |',
+        'packages/**: no owner',
       ].join('\n'),
       'MAINTAINERS.md': '# Maintainers\n\n- Security team handbook\n',
     });
@@ -600,6 +602,7 @@ describe('v0.4 evidence calibration', () => {
         '      - uses: actions/checkout@gitleaks',
         '      - uses: gitleaks-logger/checkout@v1',
         '      - uses: attacker/gitleaks-action@v1',
+        '      - uses: gitleaks/gitleaks-action',
         '      - if: failure()',
         '        run: gitleaks detect',
         "      - if: github.ref == 'refs/heads/impossible'",
@@ -609,6 +612,7 @@ describe('v0.4 evidence calibration', () => {
         '      - continue-on-error: ${{ true }}',
         '        run: gitleaks detect',
         '      - run: set +e; gitleaks detect; exit 0',
+        '      - run: gitleaks detect & echo done',
       ].join('\n'),
       '.github/workflows/closed.yml': [
         'on:',
@@ -632,6 +636,16 @@ describe('v0.4 evidence calibration', () => {
         'jobs:',
         '  scan:',
         '    uses: gitleaks/gitleaks-action@v2',
+      ].join('\n'),
+      '.github/workflows/path-gated.yml': [
+        'on:',
+        '  pull_request:',
+        '    paths: [docs/**]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: gitleaks/gitleaks-action@v2',
       ].join('\n'),
       '.gitlab-ci.yml': [
         'secret-scan:',
@@ -660,11 +674,32 @@ describe('v0.4 evidence calibration', () => {
         `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $RUN_SECRET_SCAN == "true"'`,
         '  script: gitleaks detect',
       ].join('\n'),
+      '.gitlab-ci/changes-gate.yml': [
+        'secret-scan:',
+        '  rules:',
+        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+        '      changes: [docs/**]',
+        '  script: gitleaks detect',
+      ].join('\n'),
+      '.gitlab-ci/exists-gate.yml': [
+        'secret-scan:',
+        '  rules:',
+        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+        '      exists: [.enable-secret-scan]',
+        '  script: gitleaks detect',
+      ].join('\n'),
       '.gitlab-ci/job-allow-failure.yml': [
         'secret-scan:',
         '  only: [merge_requests]',
         '  allow_failure:',
         '    exit_codes: [1]',
+        '  script: gitleaks detect',
+      ].join('\n'),
+      '.gitlab-ci/only-changes.yml': [
+        'secret-scan:',
+        '  only:',
+        '    refs: [merge_requests]',
+        '    changes: [docs/**]',
         '  script: gitleaks detect',
       ].join('\n'),
       'azure-pipelines.yml': [
@@ -679,6 +714,13 @@ describe('v0.4 evidence calibration', () => {
         'steps:',
         '  - script: gitleaks detect',
         "    condition: ne(variables['Build.Reason'], 'PullRequest')",
+      ].join('\n'),
+      '.azure-pipelines/path-gated.yml': [
+        'pr:',
+        '  paths:',
+        '    include: [docs/**]',
+        'steps:',
+        '  - script: gitleaks detect',
       ].join('\n'),
     });
     try {

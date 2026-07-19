@@ -21,6 +21,8 @@
 - Require runnable GitHub step jobs, reject job-level reusable workflows as scanner actions, parse
   complete supported GitLab predicates, preserve scanner exit-status propagation, and detect
   authority negation across its containing clause.
+- Require explicit GitHub action refs, reject backgrounded scanners, path-gated provider triggers,
+  and conditionally gated GitLab rules, and treat explicit no-owner assignments as placeholders.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

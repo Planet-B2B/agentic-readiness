@@ -206,7 +206,8 @@ function isOwnershipTarget(value: string): boolean {
   if (/^(?:all files|default|entire repository|global|repo|repository|root)$/i.test(target)) {
     return true;
   }
-  if (/^(?:area|component|module|path|scope)\s+\S+/i.test(target)) return true;
+  const namedTarget = /^(?:area|component|module|path|scope)\s+(.+)$/i.exec(target);
+  if (namedTarget) return !isPlaceholderOwner(namedTarget[1] ?? '');
   if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) return true;
   return /^[a-z0-9_.-]+\.[a-z0-9]{1,10}$/i.test(target);
 }
@@ -258,7 +259,7 @@ function hasEmailContact(value: string): boolean {
 }
 
 function isPlaceholderOwner(value: string): boolean {
-  return /^(?:tbd|to be (?:assigned|determined)|unassigned|n\/?a|none|unknown|pending|vacant|-+)$/i.test(
+  return /^(?:tbd|to be (?:assigned|determined)|not assigned|unassigned|n\/?a|not applicable|none|no(?: designated)? owners?|without (?:an? )?owners?|nobody|unknown|pending|vacant|-+)$/i.test(
     value,
   );
 }
@@ -573,6 +574,7 @@ function githubStepInvocations(value: unknown, parentEvents: Set<string>): CiInv
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (githubConditionEvents(step.if, parentEvents).size === 0) return [];
+  if (step.uses !== undefined && step.run !== undefined) return [];
   const action = invocationFromField(step, 'uses', 'action');
   const command = invocationFromField(step, 'run', 'command');
   return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
@@ -610,7 +612,8 @@ function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvo
     if (hasNamedTrigger(job.except, ['merge_requests'])) continue;
     const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== undefined;
     const jobAllowsMergeRequests =
-      hasGitlabMergeRequestRule(job.rules) || hasNamedTrigger(job.only, ['merge_requests']);
+      hasGitlabMergeRequestRule(job.rules) ||
+      hasUnconditionallyNamedTrigger(job.only, ['merge_requests']);
     if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) continue;
     for (const command of stringValues(job.script)) {
       invocations.push({ kind: 'command', value: command });
@@ -652,6 +655,13 @@ function hasNamedTrigger(value: unknown, names: string[]): boolean {
   return Object.hasOwn(record, 'refs') && hasNamedTrigger(record.refs, names);
 }
 
+function hasUnconditionallyNamedTrigger(value: unknown, names: string[]): boolean {
+  if (typeof value === 'string' || Array.isArray(value)) return hasNamedTrigger(value, names);
+  const record = asRecord(value);
+  if (!record || Object.keys(record).some((key) => key !== 'refs')) return false;
+  return hasNamedTrigger(record.refs, names);
+}
+
 function githubIntegrationTriggers(value: unknown): Set<string> {
   return new Set(
     ['pull_request', 'merge_group'].filter((name) => githubTriggerAllowsIntegration(value, name)),
@@ -665,6 +675,7 @@ function githubTriggerAllowsIntegration(value: unknown, name: string): boolean {
   const configuration = triggers[name];
   if (configuration === null || configuration === undefined) return true;
   const trigger = asRecord(configuration);
+  if (trigger && ['paths', 'paths-ignore'].some((key) => Object.hasOwn(trigger, key))) return false;
   if (!trigger || trigger.types === undefined) return trigger !== null;
   const types = stringValues(trigger.types).map((type) => type.toLowerCase());
   const requiredTypes =
@@ -703,6 +714,14 @@ function hasGitlabMergeRequestRule(value: unknown): boolean {
   for (const ruleValue of asArray(value)) {
     const rule = asRecord(ruleValue);
     if (!rule) return false;
+    const supportedKeys = new Set(['allow_failure', 'if', 'when']);
+    if (Object.keys(rule).some((key) => !supportedKeys.has(key))) return false;
+    if (
+      rule.when !== undefined &&
+      (typeof rule.when !== 'string' || !['always', 'on_success'].includes(rule.when.toLowerCase()))
+    ) {
+      return false;
+    }
     if (typeof rule.if !== 'string') return !isDisabledCiNode(rule);
     const comparison = /^\s*\$?ci_pipeline_source\s*(==|!=)\s*['"]([^'"]+)['"]\s*$/i.exec(rule.if);
     if (!comparison) return false;
@@ -721,6 +740,7 @@ function hasAzurePullRequestTrigger(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   const trigger = asRecord(value);
   if (!trigger) return false;
+  if (Object.hasOwn(trigger, 'paths')) return false;
   const branches = asRecord(trigger.branches);
   if (!branches) return true;
   const include = stringValues(branches.include).map((branch) => branch.toLowerCase());
@@ -776,11 +796,19 @@ function configuredNonBlocking(node: Record<string, unknown>, fields: string[]):
 
 function invocationMatchesTool(invocation: CiInvocation, tool: CiTool): boolean {
   if (invocation.kind === 'action') {
-    const identity = invocation.value.split('@', 1)[0]?.toLowerCase() ?? '';
+    const action = /^([^@\s]+)@([^@\s]+)$/.exec(invocation.value.trim());
+    if (!action) return false;
+    const identity = action[1]?.toLowerCase() ?? '';
     return tool.actions.some((action) => action.toLowerCase() === identity);
   }
   return shellStatements(invocation.value).some((statement) => {
-    if (statement.includes('||') || /(^|[^|])\|(?!\|)/.test(statement)) return false;
+    if (
+      statement.includes('||') ||
+      /(^|[^|])\|(?!\|)/.test(statement) ||
+      /(^|[^&])&(?!&)/.test(statement)
+    ) {
+      return false;
+    }
     const commands = statement.split('&&').map((command) => command.trim());
     for (const rawCommand of commands) {
       const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, '').trim();

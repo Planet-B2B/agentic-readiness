@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Executable-looking configuration still needs a binding guarantee
+
+**Context.** Automated re-review found that an unversioned action, a backgrounded scanner, a
+path-gated GitLab rule, or an explicit `no owner` assignment could still look like enforceable or
+accountable evidence despite lacking that guarantee.
+
+**Rule.** Require executable action references, prove the scanner's foreground status controls the
+step, fail closed on unparsed CI gating fields, and classify negative ownership assignments as
+placeholders.
+
 ## 2026-07-18 — Prove the check can execute and block
 
 **Context.** Automated re-review found that a GitHub job without a runner, a job-level reusable
