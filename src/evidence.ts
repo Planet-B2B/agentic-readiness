@@ -107,6 +107,31 @@ const packageGlobalOptionsWithValues = new Set([
   '--tag',
   '--userconfig',
 ]);
+const wrapperOptionsWithValues = new Set([
+  '--cache',
+  '--call',
+  '--chdir',
+  '--chroot',
+  '--close-from',
+  '--command-timeout',
+  '--from',
+  '--group',
+  '--host',
+  '--node-options',
+  '--package',
+  '--prompt',
+  '--python',
+  '--user',
+  '--with',
+  '-c',
+  '-d',
+  '-g',
+  '-h',
+  '-p',
+  '-r',
+  '-t',
+  '-u',
+]);
 const npmImplicitScripts = new Map([
   ['restart', 'restart'],
   ['start', 'start'],
@@ -251,9 +276,20 @@ function activeOwnershipLines(lines: string[]): string[] {
       inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(title) ? level : null;
       continue;
     }
+    const plainHeading = plainOwnershipHeading(line);
+    if (plainHeading) {
+      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(plainHeading) ? 7 : null;
+      continue;
+    }
     if (inactiveHeadingLevel === null) active.push(line);
   }
   return active;
+}
+
+function plainOwnershipHeading(line: string): string | null {
+  if (!line.endsWith(':') || line.includes('@')) return null;
+  const title = line.slice(0, -1).trim();
+  return /^[a-z][a-z0-9 &/_-]{1,80}$/i.test(title) ? title : null;
 }
 
 function markdownHeading(line: string): { level: number; title: string } | null {
@@ -1142,8 +1178,9 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): GitHu
   }
   const unsupported = condition
     .replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, '')
-    .replace(/\b(?:always|success|cancelled)\(\)/g, '')
-    .replace(/[\s${}()!&|]/g, '');
+    .replace(/!cancelled\(\)/g, '')
+    .replace(/\b(?:always|success)\(\)/g, '')
+    .replace(/[\s${}()&|]/g, '');
   if (unsupported.length > 0) return { certain: false, events: new Set() };
   if (new Set(equals).size > 1) return { certain: true, events: new Set() };
   const candidates =
@@ -1224,7 +1261,8 @@ function azurePullRequestCondition(value: unknown): CiConditionDisposition {
   const conjunction = /^and\((?:always|succeeded|succeededorfailed)\(\),(.+)\)$/.exec(condition);
   if (!conjunction) return 'unknown';
   const nested = azureReasonComparison(conjunction[1] ?? '');
-  return nested === null ? 'unknown' : nested ? 'allow' : 'deny';
+  if (nested === null) return 'unknown';
+  return nested ? 'allow' : 'deny';
 }
 
 function azureReasonComparison(condition: string): boolean | null {
@@ -1422,11 +1460,24 @@ function isSupportedExecutablePosition(tokens: string[], executableIndex: number
   const wrapperArguments = tokens.slice(1, executableIndex);
   const wrapperCommand = wrapperArguments.join(' ');
   if (/^(?:bunx|npx|sudo|uvx)$/i.test(wrapper)) {
-    return wrapperArguments.every((token) => token.startsWith('-'));
+    return executableIndex === wrapperExecutableIndex(tokens);
   }
   if (/^(?:uv|pipx)$/i.test(wrapper)) return wrapperCommand === 'run';
   if (/^(?:bun|npm|pnpm|yarn)$/i.test(wrapper)) return /^(?:dlx|exec|x)$/.test(wrapperCommand);
   return /^python(?:3(?:\.\d+)?)?$/i.test(wrapper) && wrapperCommand === '-m';
+}
+
+function wrapperExecutableIndex(tokens: string[]): number {
+  let index = 1;
+  while (index < tokens.length) {
+    const argument = tokens[index]?.toLowerCase() ?? '';
+    if (argument === '--') return index + 1;
+    if (!argument.startsWith('-')) return index;
+    const option = argument.split('=')[0] ?? '';
+    index += 1;
+    if (!argument.includes('=') && wrapperOptionsWithValues.has(option)) index += 1;
+  }
+  return index;
 }
 
 function commandSignatureMatches(
@@ -1552,26 +1603,50 @@ function sourceFunctionBlocks(lines: string[], path: string): SourceFunctionBloc
 
 function braceDelimitedFunctionBlocks(lines: string[], javascript: boolean): SourceFunctionBlock[] {
   const blocks: SourceFunctionBlock[] = [];
-  const declaration = javascript
-    ? /(?:\bfunction\s+|\b(?:const|let|var)\s+)([a-z_$][\w$]*)[^\n{]*\{/i
-    : /^\s*(?:function\s+)?([a-z_][\w]*)\s*(?:\(\s*\))?\s*\{/i;
   for (let start = 0; start < lines.length; start += 1) {
-    const match = declaration.exec(lines[start] ?? '');
-    if (!match) continue;
+    const name = sourceFunctionName(lines[start] ?? '', javascript);
+    if (!name) continue;
     let depth = unquotedBraceDelta(lines[start] ?? '');
     if (depth <= 0) {
-      blocks.push({ end: start, name: match[1] ?? '', start });
+      blocks.push({ end: start, name, start });
       continue;
     }
     for (let end = start + 1; end < lines.length; end += 1) {
       depth += unquotedBraceDelta(lines[end] ?? '');
       if (depth > 0) continue;
-      blocks.push({ end, name: match[1] ?? '', start });
-      start = end;
+      blocks.push({ end, name, start });
       break;
     }
   }
   return blocks.filter(({ name }) => name.length > 0);
+}
+
+function sourceFunctionName(line: string, javascript: boolean): string | null {
+  if (!line.includes('{')) return null;
+  if (!javascript) return shellFunctionName(line);
+  const declaration = /\bfunction\s+([a-z_$][a-z0-9_$]*)\s*\(/i.exec(line);
+  if (declaration) return declaration[1] ?? null;
+  const assignment = /\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=/i.exec(line);
+  if (!assignment) return null;
+  const remainder = line.slice(assignment.index + assignment[0].length);
+  return remainder.includes('=>') ? (assignment[1] ?? null) : null;
+}
+
+function shellFunctionName(line: string): string | null {
+  let declaration = line.trim();
+  if (declaration.startsWith('function ')) declaration = declaration.slice('function '.length);
+  const parentheses = declaration.indexOf('()');
+  if (
+    parentheses < 1 ||
+    !declaration
+      .slice(parentheses + 2)
+      .trimStart()
+      .startsWith('{')
+  ) {
+    return null;
+  }
+  const name = declaration.slice(0, parentheses).trim();
+  return /^[a-z_][a-z0-9_]*$/i.test(name) ? name : null;
 }
 
 function unquotedBraceDelta(line: string): number {
@@ -1597,7 +1672,6 @@ function pythonFunctionBlocks(lines: string[]): SourceFunctionBlock[] {
       end += 1;
     }
     blocks.push({ end, name: declaration[2] ?? '', start });
-    start = end;
   }
   return blocks.filter(({ name }) => name.length > 0);
 }
@@ -1611,7 +1685,7 @@ function sourceFunctionIsCalled(
   block: SourceFunctionBlock,
   path: string,
 ): boolean {
-  const name = block.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const name = block.name.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const callPattern = /\.py$|\.[cm]?[jt]sx?$/i.test(path)
     ? String.raw`(?:^|[^\w$])${name}\s*\(`
     : String.raw`^\s*${name}(?:\s|$)`;
@@ -2030,18 +2104,26 @@ function containsPositiveTerm(text: string, term: string): boolean {
 }
 
 function hasNegativePrefix(value: string): boolean {
+  const normalized = withoutRestrictiveUpperBound(value);
   const negativeWord =
-    /\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b/i.test(value);
-  const negativeModal = /\b(?:can|do|does|may|must)\s+not\b/i.test(value);
+    /\b(?:cannot|forbidden|lacks?|lacking|missing|never|no|not|prohibited|without)\b/i.test(
+      normalized,
+    );
+  const negativeModal = /\b(?:can|do|does|may|must)\s+not\b/i.test(normalized);
   return negativeWord || negativeModal;
 }
 
 function hasNegativeSuffix(value: string): boolean {
+  const normalized = withoutRestrictiveUpperBound(value);
   const negativeWord =
     /\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b/i.test(
-      value,
+      normalized,
     );
-  return negativeWord || /:\s*none\b/i.test(value);
+  return negativeWord || /:\s*none\b/i.test(normalized);
+}
+
+function withoutRestrictiveUpperBound(value: string): string {
+  return value.replace(/\b(?:cannot|may not|must not|shall not|should not)\s+exceed\b/gi, '');
 }
 
 function containingClausePrefix(text: string, end: number): string {

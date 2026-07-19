@@ -56,6 +56,8 @@ context-changing package/workspace flags fail closed unless their selected manif
 while recognized nested package-exec targets are evaluated at their executable position. Package
 manager built-ins are not treated as same-named scripts: npm resolves arbitrary task names only
 through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible.
+Wrapper and package-manager options with separate values are consumed before executable or task
+identity is evaluated; option values never inherit tool identity.
 Arguments forwarded to a package task fail closed unless their effect is structurally resolved.
 Package task lookup preserves the manifest's case-sensitive script identity. Backslash/backtick
 continuations and heredocs fail closed rather than treating their physical lines as commands. Source

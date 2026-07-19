@@ -76,6 +76,8 @@
   exits or missing package tasks.
 - Accept substantive component names in typed ownership tables while requiring identifiable actors
   for approval and merge authority, and parse supported value-taking package-manager options.
+- Parse wrapper option arity before tool identity, preserve status-condition polarity, recognize
+  restrictive upper bounds, and exclude contacts under plain-text former-owner sections.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

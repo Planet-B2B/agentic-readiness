@@ -7,11 +7,13 @@ feedback. Each entry contains a context and a rule.
 
 **Context.** Automated re-review found Level 3 environment, specification, and learning controls
 still passing from keywords; uncertain checkout transitions, early exits, missing package tasks,
-generic authority labels, and overly strict table targets also distorted deterministic evidence.
+wrapper option values, generic authority labels, plain-text former-owner sections, and overly strict
+table or negation handling also distorted deterministic evidence.
 
 **Rule.** Bind enforced outcomes to repository-root CI execution and source-backed behavior, carry
 unknown state changes forward by failing closed, stop at statically terminating commands, and keep
-typed ownership scopes flexible while requiring explicit accountable authority.
+typed ownership scopes and restrictive upper bounds recognizable while requiring explicit active
+ownership and accountable authority.
 
 ## 2026-07-18 — Provider setup and source reachability are enforcement inputs
 

@@ -120,6 +120,24 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('accepts restrictive language that imposes explicit upper bounds', async () => {
+    const repository = await gitFixture({
+      'AGENTS.md': [
+        'Edit only allowed paths.',
+        'The token budget must not exceed 1000 and the retry limit must not exceed three.',
+        'If work leaves scope, stop and ask the coordinator.',
+        'The rollback owner is responsible for recovery.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-RES-002')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     {
       name: 'a resource budget without retry bounds',
@@ -293,11 +311,17 @@ describe('v0.4 evidence calibration', () => {
         '| packages/platform/** | @old-team |',
       ].join('\n'),
     });
+    const plainFormerOnly = await gitFixture({
+      'CONTRIBUTING.md':
+        'The required reviewer provides human approval and maintainers retain merge authority.\n',
+      MAINTAINERS: 'Former maintainers:\n- @old-team\n',
+    });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const mappedReport = await assess(mapped, benchmark, controls, 'pr-creation');
       const formerReport = await assess(formerOnly, benchmark, controls, 'pr-creation');
       const nestedFormerReport = await assess(nestedFormerOnly, benchmark, controls, 'pr-creation');
+      const plainFormerReport = await assess(plainFormerOnly, benchmark, controls, 'pr-creation');
       expect(controlStatus(mappedReport, 'ADRB-GOV-002')?.status).toBe('met');
       expect(controlStatus(formerReport, 'ADRB-GOV-002')?.status).toBe('not_met');
       expect(controlStatus(formerReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe('not_met');
@@ -305,10 +329,12 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(nestedFormerReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe(
         'not_met',
       );
+      expect(controlStatus(plainFormerReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe('not_met');
     } finally {
       await rm(mapped, { recursive: true, force: true });
       await rm(formerOnly, { recursive: true, force: true });
       await rm(nestedFormerOnly, { recursive: true, force: true });
+      await rm(plainFormerOnly, { recursive: true, force: true });
     }
   });
 
@@ -1551,6 +1577,7 @@ describe('v0.4 evidence calibration', () => {
         "      - run: sh -c 'echo gitleaks'",
         '      - run: npm run gitleaks-info',
         '      - run: npx gitleaks-info',
+        '      - run: npx --package gitleaks echo detect',
         '      - run: gitleaks --version',
         '      - run: gitleaks help',
         '      - run: gitleaks detect --help',
@@ -1598,6 +1625,10 @@ describe('v0.4 evidence calibration', () => {
         '          mypy .',
         '          EOF',
         "      - if: github.event_name == 'pull_request' && github.event_name == 'push'",
+        '        run: gitleaks detect',
+        "      - if: cancelled() && github.event_name == 'pull_request'",
+        '        run: gitleaks detect',
+        "      - if: '!success() && github.event_name == ''pull_request'''",
         '        run: gitleaks detect',
       ].join('\n'),
       '.github/workflows/closed.yml': [

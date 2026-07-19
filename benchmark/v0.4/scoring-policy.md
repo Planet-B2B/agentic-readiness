@@ -68,6 +68,9 @@ human authority. Directly negated authority statements do not count as positive 
 negation appears before or after the matched phrase, including a colon-delimited policy label, and
 explicit mappings require a recognized repository-wide target or path/component target rather than
 arbitrary or punctuation-only syntax.
+Typed ownership-table scope columns may use substantive component names, while conventional
+plain-text former-owner sections remain inactive. Restrictive phrases such as `must not exceed`
+establish an upper bound and are not treated as absence of the control.
 `ADRB-RES-002` requires resource budgets and retry bounds as independent co-located components;
 neither substitutes for the other.
 Mechanical Level 3 context, environment, specification, testing, and learning controls require
