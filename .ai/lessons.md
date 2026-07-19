@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Integrity gates bind scope, coverage, and control confidence
+
+**Context.** Automated review found an implementation omitted from a positive fixture's TypeScript
+project, local documentation links that could resolve outside the checkout, and partial negative
+evidence displayed as control-level confidence while an alternative remained unknown.
+
+**Rule.** Make positive fixtures compile their implementation, canonicalize and scope local link
+targets, and distinguish partial evidence provenance from confidence in an unresolved control.
+
 ## 2026-07-19 — Structural boundaries and task identity cannot be inferred away
 
 **Context.** Automated review found that blank lines and headings could be removed before Markdown

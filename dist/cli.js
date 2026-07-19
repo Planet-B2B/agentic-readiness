@@ -667,8 +667,11 @@ function evidenceLines(control) {
   return lines;
 }
 function confidenceRule(control) {
-  if (control.confidence !== "none") return "";
+  if (controlLevelConfidence(control) !== "none") return "";
   return control.evidence_mode === "any" ? " \u2014 one evidence alternative must pass" : " \u2014 all required evidence checks must pass";
+}
+function controlLevelConfidence(control) {
+  return control.status === "unknown" ? "none" : control.confidence;
 }
 function appendControlDetails(lines, heading, controls, showCheckSummary) {
   lines.push("", `## ${heading}`, "");
@@ -695,7 +698,7 @@ function appendControlDetails(lines, heading, controls, showCheckSummary) {
       ...showCheckSummary ? [
         checkSummary,
         ...blockingChecks.length > 0 ? [`${blockingLabel}: ${blockingSummary}.`] : [],
-        `Control confidence: ${control.confidence}${confidenceExplanation}.`
+        `Control confidence: ${controlLevelConfidence(control)}${confidenceExplanation}.`
       ] : [`Evidence confidence: ${control.confidence}.`],
       "",
       ...evidenceLines(control),

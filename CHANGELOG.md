@@ -98,6 +98,8 @@
 - Validate CODEOWNERS targets, reject placeholder containment owners and partial-history Gitleaks
   scans, and keep negative agent evidence scoped to its matching alternative.
 - Preserve Markdown ownership boundaries and fail closed on unconstrained Nox or Tox sessions.
+- Compile the mature fixture implementation, constrain agent-document links to the canonical
+  checkout, and render unresolved alternative controls with no control-level confidence.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

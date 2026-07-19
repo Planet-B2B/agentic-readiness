@@ -740,6 +740,10 @@ describe('v0.4 evidence calibration', () => {
 
       expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.status).toBe('unknown');
       expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.confidence).toBe('agent-collected');
+      expect(toMarkdown(repositoryNegative)).toContain(
+        'Control confidence: none — one evidence alternative must pass.',
+      );
+      expect(toMarkdown(repositoryNegative)).toContain('- **Agent-collected:** not_met');
       expect(controlStatus(platformNegative, 'ADRB-SEC-003')?.status).toBe('not_met');
       expect(controlStatus(platformNegative, 'ADRB-SEC-003')?.confidence).toBe('agent-collected');
     } finally {

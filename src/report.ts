@@ -61,10 +61,14 @@ function evidenceLines(control: ControlResult): string[] {
 }
 
 function confidenceRule(control: ControlResult): string {
-  if (control.confidence !== 'none') return '';
+  if (controlLevelConfidence(control) !== 'none') return '';
   return control.evidence_mode === 'any'
     ? ' — one evidence alternative must pass'
     : ' — all required evidence checks must pass';
+}
+
+function controlLevelConfidence(control: ControlResult): ControlResult['confidence'] {
+  return control.status === 'unknown' ? 'none' : control.confidence;
 }
 
 function appendControlDetails(
@@ -102,7 +106,7 @@ function appendControlDetails(
         ? [
             checkSummary,
             ...(blockingChecks.length > 0 ? [`${blockingLabel}: ${blockingSummary}.`] : []),
-            `Control confidence: ${control.confidence}${confidenceExplanation}.`,
+            `Control confidence: ${controlLevelConfidence(control)}${confidenceExplanation}.`,
           ]
         : [`Evidence confidence: ${control.confidence}.`]),
       '',
