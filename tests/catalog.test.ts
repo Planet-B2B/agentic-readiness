@@ -44,6 +44,10 @@ describe('benchmark catalog', () => {
   it('keeps vendor path aliases in detector adapters', async () => {
     const root = benchmarkFixture('v0.4');
     const controlPaths = await fg('controls/*.yaml', { cwd: root, absolute: true });
+    const governanceControlSource = await readFile(
+      join(root, 'controls', 'governance.yaml'),
+      'utf8',
+    );
     const securityControlSource = await readFile(join(root, 'controls', 'security.yaml'), 'utf8');
     const controlSource = (
       await Promise.all(controlPaths.map(async (path) => readFile(path, 'utf8')))
@@ -69,6 +73,13 @@ describe('benchmark catalog', () => {
       ]),
     );
     expect(securityControlSource).not.toMatch(/\.github\/workflows|gitlab-ci|azure-pipelines/);
+    const governanceOwnership = controls
+      .find(({ id }) => id === 'ADRB-GOV-002')
+      ?.evidence.find(({ type }) => type === 'ownership_map');
+    expect(
+      governanceOwnership?.type === 'ownership_map' ? governanceOwnership.patterns : [],
+    ).toContain('.github/CODEOWNERS');
+    expect(governanceControlSource).not.toContain('.github/CODEOWNERS');
     const ciVerification = controls.find(({ id }) => id === 'ADRB-TST-003');
     const ciCheck = ciVerification?.evidence.find(({ type }) => type === 'content_terms');
     expect(ciCheck?.type === 'content_terms' ? ciCheck.terms : []).toContain('pytest');

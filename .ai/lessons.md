@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Fail closed on negation, punctuation, and conditional enforcement
+
+**Context.** A later PR review found that negated human authority could satisfy a positive semantic
+group, a hyphen in collaboration prose could masquerade as an ownership target, and Azure or GitLab
+conditions could make a scanner non-blocking while the collector still called it enforced.
+
+**Rule.** Positive semantic evidence must reject direct negation; structural mappings must validate
+the target grammar rather than punctuation; and provider collectors must prove the relevant event
+can execute a blocking check, failing closed on unsupported conditions or allow-failure paths.
+
 ## 2026-07-18 — Model every independent authority and enforcement condition
 
 **Context.** PR review found that a combined approval-or-merge group could pass without declared

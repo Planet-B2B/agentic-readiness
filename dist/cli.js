@@ -695,12 +695,14 @@ function toMarkdown(report) {
     }
   }
   appendControlDetails(lines, "Repository evidence gaps", repositoryGaps, showCheckSummary);
-  appendControlDetails(
-    lines,
-    "Alternative evidence paths not established",
-    alternativeControls,
-    showCheckSummary
-  );
+  if (showCheckSummary) {
+    appendControlDetails(
+      lines,
+      "Alternative evidence paths not established",
+      alternativeControls,
+      showCheckSummary
+    );
+  }
   appendControlDetails(
     lines,
     "External controls not established",
@@ -962,9 +964,17 @@ function explicitOwnershipMappings(lines) {
     const mapping = parseOwnershipMapping(line);
     if (!mapping) return false;
     const { owner, target } = mapping;
-    const targetLooksScoped = /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/i.test(target);
-    return targetLooksScoped && isOwnerReference(owner);
+    return isOwnershipTarget(target) && isOwnerReference(owner);
   }).length;
+}
+function isOwnershipTarget(value) {
+  const target = value.trim();
+  if (/^(?:all files|default|entire repository|global|repo|repository|root)$/i.test(target)) {
+    return true;
+  }
+  if (/^(?:area|component|module|path|scope)\s+\S+/i.test(target)) return true;
+  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) return true;
+  return /^[a-z0-9_.-]+\.[a-z0-9]{1,10}$/i.test(target);
 }
 function parseOwnershipMapping(line) {
   const normalized = line.replace(/^[-*]\s*/, "").trim();
@@ -1135,7 +1145,9 @@ async function evaluateContentGroups(context, check) {
 function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
   if (!maxSpanLines) {
     const lines2 = text.split(/\r?\n/);
-    const matchedGroups = groups.filter(({ terms }) => terms.some((term) => lines2.some((line) => containsTerm(line, term)))).map(({ id }) => id);
+    const matchedGroups = groups.filter(
+      ({ terms }) => terms.some((term) => lines2.some((line) => containsPositiveTerm(line, term)))
+    ).map(({ id }) => id);
     return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
   }
   const groupCounts = groups.map(() => 0);
@@ -1143,7 +1155,7 @@ function strongestGroupMatch(text, groups, minGroups, maxSpanLines) {
   let strongestGroups = [];
   const update = (line, direction) => {
     groups.forEach(({ terms }, index) => {
-      if (terms.some((term) => containsTerm(line, term))) {
+      if (terms.some((term) => containsPositiveTerm(line, term))) {
         groupCounts[index] = (groupCounts[index] ?? 0) + direction;
       }
     });
@@ -1247,7 +1259,7 @@ function gitlabIntegrationInvocations(document) {
   for (const [name, jobValue] of Object.entries(document)) {
     if (name.startsWith(".") || reserved.has(name)) continue;
     const job = asRecord(jobValue);
-    if (!job || isDisabledCiNode(job) || job.allow_failure === true) continue;
+    if (!job || isDisabledCiNode(job)) continue;
     if (hasNamedTrigger(job.except, ["merge_requests"])) continue;
     const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
     const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasNamedTrigger(job.only, ["merge_requests"]);
@@ -1263,7 +1275,7 @@ function azureIntegrationInvocations(document) {
   return collectAzureInvocations(document);
 }
 function collectAzureInvocations(node) {
-  if (isDisabledCiNode(node)) return [];
+  if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
   const invocations = [];
   for (const field of ["script", "bash", "pwsh", "powershell", "command"]) {
     if (typeof node[field] === "string") {
@@ -1333,8 +1345,27 @@ function hasAzurePullRequestTrigger(value) {
   if (include.length > 0) return include.some((branch) => !["none", "false"].includes(branch));
   return true;
 }
+function azureConditionAllowsPullRequest(value) {
+  if (value === void 0) return true;
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
+  const condition = value.toLowerCase().replace(/\s+/g, "");
+  if (["always()", "succeeded()", "succeededorfailed()"].includes(condition)) return true;
+  const direct = azureReasonComparison(condition);
+  if (direct !== null) return direct;
+  const conjunction = /^and\((?:always|succeeded|succeededorfailed)\(\),(.+)\)$/.exec(condition);
+  return conjunction ? azureReasonComparison(conjunction[1] ?? "") === true : false;
+}
+function azureReasonComparison(condition) {
+  const comparison = /^(eq|ne)\(variables\[['"]build\.reason['"]\],['"]([^'"]+)['"]\)$/.exec(
+    condition
+  );
+  if (!comparison) return null;
+  const equalsPullRequest = comparison[2] === "pullrequest";
+  return comparison[1] === "eq" ? equalsPullRequest : !equalsPullRequest;
+}
 function isDisabledCiNode(node) {
-  if (node.enabled === false || node["continue-on-error"] === true || node.continueonerror === true || node.continueOnError === true) {
+  if (node.enabled === false || node.allow_failure === true || asRecord(node.allow_failure) !== null || node["continue-on-error"] === true || node.continueonerror === true || node.continueOnError === true) {
     return true;
   }
   if (typeof node.when === "string" && ["never", "manual"].includes(node.when.toLowerCase())) {
@@ -1437,8 +1468,21 @@ function strongestContentMatch(text, terms, requiredTerms, minTerms, maxSpanLine
   return { matched: strongest, requiredMatched: strongestRequired, qualifies };
 }
 function containsTerm(text, term) {
-  const pattern = term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");
+  const pattern = termPattern(term);
   return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, "i").test(text);
+}
+function containsPositiveTerm(text, term) {
+  const pattern = termPattern(term);
+  const expression = new RegExp(`(^|[^a-z0-9])(${pattern})(?=$|[^a-z0-9])`, "gi");
+  for (const match of text.matchAll(expression)) {
+    const termStart = match.index + (match[1]?.length ?? 0);
+    const prefix = text.slice(Math.max(0, termStart - 12), termStart);
+    if (!/\b(?:no|not)\s+$/i.test(prefix)) return true;
+  }
+  return false;
+}
+function termPattern(term) {
+  return term.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_-]+");
 }
 async function evaluateMaxBytes(context, check) {
   const paths = await matches(context, check.patterns);

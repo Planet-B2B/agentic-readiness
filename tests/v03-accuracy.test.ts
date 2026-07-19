@@ -77,6 +77,7 @@ describe('v0.3 accuracy regressions', () => {
     const markdown = toMarkdown(report);
     expect(markdown).toContain('PASS (depends on');
     expect(markdown).toContain('Assessment mode: **evidence-assisted assessment**');
+    expect(markdown).not.toContain('Alternative evidence paths not established');
   });
 
   it(

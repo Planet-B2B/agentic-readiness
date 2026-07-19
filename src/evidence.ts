@@ -197,10 +197,18 @@ function explicitOwnershipMappings(lines: string[]): number {
     const mapping = parseOwnershipMapping(line);
     if (!mapping) return false;
     const { owner, target } = mapping;
-    const targetLooksScoped =
-      /[/*._-]/.test(target) || /\b(component|module|area|repository|scope)\b/i.test(target);
-    return targetLooksScoped && isOwnerReference(owner);
+    return isOwnershipTarget(target) && isOwnerReference(owner);
   }).length;
+}
+
+function isOwnershipTarget(value: string): boolean {
+  const target = value.trim();
+  if (/^(?:all files|default|entire repository|global|repo|repository|root)$/i.test(target)) {
+    return true;
+  }
+  if (/^(?:area|component|module|path|scope)\s+\S+/i.test(target)) return true;
+  if (/^(?:\.{0,2}\/|\/)/.test(target) || /[/*]/.test(target)) return true;
+  return /^[a-z0-9_.-]+\.[a-z0-9]{1,10}$/i.test(target);
 }
 
 function parseOwnershipMapping(line: string): { owner: string; target: string } | null {
@@ -449,7 +457,9 @@ function strongestGroupMatch(
   if (!maxSpanLines) {
     const lines = text.split(/\r?\n/);
     const matchedGroups = groups
-      .filter(({ terms }) => terms.some((term) => lines.some((line) => containsTerm(line, term))))
+      .filter(({ terms }) =>
+        terms.some((term) => lines.some((line) => containsPositiveTerm(line, term))),
+      )
       .map(({ id }) => id);
     return { matchedGroups, qualifies: matchedGroups.length >= minGroups };
   }
@@ -460,7 +470,7 @@ function strongestGroupMatch(
 
   const update = (line: string, direction: 1 | -1) => {
     groups.forEach(({ terms }, index) => {
-      if (terms.some((term) => containsTerm(line, term))) {
+      if (terms.some((term) => containsPositiveTerm(line, term))) {
         groupCounts[index] = (groupCounts[index] ?? 0) + direction;
       }
     });
@@ -590,7 +600,7 @@ function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvo
   for (const [name, jobValue] of Object.entries(document)) {
     if (name.startsWith('.') || reserved.has(name)) continue;
     const job = asRecord(jobValue);
-    if (!job || isDisabledCiNode(job) || job.allow_failure === true) continue;
+    if (!job || isDisabledCiNode(job)) continue;
     if (hasNamedTrigger(job.except, ['merge_requests'])) continue;
     const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== undefined;
     const jobAllowsMergeRequests =
@@ -609,7 +619,7 @@ function azureIntegrationInvocations(document: Record<string, unknown>): CiInvoc
 }
 
 function collectAzureInvocations(node: Record<string, unknown>): CiInvocation[] {
-  if (isDisabledCiNode(node)) return [];
+  if (isDisabledCiNode(node) || !azureConditionAllowsPullRequest(node.condition)) return [];
   const invocations: CiInvocation[] = [];
   for (const field of ['script', 'bash', 'pwsh', 'powershell', 'command'] as const) {
     if (typeof node[field] === 'string') {
@@ -687,9 +697,32 @@ function hasAzurePullRequestTrigger(value: unknown): boolean {
   return true;
 }
 
+function azureConditionAllowsPullRequest(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  const condition = value.toLowerCase().replace(/\s+/g, '');
+  if (['always()', 'succeeded()', 'succeededorfailed()'].includes(condition)) return true;
+  const direct = azureReasonComparison(condition);
+  if (direct !== null) return direct;
+  const conjunction = /^and\((?:always|succeeded|succeededorfailed)\(\),(.+)\)$/.exec(condition);
+  return conjunction ? azureReasonComparison(conjunction[1] ?? '') === true : false;
+}
+
+function azureReasonComparison(condition: string): boolean | null {
+  const comparison = /^(eq|ne)\(variables\[['"]build\.reason['"]\],['"]([^'"]+)['"]\)$/.exec(
+    condition,
+  );
+  if (!comparison) return null;
+  const equalsPullRequest = comparison[2] === 'pullrequest';
+  return comparison[1] === 'eq' ? equalsPullRequest : !equalsPullRequest;
+}
+
 function isDisabledCiNode(node: Record<string, unknown>): boolean {
   if (
     node.enabled === false ||
+    node.allow_failure === true ||
+    asRecord(node.allow_failure) !== null ||
     node['continue-on-error'] === true ||
     node.continueonerror === true ||
     node.continueOnError === true
@@ -833,12 +866,27 @@ function strongestContentMatch(
 }
 
 function containsTerm(text: string, term: string): boolean {
-  const pattern = term
+  const pattern = termPattern(term);
+  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
+}
+
+function containsPositiveTerm(text: string, term: string): boolean {
+  const pattern = termPattern(term);
+  const expression = new RegExp(`(^|[^a-z0-9])(${pattern})(?=$|[^a-z0-9])`, 'gi');
+  for (const match of text.matchAll(expression)) {
+    const termStart = match.index + (match[1]?.length ?? 0);
+    const prefix = text.slice(Math.max(0, termStart - 12), termStart);
+    if (!/\b(?:no|not)\s+$/i.test(prefix)) return true;
+  }
+  return false;
+}
+
+function termPattern(term: string): string {
+  return term
     .trim()
     .split(/\s+/)
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('[\\s_-]+');
-  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
 }
 
 async function evaluateMaxBytes(

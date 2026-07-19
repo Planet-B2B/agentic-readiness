@@ -216,12 +216,14 @@ export function toMarkdown(report: AssessmentReport): string {
   }
 
   appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps, showCheckSummary);
-  appendControlDetails(
-    lines,
-    'Alternative evidence paths not established',
-    alternativeControls,
-    showCheckSummary,
-  );
+  if (showCheckSummary) {
+    appendControlDetails(
+      lines,
+      'Alternative evidence paths not established',
+      alternativeControls,
+      showCheckSummary,
+    );
+  }
   appendControlDetails(
     lines,
     'External controls not established',

@@ -5,9 +5,10 @@
 Portable controls define outcomes and generic repository conventions. Files in `adapters/*.yaml`
 may extend one control evidence check with recognized harness-specific `patterns`, `files`, `terms`,
 `required_any_terms`, or `ci_providers`. An extension names the control and zero-based evidence
-index and adds exactly one of those fields. CI-provider entries bind provider-specific configuration
-paths to that provider's integration-trigger semantics. An adapter cannot remove or weaken a threshold, change a control level, alter a
-readiness floor, add an attestation path, or execute code.
+index and adds exactly one of those fields. Repository-host aliases and CI-provider entries bind
+provider-specific configuration paths to the applicable structural or integration-trigger semantics.
+An adapter cannot remove or weaken a threshold, change a control level, alter a readiness floor, add
+an attestation path, or execute code.
 
 Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors and tool
@@ -15,6 +16,7 @@ aliases or provider discovery rules to `ci_command`; aliases never turn comments
 disabled or non-integration steps, manual-only workflows, ineffective shell branches, or documentation
 prose into enforced evidence. Push-only execution does not establish the before-integration outcome;
 the external platform alternative remains available when enforcement lives outside pull-request CI.
+Unsupported provider conditions and rule- or job-level allow-failure paths fail closed.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

@@ -60,7 +60,9 @@ CI invocations, bounded line windows, and per-pattern candidate limits. Partial 
 visible but does not pass a control. An ownership artifact, explicit accountable-human approval
 authority, and explicit accountable-human merge authority are independently required for
 `ADRB-GOV-002`; a generic owner/reviewer mention or declared agent authority cannot establish either
-human authority.
+human authority. Directly negated authority statements do not count as positive evidence, and
+explicit mappings require a recognized repository-wide target or path/component target rather than
+arbitrary punctuation.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome
 controls cannot be inferred from repository keywords.

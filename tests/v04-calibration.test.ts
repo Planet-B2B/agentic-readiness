@@ -309,6 +309,23 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not infer human authority from explicitly negated statements', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': 'No human may approve changes. No human may merge changes.\n',
+      'OWNERS.md': '- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
+      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('does not treat vague ownership prose as an ownership assignment', async () => {
     const repository = await gitFixture({
       'GOVERNANCE.md': [
@@ -324,6 +341,22 @@ describe('v0.4 evidence calibration', () => {
       expect(governance?.status).toBe('not_met');
       expect(governance?.evidence[0]?.status).toBe('not_met');
       expect(governance?.evidence[1]?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat hyphenated collaboration prose as an ownership target', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md': 'The required reviewer provides approval and maintainers may merge.\n',
+      'GOVERNANCE.md': 'Cross-team collaboration: @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['not_met', 'met']);
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -469,6 +502,7 @@ describe('v0.4 evidence calibration', () => {
         '    include: ["*"]',
         'steps:',
         '  - script: gitleaks detect',
+        "    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))",
       ].join('\n'),
       '.azure-pipelines/continue.yml': [
         'pr: [main]',
@@ -567,12 +601,32 @@ describe('v0.4 evidence calibration', () => {
         'secret-scan:',
         '  script: gitleaks detect',
       ].join('\n'),
+      '.gitlab-ci/rule-allow-failure.yml': [
+        'secret-scan:',
+        '  rules:',
+        `    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'`,
+        '      allow_failure: true',
+        '  script: gitleaks detect',
+      ].join('\n'),
+      '.gitlab-ci/job-allow-failure.yml': [
+        'secret-scan:',
+        '  only: [merge_requests]',
+        '  allow_failure:',
+        '    exit_codes: [1]',
+        '  script: gitleaks detect',
+      ].join('\n'),
       'azure-pipelines.yml': [
         'pr:',
         '  branches:',
         '    exclude: ["*"]',
         'steps:',
         '  - script: gitleaks detect',
+      ].join('\n'),
+      '.azure-pipelines/condition.yml': [
+        'pr: [main]',
+        'steps:',
+        '  - script: gitleaks detect',
+        "    condition: ne(variables['Build.Reason'], 'PullRequest')",
       ].join('\n'),
     });
     try {
