@@ -443,6 +443,39 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not splice ownership table rows across blank lines or section headings', async () => {
+    const blankSeparated = await gitFixture({
+      'CONTRIBUTING.md':
+        'The required reviewer provides human approval and maintainers retain merge authority.\n',
+      'docs/governance/ownership.md': [
+        '| Component | Owner |',
+        '',
+        '| --- | --- |',
+        '| packages/platform/** | @platform-team |',
+      ].join('\n'),
+    });
+    const headingSeparated = await gitFixture({
+      'CONTRIBUTING.md':
+        'The required reviewer provides human approval and maintainers retain merge authority.\n',
+      'docs/governance/ownership.md': [
+        '| Component | Owner |',
+        '## Unrelated section',
+        '| --- | --- |',
+        '| packages/platform/** | @platform-team |',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const blankReport = await assess(blankSeparated, benchmark, controls, 'pr-creation');
+      const headingReport = await assess(headingSeparated, benchmark, controls, 'pr-creation');
+      expect(controlStatus(blankReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe('not_met');
+      expect(controlStatus(headingReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe('not_met');
+    } finally {
+      await rm(blankSeparated, { recursive: true, force: true });
+      await rm(headingSeparated, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     {
       name: 'requires authority guidance in addition to an ownership map',
@@ -1666,6 +1699,8 @@ describe('v0.4 evidence calibration', () => {
         '      - run: pytest --markers',
         '      - run: nox --list-sessions',
         '      - run: nox -l',
+        '      - run: nox -s docs',
+        '      - run: tox -e docs',
         '      - run: go test -list .',
         '      - run: dotnet test --list-tests',
         '      - run: mypy .',

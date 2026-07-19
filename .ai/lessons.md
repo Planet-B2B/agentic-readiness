@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Structural boundaries and task identity cannot be inferred away
+
+**Context.** Automated review found that blank lines and headings could be removed before Markdown
+ownership parsing, while unconstrained Nox and Tox invocations could represent documentation rather
+than tests.
+
+**Rule.** Preserve section and row boundaries during structural parsing, and recognize task
+orchestrators only when the selected task can be bound to the claimed outcome.
+
 ## 2026-07-19 — Alternative evidence and structured placeholders stay scoped
 
 **Context.** Automated review found punctuation-only CODEOWNERS targets, placeholder recovery

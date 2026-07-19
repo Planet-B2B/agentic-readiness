@@ -13,9 +13,7 @@ extensions:
           - executables: [cargo, go, dotnet, mvn, gradle, bazel]
             repository_executables: [mvnw, gradlew]
             argument_groups: [[test]]
-          - executables: [nox]
-            prohibited_arguments: [-l, --list-sessions]
-        standalone_executables: [pytest, pytest-cov, jest, vitest, tox]
+        standalone_executables: [pytest, pytest-cov, jest, vitest]
       - id: static-analysis
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
@@ -45,9 +43,7 @@ extensions:
           - executables: [cargo, go, dotnet, mvn, gradle, bazel]
             repository_executables: [mvnw, gradlew]
             argument_groups: [[test]]
-          - executables: [nox]
-            prohibited_arguments: [-l, --list-sessions]
-        standalone_executables: [pytest, pytest-cov, jest, vitest, tox]
+        standalone_executables: [pytest, pytest-cov, jest, vitest]
       - id: static-analysis
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]

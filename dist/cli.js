@@ -968,6 +968,17 @@ var placeholderOwnerValues = /* @__PURE__ */ new Set([
   "pending",
   "vacant"
 ]);
+var semanticPlaceholderQualifiers = [
+  "n/a",
+  "none",
+  "pending",
+  "tbd",
+  "to be assigned",
+  "to be determined",
+  "unassigned",
+  "unknown",
+  "vacant"
+];
 var supportedGitlabRuleKeys = /* @__PURE__ */ new Set(["allow_failure", "if", "when"]);
 var gitlabReservedKeys = /* @__PURE__ */ new Set([
   "after_script",
@@ -1133,7 +1144,7 @@ async function evaluateOwnershipMap(context, check) {
 }
 function ownershipEntries(path, text) {
   const name = basename(path).toLowerCase();
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const lines = text.split(/\r?\n/).map((line) => line.trim());
   if (name === "codeowners") {
     return lines.filter((line) => !line.startsWith("#")).filter((line) => {
       const fields = line.split(/\s+/);
@@ -1157,6 +1168,7 @@ function activeOwnershipLines(lines) {
     const section = ownershipSectionState(line, inactiveHeadingLevel);
     if (section.handled) {
       inactiveHeadingLevel = section.inactiveHeadingLevel;
+      active.push("");
       continue;
     }
     if (inactiveHeadingLevel === null) active.push(line);
@@ -2592,13 +2604,48 @@ function hasExplicitlyUnboundedQualifier(prefix, suffix) {
   return precedingQualifier || followingQualifier;
 }
 function hasPlaceholderQualifier(prefix, suffix) {
-  const precedingQualifier = /\b(?:n\s*\/\s*a|none|pending|tbd|to\s+be\s+(?:assigned|determined)|unassigned|unknown|vacant)(?:\s+[a-z0-9_-]+){0,2}\s*$/i.test(
-    prefix
+  return hasPrecedingPlaceholder(prefix) || hasFollowingPlaceholder(suffix);
+}
+function normalizedQualifierPhrase(value) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ").replaceAll(" / ", "/").replaceAll("/ ", "/").replaceAll(" /", "/");
+}
+function hasPrecedingPlaceholder(prefix) {
+  const normalized = normalizedQualifierPhrase(prefix);
+  for (const placeholder of semanticPlaceholderQualifiers) {
+    const index = normalized.lastIndexOf(placeholder);
+    if (index < 0) continue;
+    const preceding = normalized[index - 1] ?? "";
+    if (/[a-z0-9_]/i.test(preceding)) continue;
+    const trailingWords = normalized.slice(index + placeholder.length).trim().split(/\s+/);
+    if (trailingWords.length <= 2 && trailingWords.every(isQualifierBridgeWord)) return true;
+  }
+  return false;
+}
+function isQualifierBridgeWord(value) {
+  return value.length === 0 || /^[a-z0-9_-]+$/i.test(value);
+}
+function hasFollowingPlaceholder(suffix) {
+  let normalized = normalizedQualifierPhrase(suffix);
+  for (const link of [
+    "remains ",
+    "remain ",
+    "stays ",
+    "stay ",
+    "are ",
+    "is ",
+    "= ",
+    "=",
+    ": ",
+    ":"
+  ]) {
+    if (!normalized.startsWith(link)) continue;
+    normalized = normalized.slice(link.length).trimStart();
+    break;
+  }
+  if (normalized.startsWith("explicitly ")) normalized = normalized.slice("explicitly ".length);
+  return semanticPlaceholderQualifiers.some(
+    (placeholder) => normalized === placeholder || normalized.startsWith(`${placeholder} `)
   );
-  const followingQualifier = /^\s*(?:(?:is|are|remains?|stays?|=|:)\s*)?(?:explicitly\s+)?(?:n\s*\/\s*a|none|pending|tbd|to\s+be\s+(?:assigned|determined)|unassigned|unknown|vacant)\b/i.test(
-    suffix
-  );
-  return precedingQualifier || followingQualifier;
 }
 function hasNonHumanAuthorityPrefix(prefix, term) {
   if (!/\b(?:maintainers?|owners?|reviewers?)\b/i.test(term)) return false;
