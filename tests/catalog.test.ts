@@ -67,11 +67,21 @@ describe('benchmark catalog', () => {
     expect(commandCheck?.type === 'ci_command' ? commandCheck.tools : []).toContainEqual(
       expect.objectContaining({
         id: 'gitleaks',
-        commands: [{ executables: ['gitleaks'], required_arguments: ['detect', 'protect'] }],
+        commands: [
+          {
+            executables: ['gitleaks'],
+            argument_groups: [['detect', 'protect']],
+            prohibited_arguments: ['--exit-code=0'],
+            prohibited_argument_sequences: [['--exit-code', '0']],
+          },
+        ],
         standalone_executables: [],
         actions: ['gitleaks/gitleaks-action'],
       }),
     );
+    expect(
+      commandCheck?.type === 'ci_command' ? commandCheck.tools.map(({ id }) => id) : [],
+    ).toEqual(['gitleaks', 'trufflehog', 'git-secrets']);
     expect(commandCheck?.type === 'ci_command' ? commandCheck.providers : []).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -108,11 +118,15 @@ describe('benchmark catalog', () => {
     const staticCommands = ciTools.find(({ id }) => id === 'static-analysis')?.commands ?? [];
     expect(staticCommands.find(({ executables }) => executables.includes('cargo'))).toEqual({
       executables: ['cargo'],
-      required_arguments: ['clippy', 'check'],
+      argument_groups: [['clippy', 'check']],
+      prohibited_arguments: [],
+      prohibited_argument_sequences: [],
     });
     expect(staticCommands.find(({ executables }) => executables.includes('go'))).toEqual({
       executables: ['go'],
-      required_arguments: ['vet'],
+      argument_groups: [['vet']],
+      prohibited_arguments: [],
+      prohibited_argument_sequences: [],
     });
     expect(controlSource).not.toMatch(/pytest|mypy|flake8|ruff|pyright/);
 

@@ -7,19 +7,17 @@ extensions:
       - id: gitleaks
         commands:
           - executables: [gitleaks]
-            required_arguments: [detect, protect]
+            argument_groups: [[detect, protect]]
+            prohibited_arguments: [--exit-code=0]
+            prohibited_argument_sequences: [[--exit-code, '0']]
         actions: [gitleaks/gitleaks-action]
       - id: trufflehog
         commands:
           - executables: [trufflehog]
-            required_arguments: [git, filesystem]
-        actions: [trufflesecurity/trufflehog]
-      - id: detect-secrets
-        commands:
-          - executables: [detect-secrets]
-            required_arguments: [scan]
-        actions: [Yelp/detect-secrets-action]
+            argument_groups: [[git, filesystem], [--fail]]
+            prohibited_arguments: [--fail=false]
+            prohibited_argument_sequences: [[--fail, 'false']]
       - id: git-secrets
         commands:
           - executables: [git-secrets]
-            required_arguments: [--scan, --scan-history]
+            argument_groups: [[--scan, --scan-history]]

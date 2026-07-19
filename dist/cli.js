@@ -91,7 +91,9 @@ var CiProviderSchema = z.object({
 });
 var CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
-  required_arguments: z.array(z.string().min(1)).min(1)
+  argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  prohibited_arguments: z.array(z.string().min(1)).default([]),
+  prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([])
 });
 var CiToolSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
@@ -1046,16 +1048,31 @@ function parseOwnershipMapping(line) {
 }
 function isOwnerReference(value) {
   const normalized = value.replace(/^[-*]\s*/, "").replace(/[*_`]/g, "").trim();
-  if (isPlaceholderOwner(normalized)) return false;
-  if (isOwnerContact(normalized)) return true;
+  if (isPlaceholderOwner(normalized) || hasNegativeOwnerAssignment(normalized)) return false;
+  if (isDirectOwnerContact(normalized)) return true;
   const namedRole = namedOwnerRolePattern.exec(normalized);
-  if (namedRole) return !isPlaceholderOwner(namedRole[1] ?? "");
+  if (namedRole) return isNamedOwnerIdentity(namedRole[1] ?? "");
   const roleAssignment = ownerRoleAssignmentPattern.exec(normalized);
-  return roleAssignment ? !isPlaceholderOwner(roleAssignment[1] ?? "") : false;
+  return roleAssignment ? isNamedOwnerIdentity(roleAssignment[1] ?? "") : false;
 }
 function isConventionalOwnerListEntry(value) {
   const normalized = value.replace(/^[-*]\s*/, "").trim();
-  return !isPlaceholderOwner(normalized) && isOwnerContact(normalized);
+  return !hasNegativeOwnerAssignment(normalized) && isDirectOwnerContact(normalized);
+}
+function isDirectOwnerContact(value) {
+  const contacts = value.split(/\s*(?:,|&|\band\b)\s*|\s+/i);
+  return contacts.length > 0 && contacts.every(
+    (contact) => /^@[a-z0-9][a-z0-9_/-]*$/i.test(contact) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)
+  );
+}
+function isNamedOwnerIdentity(value) {
+  const normalized = value.trim();
+  return !isPlaceholderOwner(normalized) && !hasNegativeOwnerAssignment(normalized) && /^[a-z0-9][a-z0-9 ._/-]{1,79}$/i.test(normalized);
+}
+function hasNegativeOwnerAssignment(value) {
+  return /\b(?:former|inactive|retired|unassigned|vacant|deprecated)\b|\b(?:no|without)\s+(?:designated\s+)?(?:owner|maintainer|reviewer|team)s?\b/i.test(
+    value
+  );
 }
 function isOwnerContact(value) {
   return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || hasEmailContact(value);
@@ -1243,17 +1260,17 @@ async function evaluateCiCommand(context, check) {
     );
     return { path, matchedTools };
   });
-  const qualifying = inspected.filter(({ matchedTools }) => matchedTools.length >= check.min_tools);
-  const strongest = inspected.reduce(
-    (maximum, candidate) => candidate.matchedTools.length > maximum.matchedTools.length ? candidate : maximum,
-    { path: "", matchedTools: [] }
+  const matchedToolIds = new Set(
+    inspected.flatMap(({ matchedTools }) => matchedTools.map(({ id }) => id))
   );
+  const contributing = inspected.filter(({ matchedTools }) => matchedTools.length > 0);
+  const passed = matchedToolIds.size >= check.min_tools;
   return result(
     check.type,
     check.scope,
-    qualifying.length > 0 ? "met" : "not_met",
-    `${qualifying.length} CI configuration file(s) contain enabled integration-triggered recognized commands; strongest command-class match ${strongest.matchedTools.length}/${check.tools.length} across ${files.length} candidate file(s); threshold ${check.min_tools}`,
-    qualifying.map(({ path }) => path)
+    passed ? "met" : "not_met",
+    `${contributing.length} contributing CI configuration file(s) contain enabled integration-triggered recognized commands; aggregate command-class match ${matchedToolIds.size}/${check.tools.length} across ${files.length} candidate file(s); threshold ${check.min_tools}`,
+    contributing.map(({ path }) => path)
   );
 }
 async function repositoryCommandBindings(context, tools) {
@@ -1261,7 +1278,9 @@ async function repositoryCommandBindings(context, tools) {
     ...new Set(
       tools.flatMap(
         ({ commands }) => commands.flatMap(
-          ({ required_arguments }) => required_arguments.filter(isRepositoryCommandPath).map(normalizeCommandPath)
+          ({ argument_groups }) => argument_groups.flatMap(
+            (arguments_) => arguments_.filter(isRepositoryCommandPath).map(normalizeCommandPath)
+          )
         )
       )
     )
@@ -1339,6 +1358,7 @@ function invocationFromField(node, field, kind) {
 function gitlabIntegrationInvocations(document) {
   const workflow = asRecord(document.workflow);
   const workflowAllowsMergeRequests = hasGitlabMergeRequestRule(workflow?.rules);
+  if (hasRiskyGitlabDefaults(document.default)) return [];
   const reserved = /* @__PURE__ */ new Set([
     "after_script",
     "before_script",
@@ -1356,7 +1376,8 @@ function gitlabIntegrationInvocations(document) {
     if (name.startsWith(".") || reserved.has(name)) continue;
     const job = asRecord(jobValue);
     if (!job || isDisabledCiNode(job)) continue;
-    if (hasNamedTrigger(job.except, ["merge_requests"])) continue;
+    if (job.extends !== void 0 || job.inherit !== void 0 || job.except !== void 0)
+      continue;
     const hasJobTriggerRules = asArray(job.rules).length > 0 || job.only !== void 0;
     const jobAllowsMergeRequests = hasGitlabMergeRequestRule(job.rules) || hasUnconditionallyNamedTrigger(job.only, ["merge_requests"]);
     if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) continue;
@@ -1365,6 +1386,13 @@ function gitlabIntegrationInvocations(document) {
     }
   }
   return invocations;
+}
+function hasRiskyGitlabDefaults(value) {
+  if (value === void 0) return false;
+  const defaults = asRecord(value);
+  if (!defaults) return true;
+  if (Object.hasOwn(defaults, "allow_failure") && defaults.allow_failure !== false) return true;
+  return ["except", "only", "rules", "script", "when"].some((key) => Object.hasOwn(defaults, key));
 }
 function azureIntegrationInvocations(document) {
   if (!hasAzurePullRequestTrigger(document.pr)) return [];
@@ -1423,8 +1451,9 @@ function githubTriggerAllowsIntegration(value, name) {
   const configuration = triggers[name];
   if (configuration === null || configuration === void 0) return true;
   const trigger = asRecord(configuration);
-  if (trigger && ["paths", "paths-ignore"].some((key) => Object.hasOwn(trigger, key))) return false;
-  if (!trigger || trigger.types === void 0) return trigger !== null;
+  if (!trigger) return false;
+  if (["paths", "paths-ignore"].some((key) => Object.hasOwn(trigger, key))) return false;
+  if (trigger.types === void 0) return true;
   const types = stringValues(trigger.types).map((type) => type.toLowerCase());
   const requiredTypes = name === "pull_request" ? ["opened", "reopened", "synchronize"] : ["checks_requested"];
   return requiredTypes.every((type) => types.includes(type));
@@ -1604,7 +1633,7 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
       return false;
     }
   }
-  const arguments_ = tokens.slice(executableIndex + 1).map((token) => token.toLowerCase());
+  const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
   const executable = executableIdentity(tokens[executableIndex] ?? "");
   if (tool.standalone_executables.some(
     (standalone) => standalone.toLowerCase() === executable.toLowerCase()
@@ -1613,16 +1642,40 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
   }
   return tool.commands.filter(
     ({ executables }) => executables.some((candidate) => candidate.toLowerCase() === executable.toLowerCase())
-  ).some(
-    ({ required_arguments }) => required_arguments.some((argument) => {
-      const normalizedArgument = argument.toLowerCase();
-      const matchesArgument = isRepositoryCommandPath(argument) ? arguments_.some(
-        (candidate) => normalizeCommandPath(candidate) === normalizeCommandPath(normalizedArgument)
-      ) : arguments_.includes(normalizedArgument);
-      if (!matchesArgument) return false;
-      return !isRepositoryCommandPath(argument) || bindings.availableCommandPaths.has(normalizeCommandPath(argument));
-    })
+  ).some(({ argument_groups, prohibited_arguments, prohibited_argument_sequences }) => {
+    if (prohibited_arguments.some((argument) => arguments_.includes(argument.toLowerCase())) || prohibited_argument_sequences.some(
+      (sequence) => containsArgumentSequence(
+        arguments_,
+        sequence.map((argument) => argument.toLowerCase())
+      )
+    )) {
+      return false;
+    }
+    return argument_groups.every(
+      (group) => group.some((argument) => commandArgumentMatches(argument, arguments_, bindings))
+    );
+  });
+}
+function commandArgumentMatches(argument, actualArguments, bindings) {
+  const normalizedArgument = argument.toLowerCase();
+  const matchesArgument = isRepositoryCommandPath(argument) ? actualArguments.some(
+    (candidate) => normalizeCommandPath(candidate) === normalizeCommandPath(normalizedArgument)
+  ) : actualArguments.includes(normalizedArgument);
+  if (!matchesArgument) return false;
+  return !isRepositoryCommandPath(argument) || bindings.availableCommandPaths.has(normalizeCommandPath(argument));
+}
+function containsArgumentSequence(arguments_, sequence) {
+  return arguments_.some(
+    (_, index) => sequence.every((argument, offset) => arguments_[index + offset] === argument)
   );
+}
+function normalizeCommandArgument(value) {
+  let normalized = value.toLowerCase();
+  const enclosingQuote = normalized[0];
+  if (normalized.length >= 2 && (enclosingQuote === '"' || enclosingQuote === "'") && normalized.at(-1) === enclosingQuote) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized.replace(/=(["'])([^"']*)\1$/, "=$2");
 }
 function packageScriptInvocation(tokens) {
   const manager = executableIdentity(tokens[0] ?? "");
@@ -1705,7 +1758,9 @@ function containsPositiveTerm(text, term) {
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
     if (!/\b(?:cannot|lacks?|lacking|missing|never|no|not|without)\b|\b(?:can|do|does|may|must)\s+not\b/i.test(
       prefix
-    ) && !/\b(?:absent|lacking|missing|unavailable)\b|:\s*none\b/i.test(suffix)) {
+    ) && !/\b(?:absent|cannot|forbidden|lacking|missing|never|not|prohibited|unavailable|without)\b|:\s*none\b/i.test(
+      suffix
+    )) {
       return true;
     }
   }

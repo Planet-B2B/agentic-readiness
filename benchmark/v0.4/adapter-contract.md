@@ -14,9 +14,9 @@ an attestation path, or execute code.
 Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors plus
 provider discovery rules and recognized command definitions to `ci_command`. A command class uses
-full owner/repository action identities, explicit valid executable/argument signatures, or
-semantically specific standalone executables. Executables and arguments from different signatures
-never combine. GitHub action invocations also require an explicit
+full owner/repository action identities, explicit executable signatures with independently required
+argument groups and prohibited non-blocking modes, or semantically specific standalone executables.
+Executables and arguments from different signatures never combine. GitHub action invocations also require an explicit
 non-empty `@ref`. Names alone never turn comments, version/help commands, display commands, disabled or
 non-integration steps, manual-only workflows, ineffective shell branches, or documentation prose
 into enforced evidence. Push-only, post-close, or path-gated execution does not establish the
@@ -25,10 +25,12 @@ when enforcement lives outside pull-request CI. Unsupported provider conditions 
 non-literal blocking override
 fail closed. Executable GitHub step jobs require a runner; job-level reusable workflow references
 are not step actions, and invalid steps that combine `uses` with `run` are rejected. Provider path
-filters and GitLab rules with unparsed gating fields fail closed. Multi-statement shell forms qualify
+filters and GitLab rules with unparsed gating fields fail closed. GitLab jobs with unresolved
+inheritance, `except` conditions, or non-blocking defaults also fail closed. Multi-statement shell forms qualify
 only when the scanner is the final effective foreground statement and its exit status determines the
 step result. Agent-guidance integrity requires a recognized validation command; verification
-requires both a test command class and a static-analysis command class. Repository-specific command
+requires both a test command class and a static-analysis command class, aggregated across all
+contributing auto-loaded CI entry points. Repository-specific command
 surfaces that are not recognized may use eligible source-backed agent evidence instead of keyword
 inference. Package-manager task invocations are resolved through the tracked root `package.json` and
 must bind to a recognized executable command; referenced repository validation scripts must exist as

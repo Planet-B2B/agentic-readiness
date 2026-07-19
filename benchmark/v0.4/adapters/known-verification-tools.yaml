@@ -7,23 +7,23 @@ extensions:
       - id: tests
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
-            required_arguments:
-              [test, test:unit, test:integration, test:e2e, unit-test, integration-test, e2e]
+            argument_groups:
+              - [test, test:unit, test:integration, test:e2e, unit-test, integration-test, e2e]
           - executables: [cargo, go, dotnet, mvn, mvnw, gradle, gradlew, bazel]
-            required_arguments: [test]
+            argument_groups: [[test]]
         standalone_executables: [pytest, pytest-cov, jest, vitest, tox, nox]
       - id: static-analysis
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
-            required_arguments: [lint, typecheck, type-check, check:types, check-types, check]
+            argument_groups: [[lint, typecheck, type-check, check:types, check-types, check]]
           - executables: [cargo]
-            required_arguments: [clippy, check]
+            argument_groups: [[clippy, check]]
           - executables: [go]
-            required_arguments: [vet]
+            argument_groups: [[vet]]
           - executables: [mvn, mvnw]
-            required_arguments: [checkstyle:check, spotbugs:check, pmd:check]
+            argument_groups: [[checkstyle:check, spotbugs:check, pmd:check]]
           - executables: [gradle, gradlew]
-            required_arguments: [check]
+            argument_groups: [[check]]
           - executables: [ruff]
-            required_arguments: [check]
+            argument_groups: [[check]]
         standalone_executables: [eslint, tsc, mypy, flake8, pyright, golangci-lint]

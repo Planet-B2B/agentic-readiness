@@ -95,7 +95,9 @@ const CiProviderSchema = z.object({
 
 const CiCommandSignatureSchema = z.object({
   executables: z.array(z.string().min(1)).min(1),
-  required_arguments: z.array(z.string().min(1)).min(1),
+  argument_groups: z.array(z.array(z.string().min(1)).min(1)).min(1),
+  prohibited_arguments: z.array(z.string().min(1)).default([]),
+  prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([]),
 });
 
 const CiToolSchema = z

@@ -57,18 +57,21 @@ target-profile headline discloses the number of required controls from each prov
 Repository controls use non-empty files, control-specific term thresholds, semantic component
 groups, structurally identifiable non-placeholder ownership mappings, enabled integration-triggered
 CI invocations with adapter-declared full action identities plus explicit refs or executable plus
-required-argument signatures, executable step/job structure, auto-loaded provider entry points,
-supported complete conditions, no unparsed path gates, and blocking foreground exit-status
+required argument-group signatures and prohibited non-blocking modes, executable step/job structure,
+auto-loaded provider entry points, supported complete conditions and inheritance, no unparsed path
+or exclusion gates, and blocking foreground exit-status
 propagation, bounded line windows, and per-pattern candidate limits. Partial evidence remains
 visible but does not pass a control. An ownership artifact, explicit accountable-human approval
 authority, and explicit accountable-human merge authority are independently required for
 `ADRB-GOV-002`; a generic owner/reviewer mention or declared agent authority cannot establish either
-human authority. Directly negated authority statements do not count as positive evidence, and
+human authority. Directly negated authority statements do not count as positive evidence whether
+negation appears before or after the matched phrase, and
 explicit mappings require a recognized repository-wide target or path/component target rather than
 arbitrary or punctuation-only syntax.
 Mechanical Level 3 context and testing controls require structurally recognized CI commands;
 comments, documentation, and command-name keywords do not establish execution. `ADRB-TST-003`
-requires independent test and static-analysis command classes. Root package-manager tasks must
+requires independent test and static-analysis command classes aggregated across the assessed CI
+entry points. Root package-manager tasks must
 resolve to tracked script definitions whose command bodies establish the applicable command class.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome

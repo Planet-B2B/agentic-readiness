@@ -32,17 +32,19 @@ extensions:
       - id: agent-guidance-validation
         commands:
           - executables: [node, tsx]
-            required_arguments:
-              [
-                scripts/check-agent-docs.js,
-                scripts/check-agent-docs.ts,
-                scripts/validate-agent-docs.js,
-                scripts/validate-agent-docs.ts,
-              ]
+            argument_groups:
+              - [
+                  scripts/check-agent-docs.js,
+                  scripts/check-agent-docs.ts,
+                  scripts/validate-agent-docs.js,
+                  scripts/validate-agent-docs.ts,
+                ]
           - executables: [bash, sh]
-            required_arguments: [scripts/check-agent-docs.sh, scripts/validate-agent-docs.sh]
+            argument_groups:
+              - [scripts/check-agent-docs.sh, scripts/validate-agent-docs.sh]
           - executables: [python, python3]
-            required_arguments: [scripts/check_agent_docs.py, scripts/validate_agent_docs.py]
+            argument_groups:
+              - [scripts/check_agent_docs.py, scripts/validate_agent_docs.py]
   - control_id: ADRB-ENV-001
     evidence_index: 0
     files:

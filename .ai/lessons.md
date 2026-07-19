@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Aggregate outcomes without inheriting uncertainty
+
+**Context.** Automated review found that split CI files could undercount a complete verification
+outcome, while unresolved GitLab inheritance, non-blocking scanner modes, suffix negation, and
+inactive owner contacts could overclaim enforcement or accountability.
+
+**Rule.** Aggregate independent command classes at the control boundary, but fail closed on
+unresolved provider inheritance; encode required and prohibited execution modes explicitly; and
+reject negative clauses or inactive identities wherever they appear in structural evidence.
+
 ## 2026-07-18 — Structural evidence starts at an executable entry point
 
 **Context.** Automated re-review found that unreferenced CI fragments, command-shaped Azure root

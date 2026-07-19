@@ -244,9 +244,16 @@ describe('v0.4 evidence calibration', () => {
         '| / | @root-team |',
         '| * | @wildcard-team |',
         '| /** | @recursive-team |',
+        '| packages/security/** | No owner; contact @security for help |',
         'packages/**: no owner',
+        'packages/legacy/**: Former maintainer: @old-team (inactive)',
       ].join('\n'),
-      'MAINTAINERS.md': '# Maintainers\n\n- Security team handbook\n',
+      'MAINTAINERS.md': [
+        '# Maintainers',
+        '',
+        '- Security team handbook',
+        '- Former maintainer: @old-team (inactive)',
+      ].join('\n'),
     });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
@@ -320,6 +327,24 @@ describe('v0.4 evidence calibration', () => {
     const repository = await gitFixture({
       'CONTRIBUTING.md':
         'No designated human may approve changes. No designated human may merge changes.\n',
+      'OWNERS.md': '- @platform-team\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['met', 'not_met']);
+      expect(governance?.evidence[1]?.summary).toContain('semantic coverage 0/2');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('does not infer authority from negation after the matched term', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md':
+        'Reviewer approval is not required. Human merge authority is prohibited.\n',
       'OWNERS.md': '- @platform-team\n',
     });
     try {
@@ -446,7 +471,7 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(executedReport, 'ADRB-SEC-003')?.evidence[0]?.type).toBe('ci_command');
       expect(controlStatus(nonEnforcedReport, 'ADRB-SEC-003')?.status).toBe('unknown');
       expect(controlStatus(nonEnforcedReport, 'ADRB-SEC-003')?.evidence[0]?.summary).toContain(
-        '0 CI configuration file(s) contain enabled integration-triggered recognized commands',
+        '0 contributing CI configuration file(s) contain enabled integration-triggered recognized commands',
       );
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.status).toBe('unknown');
       expect(controlStatus(executedReport, 'ADRB-SEC-007')?.evidence[0]?.type).toBe('manual');
@@ -538,6 +563,39 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('requires TruffleHog findings to fail the CI command', async () => {
+    const blocking = await gitFixture({
+      '.github/workflows/security.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: trufflehog git --fail',
+      ].join('\n'),
+    });
+    const advisory = await gitFixture({
+      '.github/workflows/security.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: trufflehog git',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const blockingReport = await assess(blocking, benchmark, controls, 'pr-creation');
+      const advisoryReport = await assess(advisory, benchmark, controls, 'pr-creation');
+      expect(controlStatus(blockingReport, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(advisoryReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+    } finally {
+      await rm(blocking, { recursive: true, force: true });
+      await rm(advisory, { recursive: true, force: true });
+    }
+  });
+
   it('requires approval and merge authority independently', async () => {
     const approvalOnly = await gitFixture({
       'CONTRIBUTING.md': 'The required reviewer provides approval.\n',
@@ -585,10 +643,10 @@ describe('v0.4 evidence calibration', () => {
   it('does not infer containment components from explicit absence language', async () => {
     const repository = await gitFixture({
       'AGENTS.md': [
-        'Work proceeds without an allowed path or write scope.',
-        'Work continues without a budget or retry limit.',
-        'The harness has no stop condition and lacks escalation.',
-        'The recovery owner is missing.',
+        'The allowed path is not set and the write scope is unavailable.',
+        'The budget is not set and the retry limit is prohibited.',
+        'The stop condition is forbidden and escalation is not available.',
+        'The recovery owner is not assigned.',
       ].join('\n'),
     });
     try {
@@ -717,6 +775,40 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('aggregates required verification classes across separate CI files', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/tests.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  tests:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: pytest',
+      ].join('\n'),
+      '.github/workflows/static-analysis.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  static-analysis:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: mypy .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const testing = controlStatus(report, 'ADRB-TST-003');
+      expect(testing?.status).toBe('met');
+      expect(testing?.evidence[0]?.summary).toContain('aggregate command-class match 2/2');
+      expect(testing?.evidence[0]?.references).toEqual([
+        '.github/workflows/static-analysis.yml',
+        '.github/workflows/tests.yml',
+      ]);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('resolves recognized monorepo commands through tracked package tasks', async () => {
     const repository = await gitFixture({
       'package.json': JSON.stringify({
@@ -761,7 +853,7 @@ describe('v0.4 evidence calibration', () => {
       const report = await assess(repository, benchmark, controls, 'pr-creation');
       const testing = controlStatus(report, 'ADRB-TST-003');
       expect(testing?.status).toBe('not_met');
-      expect(testing?.evidence[0]?.summary).toContain('strongest command-class match 0/2');
+      expect(testing?.evidence[0]?.summary).toContain('aggregate command-class match 0/2');
     } finally {
       await rm(repository, { recursive: true, force: true });
     }
@@ -852,6 +944,14 @@ describe('v0.4 evidence calibration', () => {
         '      - run: gitleaks help',
         '      - run: gitleaks detect --help',
         '      - run: gitleaks --version detect',
+        '      - run: gitleaks detect --exit-code 0',
+        '      - run: gitleaks detect --exit-code=0',
+        "      - run: gitleaks detect --exit-code='0'",
+        '      - run: gitleaks detect --exit-code="0"',
+        '      - run: trufflehog git',
+        '      - run: trufflehog git --fail=false',
+        '      - run: trufflehog git --fail false',
+        '      - run: detect-secrets scan',
         '      - uses: actions/checkout@gitleaks',
         '      - uses: gitleaks-logger/checkout@v1',
         '      - uses: attacker/gitleaks-action@v1',
@@ -873,6 +973,15 @@ describe('v0.4 evidence calibration', () => {
         'on:',
         '  pull_request:',
         '    types: [closed]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - run: gitleaks detect',
+      ].join('\n'),
+      '.github/workflows/false-trigger.yml': [
+        'on:',
+        '  pull_request: false',
         'jobs:',
         '  scan:',
         '    runs-on: ubuntu-latest',
@@ -980,6 +1089,34 @@ describe('v0.4 evidence calibration', () => {
           '  only: [merge_requests]',
           '  allow_failure:',
           '    exit_codes: [1]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          '.scan-template:',
+          '  allow_failure: true',
+          'secret-scan:',
+          '  extends: .scan-template',
+          '  only: [merge_requests]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'default:',
+          '  allow_failure: true',
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  script: gitleaks detect',
+        ].join('\n'),
+      },
+      {
+        '.gitlab-ci.yml': [
+          'secret-scan:',
+          '  only: [merge_requests]',
+          '  except:',
+          '    variables: [$SKIP_SECRET_SCAN]',
           '  script: gitleaks detect',
         ].join('\n'),
       },

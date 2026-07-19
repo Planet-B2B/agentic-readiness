@@ -34,6 +34,11 @@
 - Reject bare nonexistent guidance commands and punctuation-only ownership scopes.
 - Reject impossible event conjunctions, display-mode commands, and absence phrasing as positive
   evidence while preserving valid GitLab first-match rule evaluation.
+- Aggregate independent CI command classes across contributing workflow files; fail closed on
+  unresolved GitLab inheritance, exclusions, or non-blocking defaults.
+- Model independently required and prohibited command arguments, require TruffleHog failure mode,
+  and remove non-blocking scanner signatures from deterministic secret-scan evidence.
+- Reject negation after a semantic term and inactive or explicitly absent ownership contacts.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB
