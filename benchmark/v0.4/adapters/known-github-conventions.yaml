@@ -6,7 +6,7 @@ extensions:
     files: [.github/pull_request_template.md, .github/PULL_REQUEST_TEMPLATE/**]
   - control_id: ADRB-GOV-002
     evidence_index: 0
-    patterns: [.github/CODEOWNERS, .github/OWNERS]
+    patterns: [.github/CODEOWNERS, .github/OWNERS, docs/CODEOWNERS]
   - control_id: ADRB-GOV-002
     evidence_index: 1
     files: [.github/pull_request_template.md]

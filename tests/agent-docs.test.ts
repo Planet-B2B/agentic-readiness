@@ -26,6 +26,9 @@ describe('agent-document link integrity', () => {
       await expect(assertRepositoryLocalTarget(repository, 'escape.md')).rejects.toThrow(
         'escapes the repository',
       );
+      await expect(assertRepositoryLocalTarget(repository, 'missing.md')).rejects.toThrow(
+        'link target does not exist: missing.md',
+      );
     } finally {
       await rm(repository, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });

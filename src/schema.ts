@@ -139,12 +139,31 @@ const CiToolSchema = z
     }
   });
 
+const CiCommandWrapperSchema = z
+  .object({
+    executable_patterns: z.array(SourcePatternSchema).min(1),
+    command_prefixes: z.array(z.array(z.string().min(1))).min(1),
+  })
+  .strict();
+
+const CiInvocationGrammarSchema = z
+  .object({
+    wrappers: z.array(CiCommandWrapperSchema).default([]),
+    wrapper_options_with_values: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
+
 const CiCommandSchema = z.object({
   type: z.literal('ci_command'),
   scope: z.literal('repository').default('repository'),
   providers: z.array(CiProviderSchema).default([]),
   tools: z.array(CiToolSchema).default([]),
   min_tools: z.number().int().positive().default(1),
+  tool_match_mode: z.enum(['aggregate', 'same-execution']).default('aggregate'),
+  invocation_grammar: CiInvocationGrammarSchema.default({
+    wrappers: [],
+    wrapper_options_with_values: [],
+  }),
   max_files_per_pattern: z.number().int().positive().max(250).optional(),
 });
 
@@ -241,9 +260,18 @@ export const DetectorAdapterSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/),
     benchmark_version: z.string().regex(/^\d+\.\d+\.\d+$/),
-    extensions: z.array(DetectorAdapterExtensionSchema).min(1),
+    ci_invocation_grammar: CiInvocationGrammarSchema.optional(),
+    extensions: z.array(DetectorAdapterExtensionSchema).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((adapter, context) => {
+    if (adapter.extensions.length === 0 && !adapter.ci_invocation_grammar) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A detector adapter must declare extensions or CI invocation grammar',
+      });
+    }
+  });
 
 export type DetectorAdapter = z.infer<typeof DetectorAdapterSchema>;
 

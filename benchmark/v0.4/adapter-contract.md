@@ -8,6 +8,9 @@ may extend one control evidence check with recognized harness-specific `patterns
 evidence index and adds exactly one of those fields. Repository-host aliases, CI-provider entries,
 and CI-tool entries bind
 provider-specific configuration paths to the applicable structural or integration-trigger semantics.
+An adapter may also declare catalog-wide `ci_invocation_grammar`; this supplies recognized wrapper
+patterns, command prefixes, and value-taking options to every `ci_command` check without putting
+those identities in scanner core.
 An adapter cannot remove or weaken a threshold, change a control level, alter a readiness floor, add
 an attestation path, or execute code.
 
@@ -33,12 +36,16 @@ job disposition also fail closed. Repository-bound commands qualify only after t
 made the assessed repository available: GitHub requires a preceding `actions/checkout` step,
 GitLab must retain its clone/fetch checkout, and Azure must retain its default checkout or execute
 `checkout: self` before the command. GitHub checkout inputs that select another repository, ref,
-path, sparse subset, or object filter cannot establish this state, and a later non-target checkout
-clears earlier target proof for the affected event. A checkout with an unsupported condition also
-clears prior proof because its effect cannot be excluded. GitHub run working directories and explicit
-directory-changing shell commands must remain at the assessed checkout root. Multi-statement shell forms qualify
-only when the scanner is the final effective foreground statement and its exit status determines the
-step result. Agent-guidance integrity requires a recognized validation command bound to a tracked
+sparse subset, or object filter cannot establish this state, and a later checkout that replaces the
+workspace clears earlier target proof for the affected event. A secondary checkout with an explicit
+non-root `path` preserves an already established primary checkout but cannot establish it by itself.
+A replacing checkout with an unsupported condition clears prior proof because its effect cannot be
+excluded. Workflow-level `defaults.run` settings are inherited by jobs, whose defaults override
+them field by field. GitHub run working directories and explicit directory-changing shell commands
+must remain at the assessed checkout root. Multi-statement shell forms qualify only when each
+contributing command's failure determines the step result: supported GitHub fail-fast shells and
+explicit Azure fail-fast blocks may contribute earlier statements, while other multiline forms
+contribute only their final effective foreground statement. Agent-guidance integrity requires a recognized validation command bound to a tracked
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
 failure path; comments, inert string literals, and non-empty no-op scripts are insufficient.
 Pattern groups are evaluated only over top-level code and function bodies reachable from top-level
@@ -47,9 +54,10 @@ unreachable functions cannot combine their inert patterns into evidence.
 Scanner modes that require a source target must bind that target to the assessed checkout rather
 than an arbitrary path; explicit source overrides fail closed unless the adapter can prove that
 binding. Repository-relative executables do not inherit a trusted tool identity from their basename.
-Verification requires both a test command class
-and a static-analysis command class, aggregated across fail-fast multiline steps and auto-loaded CI
-entry points. Adapters may declare tool-specific listing/discovery arguments that cannot establish
+Verification requires both a test command class and a static-analysis command class. `ADRB-TST-003`
+may aggregate them across fail-fast multiline steps and auto-loaded CI entry points;
+`ADRB-ENV-003` additionally requires its locked-install, test, and static-analysis classes in one CI
+execution group. Adapters may declare tool-specific listing/discovery arguments that cannot establish
 execution. Scanner tools may require the final effective command to carry the step exit status
 without imposing that restriction on ordinary fail-fast verification steps. Repository-specific command
 surfaces that are not recognized may use eligible source-backed agent evidence instead of keyword
@@ -60,6 +68,10 @@ while recognized nested package-exec targets are evaluated at their executable p
 manager built-ins are not treated as same-named scripts, and path-qualified local executables never
 inherit package-manager identity: npm resolves arbitrary task names only
 through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible.
+Command-wrapper identities, command prefixes, and option arity are versioned adapter data. The
+scanner core applies that grammar conservatively and retains generic package-task resolution
+semantics; recognized wrapper, tool, and action identities and command signatures do not live in
+the portable control catalog or core wrapper parser.
 Wrapper and package-manager options with separate values are consumed before executable or task
 identity is evaluated; option values never inherit tool identity.
 Arguments forwarded to a package task fail closed unless their effect is structurally resolved.
@@ -78,6 +90,8 @@ Azure commands qualify only inside valid step collections, never from command-sh
 job fields.
 Present GitLab `workflow` and job `rules` nodes must have supported object/array shapes; malformed
 nodes fail closed instead of being treated as absent.
+Source-bound validator analysis scans quote state in linear passes and remains subject to the same
+per-file and aggregate byte limits as every other repository collector.
 
 Bundled adapters are loaded deterministically in filename order. Their candidates remain subject to
 the same tracked/workspace scope, symlink, size, generated-artifact, co-location, proximity, and

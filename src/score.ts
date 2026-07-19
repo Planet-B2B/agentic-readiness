@@ -176,6 +176,7 @@ export async function assess(
   const modernEvidence = usesModernEvidence(benchmark.version);
   const schemaVersion = reportSchemaVersion(benchmark.version);
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
+  validateAttestations(benchmark, catalog, options.attestations ?? null);
   await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
 
   const controls = await Promise.all(
@@ -288,6 +289,23 @@ export async function assess(
       'This assessment does not grant production access, deployment authority, or certification.',
     ],
   };
+}
+
+function validateAttestations(
+  benchmark: Benchmark,
+  catalog: Control[],
+  attestations: AttestationFile | null,
+): void {
+  if (!attestations || benchmark.version !== '0.4.0') return;
+  const controlIds = new Set(catalog.map(({ id }) => id));
+  for (const controlId of Object.keys(attestations.attestations)) {
+    if (!/^ADRB-[A-Z]{3}-\d{3}$/.test(controlId)) {
+      throw new Error(`Attestation uses malformed control ID ${controlId}`);
+    }
+    if (!controlIds.has(controlId)) {
+      throw new Error(`Attestation references unknown control ${controlId}`);
+    }
+  }
 }
 
 async function validateAgentEvidence(

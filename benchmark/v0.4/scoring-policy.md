@@ -76,7 +76,9 @@ neither substitutes for the other.
 Mechanical Level 3 context, environment, specification, testing, and learning controls require
 structurally recognized CI commands; comments, documentation, and command-name keywords do not
 establish execution. `ADRB-ENV-003` requires a locked installation plus independent test and
-static-analysis command classes. `ADRB-TST-003`
+static-analysis command classes in the same CI execution group; commands split across jobs or
+workflow files do not prove that one clean environment performs canonical verification.
+`ADRB-TST-003`
 requires independent test and static-analysis command classes aggregated across the assessed CI
 entry points. Root package-manager tasks must
 resolve to tracked script definitions whose command bodies establish the applicable command class,
@@ -90,10 +92,9 @@ source-bound standard. A recognized specification validator binds an approved wo
 to both implementation and verification artifacts; checking only for a heading is insufficient.
 Constant-false branches and validation functions without a top-level reachable call path fail closed.
 Required structural groups cannot combine across unreachable function bodies.
-Tool-specific discovery or
-listing modes do not count as execution. Fail-fast multiline verification steps may contribute each
-command, while scanners configured to require final exit-status propagation contribute only from the
-final effective command.
+Tool-specific discovery or listing modes do not count as execution. In a supported fail-fast shell,
+each multiline command may contribute because any failure gates the step; without fail-fast
+semantics, only the final effective foreground command may establish execution.
 Catalog pattern order is significant when a candidate limit is present: authoritative entry points
 precede large run, skill, or documentation corpora. External platform, organization, and outcome
 controls cannot be inferred from repository keywords.
@@ -102,7 +103,10 @@ Human attestations and agent evidence may satisfy only controls explicitly eligi
 classes. A v0.4 control may permit an `agent-collected` repository claim when a legitimate tracked
 artifact uses an unrecognized convention. This is a semantic alternative, not a deterministic
 pass: it remains separately labelled and does not increase repository-detected progress. Human
-attestations cannot override repository-artifact controls.
+attestations cannot override repository-artifact controls. `ADRB-SEC-003` permits a dated, expiring
+human attestation only for its platform alternative, such as host-native secret scanning or push
+protection; it cannot attest the repository CI alternative. Malformed or unknown v0.4 attestation
+control IDs are rejected rather than silently ignored.
 
 Controls require every evidence check by default. A v0.4 control may explicitly declare
 `evidence_mode: any` only when the checks are alternative ways to establish the same outcome. A

@@ -74,6 +74,28 @@ function applyDetectorAdapter(
       `Detector adapter ${adapter.id} targets ${adapter.benchmark_version}, not ${benchmark.version}`,
     );
   }
+  if (adapter.ci_invocation_grammar) {
+    for (const control of controls) {
+      for (const check of control.evidence) {
+        if (check.type !== 'ci_command') continue;
+        check.invocation_grammar = {
+          wrappers: [
+            ...new Map(
+              [...check.invocation_grammar.wrappers, ...adapter.ci_invocation_grammar.wrappers].map(
+                (wrapper) => [JSON.stringify(wrapper), wrapper],
+              ),
+            ).values(),
+          ],
+          wrapper_options_with_values: [
+            ...new Set([
+              ...check.invocation_grammar.wrapper_options_with_values,
+              ...adapter.ci_invocation_grammar.wrapper_options_with_values,
+            ]),
+          ],
+        };
+      }
+    }
+  }
   for (const extension of adapter.extensions) {
     const control = controls.find(({ id }) => id === extension.control_id);
     if (!control) {

@@ -58,26 +58,40 @@ function controlStatus(report: Awaited<ReturnType<typeof assess>>, id: string) {
 
 describe('v0.3 accuracy regressions', () => {
   it('retains the mature level-three conformance result', async () => {
-    const repository = resolve(import.meta.dirname, 'fixtures', 'mature');
-    const { benchmark, controls } = await loadBenchmark(v03Root);
-    const attestations = await loadAttestations(
-      join(repository, '.agentic', 'attestations-v0.3.yaml'),
-      benchmark.version,
+    const repository = await gitDirectoryFixture(
+      resolve(import.meta.dirname, 'fixtures', 'mature-v03'),
     );
-    const report = await assess(repository, benchmark, controls, 'limited-autonomous-maintenance', {
-      attestations,
-      now: new Date('2026-07-17T12:00:00.000Z'),
-    });
-    expect(report.score.total).toBe(30);
-    expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
-    expect(report.readiness.target_passed).toBe(true);
-    expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
-    const targetProfile = report.profiles.find(({ id }) => id === 'limited-autonomous-maintenance');
-    expect(targetProfile?.evidence_dependencies?.attested).toBeGreaterThan(0);
-    const markdown = toMarkdown(report);
-    expect(markdown).toContain('PASS (depends on');
-    expect(markdown).toContain('Assessment mode: **evidence-assisted assessment**');
-    expect(markdown).not.toContain('Alternative evidence paths not established');
+    try {
+      const { benchmark, controls } = await loadBenchmark(v03Root);
+      const attestations = await loadAttestations(
+        join(repository, '.agentic', 'attestations-v0.3.yaml'),
+        benchmark.version,
+      );
+      const report = await assess(
+        repository,
+        benchmark,
+        controls,
+        'limited-autonomous-maintenance',
+        {
+          attestations,
+          now: new Date('2026-07-17T12:00:00.000Z'),
+        },
+      );
+      expect(report.score.total).toBe(30);
+      expect(report.score.repository).toEqual({ achieved: 23, ceiling: 23, percentage: 100 });
+      expect(report.readiness.target_passed).toBe(true);
+      expect(report.readiness.highest_profile).toBe('limited-autonomous-maintenance');
+      const targetProfile = report.profiles.find(
+        ({ id }) => id === 'limited-autonomous-maintenance',
+      );
+      expect(targetProfile?.evidence_dependencies?.attested).toBeGreaterThan(0);
+      const markdown = toMarkdown(report);
+      expect(markdown).toContain('PASS (depends on');
+      expect(markdown).toContain('Assessment mode: **evidence-assisted assessment**');
+      expect(markdown).not.toContain('Alternative evidence paths not established');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
   });
 
   it(

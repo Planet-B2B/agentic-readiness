@@ -92,6 +92,7 @@ controls:
     title: Automated secret-leakage safeguards are enforced
     outcome: Repository or platform automation scans relevant changes for secrets before integration.
     risk: Credentials can enter version history because secret safeguards are absent or merely documented.
+    allow_attestation: true
     allow_agent_evidence: true
     agent_evidence_scopes: [repository, platform]
     evidence_mode: any

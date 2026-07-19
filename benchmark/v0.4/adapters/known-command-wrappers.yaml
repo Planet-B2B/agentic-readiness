@@ -1,0 +1,37 @@
+id: known-command-wrappers
+benchmark_version: 0.4.0
+ci_invocation_grammar:
+  wrapper_options_with_values:
+    - --cache
+    - --call
+    - --chdir
+    - --chroot
+    - --close-from
+    - --command-timeout
+    - --from
+    - --group
+    - --host
+    - --node-options
+    - --package
+    - --prompt
+    - --python
+    - --user
+    - --with
+    - -c
+    - -d
+    - -g
+    - -h
+    - -p
+    - -r
+    - -t
+    - -u
+  wrappers:
+    - executable_patterns: ['^(?:bunx|npx|sudo|uvx)$']
+      command_prefixes: [[]]
+    - executable_patterns: ['^(?:uv|pipx)$']
+      command_prefixes: [[run]]
+    - executable_patterns: ['^(?:bun|npm|pnpm|yarn)$']
+      command_prefixes: [[dlx], [exec], [x]]
+    - executable_patterns: ['^python(?:3(?:\.\d+)?)?$']
+      command_prefixes: [[-m]]
+extensions: []

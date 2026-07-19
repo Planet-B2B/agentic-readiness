@@ -7,7 +7,15 @@ const requiredFiles = ['.ai/constitution.md', '.agents/skills/benchmark-authorin
 
 export async function assertRepositoryLocalTarget(repositoryRoot: string, target: string) {
   const canonicalRoot = await realpath(repositoryRoot);
-  const canonicalTarget = await realpath(resolve(repositoryRoot, target));
+  let canonicalTarget: string;
+  try {
+    canonicalTarget = await realpath(resolve(repositoryRoot, target));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Agent-document link target does not exist: ${target}`);
+    }
+    throw error;
+  }
   const repositoryRelative = relative(canonicalRoot, canonicalTarget);
   if (
     repositoryRelative === '..' ||

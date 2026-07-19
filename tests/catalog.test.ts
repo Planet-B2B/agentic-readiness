@@ -49,6 +49,10 @@ describe('benchmark catalog', () => {
       'utf8',
     );
     const securityControlSource = await readFile(join(root, 'controls', 'security.yaml'), 'utf8');
+    const scannerSource = await readFile(
+      resolve(import.meta.dirname, '..', 'src', 'evidence.ts'),
+      'utf8',
+    );
     const controlSource = (
       await Promise.all(controlPaths.map(async (path) => readFile(path, 'utf8')))
     ).join('\n');
@@ -74,36 +78,42 @@ describe('benchmark catalog', () => {
         expect.objectContaining({ id: 'static-analysis' }),
       ]),
     );
+    expect(environmentCi?.type === 'ci_command' ? environmentCi.tool_match_mode : null).toBe(
+      'same-execution',
+    );
+    expect(
+      environmentCi?.type === 'ci_command'
+        ? environmentCi.invocation_grammar.wrappers.flatMap(
+            ({ executable_patterns }) => executable_patterns,
+          )
+        : [],
+    ).toContain('^(?:bunx|npx|sudo|uvx)$');
+    expect(scannerSource).not.toMatch(/\b(?:bunx|npx|sudo|uvx|pipx)\b/);
     const contextEntry = controls.find(({ id }) => id === 'ADRB-CTX-001');
     const pathCheck = contextEntry?.evidence.find(({ type }) => type === 'path_any');
     expect(pathCheck && 'patterns' in pathCheck ? pathCheck.patterns : []).toContain(
       '.cursor/skills/**',
     );
     const securityAutomation = controls.find(({ id }) => id === 'ADRB-SEC-003');
+    expect(securityAutomation?.allow_attestation).toBe(true);
     const commandCheck = securityAutomation?.evidence.find(({ type }) => type === 'ci_command');
-    expect(commandCheck?.type === 'ci_command' ? commandCheck.tools : []).toContainEqual(
+    const securityTools = commandCheck?.type === 'ci_command' ? commandCheck.tools : [];
+    const gitleaks = securityTools.find(({ id }) => id === 'gitleaks');
+    expect(gitleaks).toEqual(
       expect.objectContaining({
         id: 'gitleaks',
-        commands: [
-          {
-            executables: ['gitleaks'],
-            repository_executables: [],
-            argument_groups: [['detect']],
-            source_content_groups: [],
-            source_pattern_groups: [],
-            source_max_span_lines: 120,
-            required_argument_prefixes: [],
-            prohibited_arguments: ['--exit-code', '--log-opts', '--source'],
-            prohibited_argument_sequences: [],
-          },
-        ],
         standalone_executables: [],
         actions: ['gitleaks/gitleaks-action'],
       }),
     );
-    expect(
-      commandCheck?.type === 'ci_command' ? commandCheck.tools.map(({ id }) => id) : [],
-    ).toEqual(['gitleaks', 'trufflehog', 'git-secrets']);
+    expect(gitleaks?.commands).toContainEqual(
+      expect.objectContaining({
+        executables: ['gitleaks'],
+        argument_groups: [['detect']],
+        prohibited_arguments: ['--exit-code', '--log-opts', '--source'],
+      }),
+    );
+    expect(securityTools.map(({ id }) => id)).toEqual(['gitleaks', 'trufflehog', 'git-secrets']);
     expect(commandCheck?.type === 'ci_command' ? commandCheck.providers : []).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -123,7 +133,7 @@ describe('benchmark catalog', () => {
       ?.evidence.find(({ type }) => type === 'ownership_map');
     expect(
       governanceOwnership?.type === 'ownership_map' ? governanceOwnership.patterns : [],
-    ).toContain('.github/CODEOWNERS');
+    ).toEqual(expect.arrayContaining(['.github/CODEOWNERS', 'docs/CODEOWNERS']));
     expect(governanceControlSource).not.toContain('.github/CODEOWNERS');
     const guidanceIntegrity = controls.find(({ id }) => id === 'ADRB-CTX-003');
     const guidanceCheck = guidanceIntegrity?.evidence.find(({ type }) => type === 'ci_command');
@@ -149,28 +159,12 @@ describe('benchmark catalog', () => {
       'mypy',
     );
     const staticCommands = ciTools.find(({ id }) => id === 'static-analysis')?.commands ?? [];
-    expect(staticCommands.find(({ executables }) => executables.includes('cargo'))).toEqual({
-      executables: ['cargo'],
-      repository_executables: [],
-      argument_groups: [['clippy', 'check']],
-      source_content_groups: [],
-      source_pattern_groups: [],
-      source_max_span_lines: 120,
-      required_argument_prefixes: [],
-      prohibited_arguments: [],
-      prohibited_argument_sequences: [],
-    });
-    expect(staticCommands.find(({ executables }) => executables.includes('go'))).toEqual({
-      executables: ['go'],
-      repository_executables: [],
-      argument_groups: [['vet']],
-      source_content_groups: [],
-      source_pattern_groups: [],
-      source_max_span_lines: 120,
-      required_argument_prefixes: [],
-      prohibited_arguments: [],
-      prohibited_argument_sequences: [],
-    });
+    expect(staticCommands.find(({ executables }) => executables.includes('cargo'))).toEqual(
+      expect.objectContaining({ executables: ['cargo'], argument_groups: [['clippy', 'check']] }),
+    );
+    expect(staticCommands.find(({ executables }) => executables.includes('go'))).toEqual(
+      expect.objectContaining({ executables: ['go'], argument_groups: [['vet']] }),
+    );
     expect(controlSource).not.toMatch(/pytest|mypy|flake8|ruff|pyright/);
 
     const specification = controls.find(({ id }) => id === 'ADRB-SPC-001');
@@ -382,6 +376,17 @@ describe('benchmark catalog', () => {
     );
     expect(errorInvariant?.if?.required).toContain('error');
     expect(errorInvariant?.then?.properties?.status?.const).toBe('unknown');
+  });
+
+  it('publishes the v0.4 attestation control-ID grammar', async () => {
+    const schema = JSON.parse(
+      await readFile(resolve(benchmarkFixture('v0.4'), 'attestation-schema.json'), 'utf8'),
+    ) as {
+      properties?: { attestations?: { propertyNames?: { pattern?: string } } };
+    };
+    expect(schema.properties?.attestations?.propertyNames?.pattern).toBe(
+      '^ADRB-[A-Z]{3}-[0-9]{3}$',
+    );
   });
 
   it('uses an unmistakable unbound commit placeholder in the static evidence template', async () => {

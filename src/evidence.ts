@@ -120,31 +120,6 @@ const packageGlobalOptionsWithValues = new Set([
   '--tag',
   '--userconfig',
 ]);
-const wrapperOptionsWithValues = new Set([
-  '--cache',
-  '--call',
-  '--chdir',
-  '--chroot',
-  '--close-from',
-  '--command-timeout',
-  '--from',
-  '--group',
-  '--host',
-  '--node-options',
-  '--package',
-  '--prompt',
-  '--python',
-  '--user',
-  '--with',
-  '-c',
-  '-d',
-  '-g',
-  '-h',
-  '-p',
-  '-r',
-  '-t',
-  '-u',
-]);
 const npmImplicitScripts = new Map([
   ['restart', 'restart'],
   ['start', 'start'],
@@ -159,20 +134,33 @@ const packageManagerDirectToolCommands = new Map([
   ['pnpm', new Set(['install'])],
   ['yarn', new Set(['install'])],
 ]);
+const matchCache = new WeakMap<RepositoryContext, Map<string, Promise<string[]>>>();
+const searchableFileCache = new WeakMap<
+  RepositoryContext,
+  Map<string, Promise<Array<{ path: string; text: string }>>>
+>();
 
 async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
-  const found = await fg(patterns, {
+  const cache = matchCache.get(context) ?? new Map<string, Promise<string[]>>();
+  matchCache.set(context, cache);
+  const key = JSON.stringify(patterns);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const scan = fg(patterns, {
     cwd: context.metadata.root,
     dot: true,
     onlyFiles: true,
     unique: true,
     followSymbolicLinks: false,
     ignore: generatedEvidenceIgnores,
-  });
-  return found
-    .filter((path) => context.includedPaths === null || context.includedPaths.has(path))
-    .filter((path) => !context.excludedPaths.has(path))
-    .sort();
+  }).then((found) =>
+    found
+      .filter((path) => context.includedPaths === null || context.includedPaths.has(path))
+      .filter((path) => !context.excludedPaths.has(path))
+      .sort(),
+  );
+  cache.set(key, scan);
+  return scan;
 }
 
 async function safeFileSize(root: string, path: string): Promise<number | null> {
@@ -263,10 +251,14 @@ function ownershipEntries(path: string, text: string): number {
       .filter((line) => !line.startsWith('#'))
       .filter((line) => {
         const fields = line.split(/\s+/);
+        const inlineComment = fields.findIndex(
+          (field, index) => index > 0 && field.startsWith('#'),
+        );
+        const ownerFields = fields.slice(1, inlineComment < 0 ? undefined : inlineComment);
         return (
-          fields.length >= 2 &&
+          ownerFields.length > 0 &&
           isCodeownersTarget(fields[0] ?? '') &&
-          fields.slice(1).every((field) => isOwnerHandle(field) || isExactEmailContact(field))
+          ownerFields.every((field) => isOwnerHandle(field) || isExactEmailContact(field))
         );
       }).length;
   }
@@ -320,6 +312,9 @@ function ownershipSectionState(
   }
   const plainHeading = plainOwnershipHeading(line);
   if (!plainHeading) return { handled: false, inactiveHeadingLevel };
+  if (inactiveHeadingLevel !== null && inactiveHeadingLevel <= 6) {
+    return { handled: true, inactiveHeadingLevel };
+  }
   return {
     handled: true,
     inactiveHeadingLevel: inactiveOwnershipTitle(plainHeading) ? 7 : null,
@@ -542,11 +537,30 @@ async function readSearchableFiles(
   maxFilesPerPattern?: number,
   preserveCase = false,
 ): Promise<Array<{ path: string; text: string }>> {
+  const cache =
+    searchableFileCache.get(context) ??
+    new Map<string, Promise<Array<{ path: string; text: string }>>>();
+  searchableFileCache.set(context, cache);
+  const key = JSON.stringify([patterns, maxFilesPerPattern ?? null, preserveCase]);
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const read = readSearchableFilesUncached(context, patterns, maxFilesPerPattern, preserveCase);
+  cache.set(key, read);
+  return read;
+}
+
+async function readSearchableFilesUncached(
+  context: RepositoryContext,
+  patterns: string[],
+  maxFilesPerPattern?: number,
+  preserveCase = false,
+): Promise<Array<{ path: string; text: string }>> {
   const root = context.metadata.root;
   const paths = maxFilesPerPattern
     ? await prioritizedMatches(context, patterns, maxFilesPerPattern)
     : (await matches(context, patterns)).slice(0, maxContentFiles);
   const files: Array<{ path: string; text: string }> = [];
+  const seenCanonicalPaths = new Set<string>();
   let totalBytes = 0;
   for (const path of paths) {
     try {
@@ -554,6 +568,7 @@ async function readSearchableFiles(
       if ((await lstat(requestedPath)).isSymbolicLink()) continue;
       const canonicalPath = await realpath(requestedPath);
       if (canonicalPath !== root && !canonicalPath.startsWith(`${root}${sep}`)) continue;
+      if (seenCanonicalPaths.has(canonicalPath)) continue;
       const metadata = await stat(canonicalPath);
       if (
         !metadata.isFile() ||
@@ -565,6 +580,7 @@ async function readSearchableFiles(
       }
       const rawText = await readFile(canonicalPath, 'utf8');
       if (isGeneratedAssessment(rawText)) continue;
+      seenCanonicalPaths.add(canonicalPath);
       totalBytes += metadata.size;
       files.push({ path, text: preserveCase ? rawText : rawText.toLowerCase() });
     } catch {
@@ -781,27 +797,57 @@ async function evaluateCiCommand(
     const invocations = providerPaths.flatMap(({ id, paths }) =>
       paths.has(path) ? ciIntegrationInvocations(id, text) : [],
     );
-    const matchedTools = check.tools.filter((tool) =>
-      invocations.some((invocation) => invocationMatchesTool(invocation, tool, bindings)),
+    const matchesByExecution = new Map<string, Set<string>>();
+    for (const invocation of invocations) {
+      const matches = matchesByExecution.get(invocation.executionGroup) ?? new Set<string>();
+      for (const tool of check.tools) {
+        if (invocationMatchesTool(invocation, tool, bindings, check.invocation_grammar)) {
+          matches.add(tool.id);
+        }
+      }
+      matchesByExecution.set(invocation.executionGroup, matches);
+    }
+    const matchedToolIds = new Set(
+      [...matchesByExecution.values()].flatMap((identities) => [...identities]),
     );
-    return { path, matchedTools };
+    return {
+      path,
+      matchedTools: check.tools.filter(({ id }) => matchedToolIds.has(id)),
+      strongestExecutionMatch: Math.max(
+        0,
+        ...[...matchesByExecution.values()].map(({ size }) => size),
+      ),
+    };
   });
   const matchedToolIds = new Set(
     inspected.flatMap(({ matchedTools }) => matchedTools.map(({ id }) => id)),
   );
   const contributing = inspected.filter(({ matchedTools }) => matchedTools.length > 0);
-  const passed = matchedToolIds.size >= check.min_tools;
+  const strongestExecutionMatch = Math.max(
+    0,
+    ...inspected.map(({ strongestExecutionMatch }) => strongestExecutionMatch),
+  );
+  const passed =
+    check.tool_match_mode === 'same-execution'
+      ? strongestExecutionMatch >= check.min_tools
+      : matchedToolIds.size >= check.min_tools;
+  const matchSummary =
+    check.tool_match_mode === 'same-execution'
+      ? `strongest execution-group command-class match ${strongestExecutionMatch}/${check.tools.length}`
+      : `aggregate command-class match ${matchedToolIds.size}/${check.tools.length}`;
   return result(
     check.type,
     check.scope,
     passed ? 'met' : 'not_met',
-    `${contributing.length} contributing CI configuration file(s) contain enabled integration-triggered recognized commands; aggregate command-class match ${matchedToolIds.size}/${check.tools.length} across ${files.length} candidate file(s); threshold ${check.min_tools}`,
+    `${contributing.length} contributing CI configuration file(s) contain enabled integration-triggered recognized commands; ${matchSummary} across ${files.length} candidate file(s); threshold ${check.min_tools}`,
     contributing.map(({ path }) => path),
   );
 }
 
 interface CiInvocation {
+  executionGroup: string;
   kind: 'action' | 'command';
+  failFast?: boolean;
   value: string;
 }
 
@@ -813,6 +859,7 @@ interface RepositoryCommandBindings {
 
 type CiProviderId = Extract<EvidenceCheck, { type: 'ci_command' }>['providers'][number]['id'];
 type CiTool = Extract<EvidenceCheck, { type: 'ci_command' }>['tools'][number];
+type CiInvocationGrammar = Extract<EvidenceCheck, { type: 'ci_command' }>['invocation_grammar'];
 
 async function repositoryCommandBindings(
   context: RepositoryContext,
@@ -883,10 +930,19 @@ function githubIntegrationInvocations(document: Record<string, unknown>): CiInvo
   if (events.size === 0) return [];
   const jobs = asRecord(document.jobs);
   if (!jobs) return [];
-  return Object.values(jobs).flatMap((job) => githubJobInvocations(job, events));
+  const workflowDefaults = githubRunDefaults(document.defaults);
+  if (!workflowDefaults.valid) return [];
+  return Object.entries(jobs).flatMap(([name, job]) =>
+    githubJobInvocations(job, events, workflowDefaults, `github:${name}`),
+  );
 }
 
-function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvocation[] {
+function githubJobInvocations(
+  value: unknown,
+  parentEvents: Set<string>,
+  workflowDefaults: GitHubRunDefaults,
+  executionGroup: string,
+): CiInvocation[] {
   const job = asRecord(value);
   if (!job || isDisabledCiNode(job)) return [];
   const jobCondition = githubConditionEvents(job.if, parentEvents);
@@ -894,8 +950,9 @@ function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvo
   const events = jobCondition.events;
   const steps = asArray(job.steps);
   if (steps.length === 0 || !hasGithubRunner(job['runs-on'])) return [];
-  const runDefaults = githubRunDefaults(job.defaults);
-  if (!runDefaults.valid) return [];
+  const jobDefaults = githubRunDefaults(job.defaults);
+  if (!jobDefaults.valid) return [];
+  const runDefaults = mergeGithubRunDefaults(workflowDefaults, jobDefaults);
   const checkoutEvents = new Set<string>();
   return steps.flatMap((stepValue) => {
     const step = asRecord(stepValue);
@@ -903,6 +960,7 @@ function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvo
     const condition = githubConditionEvents(step.if, events);
     const checkout = githubCheckoutDisposition(step);
     if (checkout) {
+      if (checkout === 'preserve') return [];
       const affectedEvents = condition.certain ? condition.events : events;
       affectedEvents.forEach((event) => {
         if (condition.certain && !isDisabledCiNode(step) && checkout === 'target') {
@@ -915,7 +973,12 @@ function githubJobInvocations(value: unknown, parentEvents: Set<string>): CiInvo
     const stepEvents = condition.events;
     if (stepEvents.size === 0) return [];
     if (![...stepEvents].some((event) => checkoutEvents.has(event))) return [];
-    return githubStepInvocations(step, runDefaults.workingDirectory, runDefaults.shell);
+    return githubStepInvocations(
+      step,
+      runDefaults.workingDirectory,
+      runDefaults.shell,
+      executionGroup,
+    );
   });
 }
 
@@ -926,18 +989,38 @@ function hasGithubRunner(value: unknown): boolean {
   );
 }
 
-function githubCheckoutDisposition(step: Record<string, unknown>): 'other' | 'target' | null {
+function githubCheckoutDisposition(
+  step: Record<string, unknown>,
+): 'preserve' | 'replace' | 'target' | null {
   if (typeof step.uses !== 'string') return null;
   if (!/^actions\/checkout@[^@\s]+$/i.test(step.uses.trim())) return null;
-  if (step.run !== undefined) return 'other';
+  if (step.run !== undefined) return 'replace';
   if (step.with === undefined) return 'target';
   const inputs = asRecord(step.with);
-  if (!inputs) return 'other';
+  if (!inputs) return 'replace';
+  if (Object.hasOwn(inputs, 'path')) {
+    return githubCheckoutPathIsSeparate(inputs.path) ? 'preserve' : 'replace';
+  }
   return ['filter', 'path', 'ref', 'repository', 'sparse-checkout'].some((field) =>
     Object.hasOwn(inputs, field),
   )
-    ? 'other'
+    ? 'replace'
     : 'target';
+}
+
+function githubCheckoutPathIsSeparate(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (
+    normalized.length === 0 ||
+    githubWorkingDirectoryIsRoot(normalized) ||
+    normalized.includes('${{') ||
+    normalized.startsWith('/') ||
+    /^[a-z]:[\\/]/i.test(normalized)
+  ) {
+    return false;
+  }
+  return !normalized.split(/[\\/]+/).includes('..');
 }
 
 interface GitHubRunDefaults {
@@ -959,28 +1042,45 @@ function githubRunDefaults(value: unknown): GitHubRunDefaults {
     : { shell: undefined, valid: false, workingDirectory: undefined };
 }
 
+function mergeGithubRunDefaults(
+  workflow: GitHubRunDefaults,
+  job: GitHubRunDefaults,
+): GitHubRunDefaults {
+  return {
+    valid: workflow.valid && job.valid,
+    shell: job.shell ?? workflow.shell,
+    workingDirectory: job.workingDirectory ?? workflow.workingDirectory,
+  };
+}
+
 function githubStepInvocations(
   value: unknown,
   defaultWorkingDirectory: unknown,
   defaultShell: unknown,
+  executionGroup: string,
 ): CiInvocation[] {
   const step = asRecord(value);
   if (!step || isDisabledCiNode(step)) return [];
   if (step.uses !== undefined && step.run !== undefined) return [];
-  const action = invocationFromField(step, 'uses', 'action');
+  const action = invocationFromField(step, 'uses', 'action', executionGroup);
+  const shell = githubShellSemantics(step.shell ?? defaultShell);
   const command =
     githubWorkingDirectoryIsRoot(step['working-directory'] ?? defaultWorkingDirectory) &&
-    githubShellSupportsCommands(step.shell ?? defaultShell)
-      ? invocationFromField(step, 'run', 'command')
+    shell.supported
+      ? invocationFromField(step, 'run', 'command', executionGroup, shell.failFast)
       : null;
   return [action, command].filter((invocation): invocation is CiInvocation => invocation !== null);
 }
 
-function githubShellSupportsCommands(value: unknown): boolean {
-  if (value === undefined) return true;
-  if (typeof value !== 'string') return false;
+function githubShellSemantics(value: unknown): { failFast: boolean; supported: boolean } {
+  if (value === undefined) return { failFast: true, supported: true };
+  if (typeof value !== 'string') return { failFast: false, supported: false };
   const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
-  return ['bash', 'bash {0}', 'sh', 'sh {0}'].includes(normalized);
+  if (['bash', 'sh'].includes(normalized)) return { failFast: true, supported: true };
+  if (['bash {0}', 'sh {0}'].includes(normalized)) {
+    return { failFast: false, supported: true };
+  }
+  return { failFast: false, supported: false };
 }
 
 function githubWorkingDirectoryIsRoot(value: unknown): boolean {
@@ -996,9 +1096,18 @@ function invocationFromField(
   node: Record<string, unknown>,
   field: string,
   kind: CiInvocation['kind'],
+  executionGroup: string,
+  failFast?: boolean,
 ): CiInvocation | null {
   const value = node[field];
-  return typeof value === 'string' ? { kind, value } : null;
+  return typeof value === 'string'
+    ? {
+        kind,
+        value,
+        executionGroup,
+        ...(kind === 'command' && failFast !== undefined ? { failFast } : {}),
+      }
+    : null;
 }
 
 function gitlabIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
@@ -1046,7 +1155,11 @@ function gitlabJobInvocations(
     hasGitlabMergeRequestRule(job.rules) ||
     hasUnconditionallyNamedTrigger(job.only, ['merge_requests']);
   if (hasJobTriggerRules ? !jobAllowsMergeRequests : !workflowAllowsMergeRequests) return [];
-  return stringValues(job.script).map((command) => ({ kind: 'command', value: command }));
+  return stringValues(job.script).map((command) => ({
+    executionGroup: `gitlab:${name}`,
+    kind: 'command',
+    value: command,
+  }));
 }
 
 function isSupportedBlockingGitlabWhen(value: unknown): boolean {
@@ -1097,7 +1210,7 @@ function hasRiskyGitlabDefaults(value: unknown): boolean {
 
 function azureIntegrationInvocations(document: Record<string, unknown>): CiInvocation[] {
   if (!hasAzurePullRequestTrigger(document.pr)) return [];
-  return collectAzureInvocations(document, 'root');
+  return collectAzureInvocations(document, 'root', 'azure:root');
 }
 
 type AzureNodeKind = 'root' | 'stage' | 'job' | 'step';
@@ -1105,11 +1218,12 @@ type AzureNodeKind = 'root' | 'stage' | 'job' | 'step';
 function collectAzureInvocations(
   node: Record<string, unknown>,
   kind: AzureNodeKind,
+  executionGroup: string,
 ): CiInvocation[] {
   if (isDisabledCiNode(node) || azurePullRequestCondition(node.condition) !== 'allow') return [];
-  if (kind === 'step') return azureStepInvocations(node);
-  if (kind === 'stage') return azureChildInvocations(node.jobs, 'job');
-  if (kind === 'job') return azureStepsInvocations(node.steps);
+  if (kind === 'step') return azureStepInvocations(node, executionGroup);
+  if (kind === 'stage') return azureChildInvocations(node.jobs, 'job', executionGroup);
+  if (kind === 'job') return azureStepsInvocations(node.steps, executionGroup);
   const rootCollections = [
     { kind: 'stage' as const, value: node.stages },
     { kind: 'job' as const, value: node.jobs },
@@ -1119,25 +1233,50 @@ function collectAzureInvocations(
   const collection = rootCollections[0];
   if (!collection) return [];
   return collection.kind === 'step'
-    ? azureStepsInvocations(collection.value)
-    : azureChildInvocations(collection.value, collection.kind);
+    ? azureStepsInvocations(collection.value, executionGroup)
+    : azureChildInvocations(collection.value, collection.kind, executionGroup);
 }
 
-function azureChildInvocations(value: unknown, kind: AzureNodeKind): CiInvocation[] {
-  return asArray(value).flatMap((childValue) => {
+function azureChildInvocations(
+  value: unknown,
+  kind: AzureNodeKind,
+  parentGroup: string,
+): CiInvocation[] {
+  return asArray(value).flatMap((childValue, index) => {
     const child = asRecord(childValue);
-    return child ? collectAzureInvocations(child, kind) : [];
+    return child ? collectAzureInvocations(child, kind, `${parentGroup}:${kind}-${index}`) : [];
   });
 }
 
-function azureStepInvocations(node: Record<string, unknown>): CiInvocation[] {
+function azureStepInvocations(
+  node: Record<string, unknown>,
+  executionGroup: string,
+): CiInvocation[] {
   const commandFields = ['script', 'bash', 'pwsh', 'powershell'].filter(
     (field) => typeof node[field] === 'string',
   );
   if (commandFields.length !== 1 || !azureWorkingDirectoryIsRoot(node.workingDirectory)) return [];
-  const value = node[commandFields[0] ?? ''] as string;
-  if (/[\r\n]/.test(value)) return [];
-  return [{ kind: 'command', value }];
+  const commandField = commandFields[0] ?? '';
+  const value = node[commandField] as string;
+  return [
+    {
+      executionGroup,
+      kind: 'command',
+      value,
+      failFast: azureScriptIsFailFast(value, commandField),
+    },
+  ];
+}
+
+function azureScriptIsFailFast(value: string, commandField: string): boolean {
+  if (['pwsh', 'powershell'].includes(commandField)) {
+    return value
+      .split(/\r?\n/)
+      .some((line) => /^\s*\$erroractionpreference\s*=\s*['"]stop['"]\s*$/i.test(line));
+  }
+  return value
+    .split(/\r?\n/)
+    .some((line) => /^\s*set\s+(?:-e(?:o\s+pipefail)?|-o\s+errexit)\s*$/i.test(line));
 }
 
 function azureWorkingDirectoryIsRoot(value: unknown): boolean {
@@ -1154,7 +1293,7 @@ function azureWorkingDirectoryIsRoot(value: unknown): boolean {
   ].includes(normalized);
 }
 
-function azureStepsInvocations(value: unknown): CiInvocation[] {
+function azureStepsInvocations(value: unknown, executionGroup: string): CiInvocation[] {
   const steps = asArray(value);
   let repositoryAvailable = !steps.some((stepValue) => {
     const step = asRecord(stepValue);
@@ -1175,7 +1314,7 @@ function azureStepsInvocations(value: unknown): CiInvocation[] {
       return [];
     }
     if (condition !== 'allow' || isDisabledCiNode(step)) return [];
-    return repositoryAvailable ? azureStepInvocations(step) : [];
+    return repositoryAvailable ? azureStepInvocations(step, executionGroup) : [];
   });
 }
 
@@ -1392,6 +1531,7 @@ function invocationMatchesTool(
   invocation: CiInvocation,
   tool: CiTool,
   bindings: RepositoryCommandBindings,
+  grammar: CiInvocationGrammar,
 ): boolean {
   if (invocation.kind === 'action') {
     const action = /^([^@\s]+)@([^@\s]+)$/.exec(invocation.value.trim());
@@ -1399,7 +1539,14 @@ function invocationMatchesTool(
     const identity = action[1]?.toLowerCase() ?? '';
     return tool.actions.some((action) => action.toLowerCase() === identity);
   }
-  return commandTextMatchesTool(invocation.value, tool, bindings, new Set());
+  return commandTextMatchesTool(
+    invocation.value,
+    tool,
+    bindings,
+    new Set(),
+    grammar,
+    invocation.failFast ?? false,
+  );
 }
 
 function commandTextMatchesTool(
@@ -1407,8 +1554,10 @@ function commandTextMatchesTool(
   tool: CiTool,
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
+  grammar: CiInvocationGrammar,
+  failFast = false,
 ): boolean {
-  return shellStatements(value, tool.requires_final_exit_status).some((statement) => {
+  return shellStatements(value, tool.requires_final_exit_status, failFast).some((statement) => {
     if (
       statement.includes('||') ||
       /(^|[^|])\|(?!\|)/.test(statement) ||
@@ -1421,8 +1570,8 @@ function commandTextMatchesTool(
       const command = rawCommand.replace(/^(?:[a-z_][a-z0-9_]*=[^\s]+\s+)*/i, '').trim();
       if (/^(?:false|exit)(?:\s|$)/i.test(command)) return false;
       if (/^(?:cd|chdir|pushd|popd|set-location)\b/i.test(command)) return false;
-      if (missingPackageTaskPreventsContinuation(command, bindings)) return false;
-      if (commandMatchesTool(command, tool, bindings, visitedScripts)) return true;
+      if (missingPackageTaskPreventsContinuation(command, bindings, grammar)) return false;
+      if (commandMatchesTool(command, tool, bindings, visitedScripts, grammar)) return true;
     }
     return false;
   });
@@ -1431,11 +1580,12 @@ function commandTextMatchesTool(
 function missingPackageTaskPreventsContinuation(
   command: string,
   bindings: RepositoryCommandBindings,
+  grammar: CiInvocationGrammar,
 ): boolean {
   const tokens = command.split(/\s+/).filter(Boolean);
   return tokens.some((token, executableIndex) => {
     if (!['bun', 'npm', 'pnpm', 'yarn'].includes(executableIdentity(token))) return false;
-    if (!isSupportedExecutablePosition(tokens, executableIndex)) return false;
+    if (!isSupportedExecutablePosition(tokens, executableIndex, grammar)) return false;
     const invocation = packageScriptInvocation(tokens.slice(executableIndex));
     return invocation !== null && !bindings.packageScripts.has(invocation.task);
   });
@@ -1446,13 +1596,14 @@ function commandMatchesTool(
   tool: CiTool,
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
+  grammar: CiInvocationGrammar,
 ): boolean {
   if (!command || /^(?:echo|printf|write-host|write-output|cat|grep|rg|sed|awk)\b/i.test(command)) {
     return false;
   }
   const tokens = command.split(/\s+/).filter(Boolean);
   if (tokens.some(isNonExecutingCommandArgument)) return false;
-  const packageMatch = packageScriptMatchesTool(tokens, tool, bindings, visitedScripts);
+  const packageMatch = packageScriptMatchesTool(tokens, tool, bindings, visitedScripts, grammar);
   if (packageMatch !== null) return packageMatch;
   return tokens.some(
     (token, executableIndex) =>
@@ -1462,7 +1613,14 @@ function commandMatchesTool(
         tool.commands.some((signature) =>
           commandExecutableTokenMatches(token, signature, bindings),
         )) &&
-      executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts),
+      executablePositionMatchesTool(
+        tokens,
+        executableIndex,
+        tool,
+        bindings,
+        visitedScripts,
+        grammar,
+      ),
   );
 }
 
@@ -1494,13 +1652,15 @@ function executablePositionMatchesTool(
   tool: CiTool,
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
+  grammar: CiInvocationGrammar,
 ): boolean {
-  if (!isSupportedExecutablePosition(tokens, executableIndex)) return false;
+  if (!isSupportedExecutablePosition(tokens, executableIndex, grammar)) return false;
   const wrappedPackageMatch = packageScriptMatchesTool(
     tokens.slice(executableIndex),
     tool,
     bindings,
     visitedScripts,
+    grammar,
   );
   if (wrappedPackageMatch !== null) return wrappedPackageMatch;
   const arguments_ = tokens.slice(executableIndex + 1).map(normalizeCommandArgument);
@@ -1531,6 +1691,7 @@ function packageScriptMatchesTool(
   tool: CiTool,
   bindings: RepositoryCommandBindings,
   visitedScripts: Set<string>,
+  grammar: CiInvocationGrammar,
 ): boolean | null {
   const managerToken = tokens[0] ?? '';
   if (/[\\/]/.test(managerToken) || managerToken.startsWith('.')) return null;
@@ -1554,6 +1715,7 @@ function packageScriptMatchesTool(
     tool,
     bindings,
     new Set(visitedScripts).add(invocation.task),
+    grammar,
   );
 }
 
@@ -1567,20 +1729,30 @@ function isPackageContextOption(value: string): boolean {
   return packageContextOptions.has(value.toLowerCase().split('=')[0] ?? '');
 }
 
-function isSupportedExecutablePosition(tokens: string[], executableIndex: number): boolean {
+function isSupportedExecutablePosition(
+  tokens: string[],
+  executableIndex: number,
+  grammar: CiInvocationGrammar,
+): boolean {
   if (executableIndex === 0) return true;
   const wrapper = tokens[0] ?? '';
-  const wrapperArguments = tokens.slice(1, executableIndex);
-  const wrapperCommand = wrapperArguments.join(' ');
-  if (/^(?:bunx|npx|sudo|uvx)$/i.test(wrapper)) {
-    return executableIndex === wrapperExecutableIndex(tokens);
-  }
-  if (/^(?:uv|pipx)$/i.test(wrapper)) return wrapperCommand === 'run';
-  if (/^(?:bun|npm|pnpm|yarn)$/i.test(wrapper)) return /^(?:dlx|exec|x)$/.test(wrapperCommand);
-  return /^python(?:3(?:\.\d+)?)?$/i.test(wrapper) && wrapperCommand === '-m';
+  const definition = grammar.wrappers.find(({ executable_patterns }) =>
+    executable_patterns.some((pattern) => new RegExp(pattern, 'iu').test(wrapper)),
+  );
+  if (!definition) return false;
+  const prefixIndex = wrapperCommandPrefixIndex(tokens, grammar.wrapper_options_with_values);
+  return definition.command_prefixes.some(
+    (prefix) =>
+      executableIndex === prefixIndex + prefix.length &&
+      prefix.every(
+        (argument, offset) =>
+          normalizeCommandArgument(tokens[prefixIndex + offset] ?? '') === argument.toLowerCase(),
+      ),
+  );
 }
 
-function wrapperExecutableIndex(tokens: string[]): number {
+function wrapperCommandPrefixIndex(tokens: string[], optionsWithValues: string[]): number {
+  const valueOptions = new Set(optionsWithValues.map((option) => option.toLowerCase()));
   let index = 1;
   while (index < tokens.length) {
     const argument = tokens[index]?.toLowerCase() ?? '';
@@ -1588,7 +1760,7 @@ function wrapperExecutableIndex(tokens: string[]): number {
     if (!argument.startsWith('-')) return index;
     const option = argument.split('=')[0] ?? '';
     index += 1;
-    if (!argument.includes('=') && wrapperOptionsWithValues.has(option)) index += 1;
+    if (!argument.includes('=') && valueOptions.has(option)) index += 1;
   }
   return index;
 }
@@ -1809,9 +1981,10 @@ function shellFunctionName(line: string): string | null {
 }
 
 function unquotedBraceDelta(line: string): number {
+  const quoted = sourceQuotedIndices(line);
   let delta = 0;
   for (let index = 0; index < line.length; index += 1) {
-    if (sourceIndexIsQuoted(line, index)) continue;
+    if (quoted[index] === 1) continue;
     if (line[index] === '{') delta += 1;
     else if (line[index] === '}') delta -= 1;
   }
@@ -2017,17 +2190,20 @@ function sourcePatternGroupsAreCoLocated(
 
 function executableSourcePatternMatches(line: string, pattern: string): boolean {
   const expression = new RegExp(pattern, 'giu');
+  const quoted = sourceQuotedIndices(line);
   for (const match of line.matchAll(expression)) {
-    if (!sourceIndexIsQuoted(line, match.index)) return true;
+    if (quoted[match.index] !== 1) return true;
   }
   return false;
 }
 
-function sourceIndexIsQuoted(line: string, targetIndex: number): boolean {
+function sourceQuotedIndices(line: string): Uint8Array {
+  const quoted = new Uint8Array(line.length);
   let quote = '';
   let escaped = false;
-  for (let index = 0; index < targetIndex; index += 1) {
+  for (let index = 0; index < line.length; index += 1) {
     const character = line[index] ?? '';
+    if (quote) quoted[index] = 1;
     if (escaped) {
       escaped = false;
       continue;
@@ -2040,9 +2216,10 @@ function sourceIndexIsQuoted(line: string, targetIndex: number): boolean {
       if (character === quote) quote = '';
     } else if (['"', "'", '`'].includes(character)) {
       quote = character;
+      quoted[index] = 1;
     }
   }
-  return quote.length > 0;
+  return quoted;
 }
 
 function commandArgumentMatches(
@@ -2153,7 +2330,11 @@ function executableIdentity(value: string): string {
   );
 }
 
-function shellStatements(value: string, requiresFinalExitStatus: boolean): string[] {
+function shellStatements(
+  value: string,
+  requiresFinalExitStatus: boolean,
+  failFast = false,
+): string[] {
   if (value.includes(';') || hasUnsupportedShellStructure(value)) return [];
   const statements = value
     .split(/\r?\n/)
@@ -2161,7 +2342,8 @@ function shellStatements(value: string, requiresFinalExitStatus: boolean): strin
     .filter((statement) => statement.length > 0 && !statement.startsWith('#'));
   const terminatingIndex = statements.findIndex(hasUnconditionalShellTermination);
   const reachable = terminatingIndex < 0 ? statements : statements.slice(0, terminatingIndex + 1);
-  if (!requiresFinalExitStatus) return reachable;
+  if (failFast) return reachable;
+  if (!requiresFinalExitStatus && reachable.length <= 1) return reachable;
   return reachable.length > 0 ? [reachable.at(-1) ?? ''] : [];
 }
 
@@ -2555,7 +2737,7 @@ function alternativeSupplementalResolution(
   );
   if (statuses.includes('met')) return { confidence, status: 'met' };
   if (statuses.every((status) => status === 'not_met')) return { confidence, status: 'not_met' };
-  return { confidence, status: 'unknown' };
+  return { confidence: 'none', status: 'unknown' };
 }
 
 function matchingAlternativeIndexes(

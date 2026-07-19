@@ -226,7 +226,7 @@ export function toMarkdown(report: AssessmentReport): string {
   }
 
   appendControlDetails(lines, 'Repository evidence gaps', repositoryGaps, showCheckSummary);
-  if (showCheckSummary) {
+  if (alternativeControls.length > 0) {
     appendControlDetails(
       lines,
       'Alternative evidence paths not established',

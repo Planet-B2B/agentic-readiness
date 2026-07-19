@@ -77,6 +77,7 @@ controls:
         providers: []
         tools: []
         min_tools: 3
+        tool_match_mode: same-execution
     remediation: Make CI install locked dependencies from a clean checkout and run the documented verification path.
   - id: ADRB-ENV-004
     level: 4

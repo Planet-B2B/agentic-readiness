@@ -19,6 +19,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'fixtures/**', 'eslint.config.js'],
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'tests/fixtures/**', 'eslint.config.js'],
   },
 );

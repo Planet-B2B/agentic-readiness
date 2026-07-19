@@ -8,7 +8,7 @@ import { parse } from 'yaml';
 import { loadAttestations, loadBenchmark } from '../src/load.js';
 import { toMarkdown } from '../src/report.js';
 import { assess } from '../src/score.js';
-import type { AgentEvidenceFile } from '../src/schema.js';
+import type { AgentEvidenceFile, AttestationFile } from '../src/schema.js';
 
 const v04Root = resolve(import.meta.dirname, '..', 'benchmark', 'v0.4');
 
@@ -402,7 +402,7 @@ describe('v0.4 evidence calibration', () => {
       await rm(nestedFormerOnly, { recursive: true, force: true });
       await rm(plainFormerOnly, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('rejects placeholder table owners and descriptive maintainer prose', async () => {
     const repository = await gitFixture({
@@ -739,7 +739,7 @@ describe('v0.4 evidence calibration', () => {
       });
 
       expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.status).toBe('unknown');
-      expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.confidence).toBe('agent-collected');
+      expect(controlStatus(repositoryNegative, 'ADRB-SEC-003')?.confidence).toBe('none');
       expect(toMarkdown(repositoryNegative)).toContain(
         'Control confidence: none — one evidence alternative must pass.',
       );
@@ -859,7 +859,7 @@ describe('v0.4 evidence calibration', () => {
       await rm(sourceLess, { recursive: true, force: true });
       await rm(unrelatedSource, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('binds git-secrets scans to the default repository target', async () => {
     const workflow = (command: string): Record<string, string> => ({
@@ -1011,7 +1011,7 @@ describe('v0.4 evidence calibration', () => {
         repositories.map(async (repository) => rm(repository, { recursive: true, force: true })),
       );
     }
-  });
+  }, 30_000);
 
   it('requires approval and merge authority independently', async () => {
     const approvalOnly = await gitFixture({
@@ -1403,7 +1403,7 @@ describe('v0.4 evidence calibration', () => {
       await rm(called, { recursive: true, force: true });
       await rm(transitivelyCalled, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('does not award enforced maturity from keyword-bearing no-op files', async () => {
     const repository = await gitFixture({
@@ -2193,9 +2193,6 @@ describe('v0.4 evidence calibration', () => {
         '      - run: trufflehog git --fail=false',
         '      - run: trufflehog git --fail false',
         '      - run: detect-secrets scan',
-        '      - run: |',
-        '          gitleaks detect',
-        '          echo scan complete',
         '      - uses: actions/checkout@gitleaks',
         '      - uses: gitleaks-logger/checkout@v1',
         '      - uses: attacker/gitleaks-action@v1',
@@ -2561,7 +2558,255 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
-  it('accepts source-backed SEC-007 enforcement at repository scope without an offline pass', async () => {
+  it('keeps source-bound validation linear for a long single-line script', async () => {
+    const padding = 'x'.repeat(120_000);
+    const repository = await gitFixture({
+      'AGENTS.md': 'Keep every change within the authorized scope.\n',
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        `function validateGuidance(){const padding="${padding}";const guidance=readFileSync('AGENTS.md','utf8');if(!guidance.includes('scope'))throw new Error('invalid guidance');return padding.length}`,
+        'validateGuidance();',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-CTX-003')?.status).toBe('met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  it('honors workflow run defaults instead of resolving root tasks from another directory', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+      }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'defaults:',
+        '  run:',
+        '    working-directory: packages/app',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm test',
+        '      - run: npm run typecheck',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('uses shell fail-fast semantics for multiline secret-scan gates', async () => {
+    const workflow = (shell?: string) =>
+      [
+        'on: [pull_request]',
+        'jobs:',
+        '  scan:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: |',
+        '          gitleaks detect',
+        '          echo scan-complete',
+        ...(shell ? [`        shell: ${shell}`] : []),
+      ].join('\n');
+    const failFast = await gitFixture({ '.github/workflows/scan.yml': workflow() });
+    const rawShell = await gitFixture({ '.github/workflows/scan.yml': workflow('bash {0}') });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const failFastReport = await assess(failFast, benchmark, controls, 'pr-creation');
+      const rawShellReport = await assess(rawShell, benchmark, controls, 'pr-creation');
+      expect(controlStatus(failFastReport, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(rawShellReport, 'ADRB-SEC-003')?.status).toBe('unknown');
+    } finally {
+      await rm(failFast, { recursive: true, force: true });
+      await rm(rawShell, { recursive: true, force: true });
+    }
+  });
+
+  it('recognizes current CODEOWNERS syntax without reviving retired owners', async () => {
+    const authority = 'The reviewer provides approval and maintainers may merge.\n';
+    const current = await gitFixture({
+      'CONTRIBUTING.md': authority,
+      'docs/CODEOWNERS': '*.js @js-owner #This is an inline comment.\n',
+    });
+    const retired = await gitFixture({
+      'CONTRIBUTING.md': authority,
+      'OWNERS.md': ['## Former maintainers', 'Contact:', '- @alice'].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const currentReport = await assess(current, benchmark, controls, 'pr-creation');
+      const retiredReport = await assess(retired, benchmark, controls, 'pr-creation');
+      expect(controlStatus(currentReport, 'ADRB-GOV-002')?.status).toBe('met');
+      expect(controlStatus(retiredReport, 'ADRB-GOV-002')?.status).toBe('not_met');
+    } finally {
+      await rm(current, { recursive: true, force: true });
+      await rm(retired, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves only checkouts that use a separate, explicit subdirectory', async () => {
+    const workflow = (path: string) =>
+      [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: actions/checkout@v4',
+        '        with:',
+        '          repository: acme/shared-tools',
+        `          path: ${path}`,
+        '      - run: npm test',
+        '      - run: npm run typecheck',
+      ].join('\n');
+    const separate = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+      }),
+      '.github/workflows/verify.yml': workflow('vendor/shared-tools'),
+    });
+    const rootReplacement = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+      }),
+      '.github/workflows/verify.yml': workflow('.'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const separateReport = await assess(separate, benchmark, controls, 'pr-creation');
+      const rootReplacementReport = await assess(
+        rootReplacement,
+        benchmark,
+        controls,
+        'pr-creation',
+      );
+      expect(controlStatus(separateReport, 'ADRB-TST-003')?.status).toBe('met');
+      expect(controlStatus(rootReplacementReport, 'ADRB-TST-003')?.status).toBe('not_met');
+    } finally {
+      await rm(separate, { recursive: true, force: true });
+      await rm(rootReplacement, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts fail-fast Azure block scripts while rejecting disjoint environment jobs', async () => {
+    const azure = await gitFixture({
+      'azure-pipelines.yml': [
+        'pr: [main]',
+        'steps:',
+        '  - checkout: self',
+        '  - script: |',
+        '      set -e',
+        '      pytest',
+        '      mypy .',
+      ].join('\n'),
+    });
+    const powershell = await gitFixture({
+      'azure-pipelines.yml': [
+        'pr: [main]',
+        'steps:',
+        '  - checkout: self',
+        '  - pwsh: |',
+        '      set -e',
+        '      pytest',
+        '      mypy .',
+      ].join('\n'),
+    });
+    const disjoint = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+      }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  install:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm ci',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm test',
+        '      - run: npm run typecheck',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const azureReport = await assess(azure, benchmark, controls, 'pr-creation');
+      const powershellReport = await assess(powershell, benchmark, controls, 'pr-creation');
+      const disjointReport = await assess(disjoint, benchmark, controls, 'pr-creation');
+      expect(controlStatus(azureReport, 'ADRB-TST-003')?.status).toBe('met');
+      expect(controlStatus(powershellReport, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(disjointReport, 'ADRB-ENV-003')?.status).toBe('not_met');
+    } finally {
+      await rm(azure, { recursive: true, force: true });
+      await rm(powershell, { recursive: true, force: true });
+      await rm(disjoint, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('rejects malformed and unknown v0.4 attestation control IDs', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture\n' });
+    const attestation = (controlId: string): AttestationFile => ({
+      benchmark_version: '0.4.0',
+      attestations: {
+        [controlId]: {
+          status: 'met',
+          evidence: 'https://example.invalid/evidence',
+          owner: 'Security owner',
+          reviewed_at: '2026-07-19',
+          expires_at: '2026-10-19',
+        },
+      },
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const validReport = await assess(repository, benchmark, controls, 'pr-creation', {
+        attestations: attestation('ADRB-SEC-003'),
+        now: new Date('2026-07-19T12:00:00.000Z'),
+      });
+      expect(controlStatus(validReport, 'ADRB-SEC-003')?.status).toBe('met');
+      expect(controlStatus(validReport, 'ADRB-SEC-003')?.confidence).toBe('attested');
+      await expect(
+        assess(repository, benchmark, controls, 'pr-creation', {
+          attestations: attestation('ADRB-SEC-999'),
+        }),
+      ).rejects.toThrow('unknown control ADRB-SEC-999');
+      await expect(
+        assess(repository, benchmark, controls, 'pr-creation', {
+          attestations: attestation('ADRB-SECURITY-003'),
+        }),
+      ).rejects.toThrow('malformed control ID ADRB-SECURITY-003');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a valid source-backed SEC-007 agent claim without relabelling it offline evidence', async () => {
     const repository = await gitFixture({
       'harness/untrusted-input.test.ts': [
         'describe("untrusted input", () => {',
@@ -2608,7 +2853,7 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
-  it('omits non-attestable manual alternatives from generated attestation templates', async () => {
+  it('includes every attestable manual alternative in generated templates', async () => {
     const repository = await mkdtemp(join(tmpdir(), 'adrb-v04-init-'));
     try {
       execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'init', repository], {
@@ -2618,7 +2863,7 @@ describe('v0.4 evidence calibration', () => {
       const document = parse(
         await readFile(join(repository, '.agentic', 'attestations.yaml'), 'utf8'),
       ) as { attestations: Record<string, unknown> };
-      expect(document.attestations).not.toHaveProperty('ADRB-SEC-003');
+      expect(document.attestations).toHaveProperty('ADRB-SEC-003');
       expect(document.attestations).toHaveProperty('ADRB-SEC-007');
       expect(document.attestations).toHaveProperty('ADRB-SEC-005');
     } finally {

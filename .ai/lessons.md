@@ -3,6 +3,25 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Input bounds must also bound parser complexity
+
+**Context.** Release review found that quote-aware source validation respected byte limits but
+rescanned each long line from its start for every character, turning an allowed minified file into a
+multi-minute CI assessment.
+
+**Rule.** Pair repository input limits with linear or explicitly bounded parsing, and keep a
+long-line regression on every source-aware enforcement collector.
+
+## 2026-07-19 — CI evidence binds to one effective execution context
+
+**Context.** Release review found that workflow defaults, shell fail-fast behavior, secondary
+checkouts, and commands split across jobs could change what ran without changing the detector's
+result.
+
+**Rule.** Resolve inherited provider settings and checkout state before command matching, preserve
+known failure propagation, and require environment recreation evidence inside one CI execution
+group.
+
 ## 2026-07-19 — Integrity gates bind scope, coverage, and control confidence
 
 **Context.** Automated review found an implementation omitted from a positive fixture's TypeScript

@@ -9,6 +9,7 @@
     "benchmark_version": { "const": "0.4.0" },
     "attestations": {
       "type": "object",
+      "propertyNames": { "pattern": "^ADRB-[A-Z]{3}-[0-9]{3}$" },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
