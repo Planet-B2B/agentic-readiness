@@ -1145,21 +1145,35 @@ function activeOwnershipLines(lines) {
   const active = [];
   let inactiveHeadingLevel = null;
   for (const line of lines) {
-    const heading = markdownHeading(line);
-    if (heading) {
-      const { level, title } = heading;
-      if (inactiveHeadingLevel !== null && level > inactiveHeadingLevel) continue;
-      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(title) ? level : null;
-      continue;
-    }
-    const plainHeading = plainOwnershipHeading(line);
-    if (plainHeading) {
-      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(plainHeading) ? 7 : null;
+    const section = ownershipSectionState(line, inactiveHeadingLevel);
+    if (section.handled) {
+      inactiveHeadingLevel = section.inactiveHeadingLevel;
       continue;
     }
     if (inactiveHeadingLevel === null) active.push(line);
   }
   return active;
+}
+function ownershipSectionState(line, inactiveHeadingLevel) {
+  const heading = markdownHeading(line);
+  if (heading) {
+    if (inactiveHeadingLevel !== null && heading.level > inactiveHeadingLevel) {
+      return { handled: true, inactiveHeadingLevel };
+    }
+    return {
+      handled: true,
+      inactiveHeadingLevel: inactiveOwnershipTitle(heading.title) ? heading.level : null
+    };
+  }
+  const plainHeading = plainOwnershipHeading(line);
+  if (!plainHeading) return { handled: false, inactiveHeadingLevel };
+  return {
+    handled: true,
+    inactiveHeadingLevel: inactiveOwnershipTitle(plainHeading) ? 7 : null
+  };
+}
+function inactiveOwnershipTitle(value) {
+  return /\b(?:former|inactive|past|retired)\b/i.test(value);
 }
 function plainOwnershipHeading(line) {
   if (!line.endsWith(":") || line.includes("@")) return null;
@@ -1809,7 +1823,7 @@ function githubConditionEvents(value, parentEvents) {
   if (equals.length === 0 && excludes.length === 0) {
     return { certain: false, events: /* @__PURE__ */ new Set() };
   }
-  const unsupported = condition.replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, "").replace(/!cancelled\(\)/g, "").replace(/\b(?:always|success)\(\)/g, "").replace(/[\s${}()&|]/g, "");
+  const unsupported = condition.replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, "").replaceAll("!cancelled()", "").replace(/\b(?:always|success)\(\)/g, "").replace(/[\s${}()&|]/g, "");
   if (unsupported.length > 0) return { certain: false, events: /* @__PURE__ */ new Set() };
   if (new Set(equals).size > 1) return { certain: true, events: /* @__PURE__ */ new Set() };
   const candidates = equals.length > 0 ? equals.filter((event) => parentEvents.has(event)) : [...parentEvents];

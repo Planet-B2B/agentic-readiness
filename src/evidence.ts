@@ -269,21 +269,45 @@ function activeOwnershipLines(lines: string[]): string[] {
   const active: string[] = [];
   let inactiveHeadingLevel: number | null = null;
   for (const line of lines) {
-    const heading = markdownHeading(line);
-    if (heading) {
-      const { level, title } = heading;
-      if (inactiveHeadingLevel !== null && level > inactiveHeadingLevel) continue;
-      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(title) ? level : null;
-      continue;
-    }
-    const plainHeading = plainOwnershipHeading(line);
-    if (plainHeading) {
-      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(plainHeading) ? 7 : null;
+    const section = ownershipSectionState(line, inactiveHeadingLevel);
+    if (section.handled) {
+      inactiveHeadingLevel = section.inactiveHeadingLevel;
       continue;
     }
     if (inactiveHeadingLevel === null) active.push(line);
   }
   return active;
+}
+
+interface OwnershipSectionState {
+  handled: boolean;
+  inactiveHeadingLevel: number | null;
+}
+
+function ownershipSectionState(
+  line: string,
+  inactiveHeadingLevel: number | null,
+): OwnershipSectionState {
+  const heading = markdownHeading(line);
+  if (heading) {
+    if (inactiveHeadingLevel !== null && heading.level > inactiveHeadingLevel) {
+      return { handled: true, inactiveHeadingLevel };
+    }
+    return {
+      handled: true,
+      inactiveHeadingLevel: inactiveOwnershipTitle(heading.title) ? heading.level : null,
+    };
+  }
+  const plainHeading = plainOwnershipHeading(line);
+  if (!plainHeading) return { handled: false, inactiveHeadingLevel };
+  return {
+    handled: true,
+    inactiveHeadingLevel: inactiveOwnershipTitle(plainHeading) ? 7 : null,
+  };
+}
+
+function inactiveOwnershipTitle(value: string): boolean {
+  return /\b(?:former|inactive|past|retired)\b/i.test(value);
 }
 
 function plainOwnershipHeading(line: string): string | null {
@@ -1178,7 +1202,7 @@ function githubConditionEvents(value: unknown, parentEvents: Set<string>): GitHu
   }
   const unsupported = condition
     .replace(/github\.event_name\s*(?:==|!=)\s*['"][^'"]+['"]/g, '')
-    .replace(/!cancelled\(\)/g, '')
+    .replaceAll('!cancelled()', '')
     .replace(/\b(?:always|success)\(\)/g, '')
     .replace(/[\s${}()&|]/g, '');
   if (unsupported.length > 0) return { certain: false, events: new Set() };
