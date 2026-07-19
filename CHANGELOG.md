@@ -57,6 +57,9 @@
   executable source patterns instead of inert strings.
 - Align the published agent-evidence JSON schema with the runtime rule that collection errors may
   accompany only `unknown` claims.
+- Reject npm built-ins as implicit scripts, repository-relative executables that impersonate known
+  tools, explicit Gitleaks source redirection, and ownership mappings nested under inactive or
+  former-owner sections.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

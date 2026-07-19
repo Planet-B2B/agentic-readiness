@@ -103,6 +103,7 @@ var CiCommandSignatureSchema = z.object({
   source_content_groups: z.array(z.array(z.string().min(1)).min(1)).default([]),
   source_pattern_groups: z.array(z.array(SourcePatternSchema).min(1)).default([]),
   source_max_span_lines: z.number().int().positive().max(200).default(120),
+  required_argument_prefixes: z.array(z.array(z.string().min(1)).min(1)).default([]),
   prohibited_arguments: z.array(z.string().min(1)).default([]),
   prohibited_argument_sequences: z.array(z.array(z.string().min(1)).min(2)).default([])
 });
@@ -1001,6 +1002,14 @@ var packageContextOptions = /* @__PURE__ */ new Set([
   "-c",
   "-w"
 ]);
+var npmImplicitScripts = /* @__PURE__ */ new Map([
+  ["restart", "restart"],
+  ["start", "start"],
+  ["stop", "stop"],
+  ["t", "test"],
+  ["test", "test"],
+  ["tst", "test"]
+]);
 async function matches(context, patterns) {
   const found = await fg2(patterns, {
     cwd: context.metadata.root,
@@ -1081,25 +1090,29 @@ function ownershipEntries(path, text) {
     }).length;
   }
   if (["owners", "owners.md", "maintainers", "maintainers.md"].includes(name)) {
-    return conventionalOwnershipEntries(lines);
+    return conventionalOwnershipEntries(activeOwnershipLines(lines));
   }
-  const contentLines = lines.filter((line) => !line.startsWith("#"));
+  const contentLines = activeOwnershipLines(lines);
   return markdownOwnershipRows(contentLines) + explicitOwnershipMappings(contentLines);
 }
 function conventionalOwnershipEntries(lines) {
-  const activeLines = [];
-  let inactiveSection = false;
-  let listEntries = 0;
+  const listEntries = lines.filter(isConventionalOwnerListEntry).length;
+  return listEntries + markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+}
+function activeOwnershipLines(lines) {
+  const active = [];
+  let inactiveHeadingLevel = null;
   for (const line of lines) {
-    if (line.startsWith("#")) {
-      inactiveSection = /\b(?:former|inactive|past|retired)\b/i.test(line);
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1]?.length ?? 0;
+      if (inactiveHeadingLevel !== null && level > inactiveHeadingLevel) continue;
+      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(heading[2] ?? "") ? level : null;
       continue;
     }
-    if (inactiveSection) continue;
-    activeLines.push(line);
-    if (isConventionalOwnerListEntry(line)) listEntries += 1;
+    if (inactiveHeadingLevel === null) active.push(line);
   }
-  return listEntries + markdownOwnershipRows(activeLines) + explicitOwnershipMappings(activeLines);
+  return active;
 }
 function markdownOwnershipRows(lines) {
   let entries = 0;
@@ -1774,10 +1787,12 @@ function commandMatchesTool(command, tool, bindings, visitedScripts) {
     ...tool.standalone_executables
   ];
   return tokens.some(
-    (token, executableIndex) => recognizedExecutables.some(
-      (executable) => executableIdentity(token) === executable.toLowerCase()
-    ) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts)
+    (token, executableIndex) => recognizedExecutables.some((executable) => executableTokenMatches(token, executable)) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts)
   );
+}
+function executableTokenMatches(token, executable) {
+  if (/[\\/]/.test(token) || token.startsWith(".")) return false;
+  return executableIdentity(token) === executable.toLowerCase();
 }
 function executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts) {
   if (!isSupportedExecutablePosition(tokens, executableIndex)) return false;
@@ -1806,7 +1821,8 @@ function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
   if (!["bun", "npm", "pnpm", "yarn"].includes(manager)) return null;
   if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
-  if (!invocation || invocation.manager === "bun" && invocation.task === "test") return null;
+  if (!invocation) return manager === "npm" && !isPackageExecutionWrapper(tokens) ? false : null;
+  if (invocation.manager === "bun" && invocation.task === "test") return null;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
   const script = bindings.packageScripts.get(invocation.task);
   if (!script) return false;
@@ -1816,6 +1832,11 @@ function packageScriptMatchesTool(tokens, tool, bindings, visitedScripts) {
     bindings,
     new Set(visitedScripts).add(invocation.task)
   );
+}
+function isPackageExecutionWrapper(tokens) {
+  const arguments_ = tokens.slice(1);
+  const index = skipPackageOptions(arguments_, 0);
+  return ["dlx", "exec", "x"].includes(arguments_[index]?.toLowerCase() ?? "");
 }
 function isPackageContextOption(value) {
   return packageContextOptions.has(value.toLowerCase().split("=")[0] ?? "");
@@ -1834,6 +1855,14 @@ function isSupportedExecutablePosition(tokens, executableIndex) {
 }
 function commandSignatureMatches(signature, arguments_, bindings) {
   if (hasProhibitedArguments(signature, arguments_)) return false;
+  if (signature.required_argument_prefixes.length > 0 && !signature.required_argument_prefixes.some(
+    (prefix) => startsWithArgumentSequence(
+      arguments_,
+      prefix.map((argument) => argument.toLowerCase())
+    )
+  )) {
+    return false;
+  }
   const argumentsMatch = signature.argument_groups.every(
     (group) => group.some((argument) => commandArgumentMatches(argument, arguments_, bindings))
   );
@@ -2036,6 +2065,9 @@ function containsArgumentSequence(arguments_, sequence) {
     (_, index) => sequence.every((argument, offset) => arguments_[index + offset] === argument)
   );
 }
+function startsWithArgumentSequence(arguments_, sequence) {
+  return sequence.every((argument, index) => arguments_[index] === argument);
+}
 function normalizeCommandArgument(value) {
   let normalized = value.toLowerCase();
   const enclosingQuote = normalized[0];
@@ -2051,7 +2083,12 @@ function packageScriptInvocation(tokens) {
   let index = skipPackageOptions(arguments_, 0);
   const subcommand = arguments_[index]?.toLowerCase() ?? "";
   if (["dlx", "exec", "x"].includes(subcommand)) return null;
-  if (subcommand === "run") index = skipPackageOptions(arguments_, index + 1);
+  if (["run", "run-script"].includes(subcommand)) {
+    index = skipPackageOptions(arguments_, index + 1);
+  } else if (manager === "npm") {
+    const implicitTask = npmImplicitScripts.get(subcommand);
+    return implicitTask ? { manager, task: implicitTask } : null;
+  }
   const task = arguments_[index]?.toLowerCase();
   return task ? { manager, task } : null;
 }

@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-18 — Names do not establish executable or accountable identity
+
+**Context.** Automated review found that npm built-ins could bind same-named manifest scripts,
+repository-relative no-op files could impersonate known tools by basename, explicit scanner targets
+could leave the assessed checkout, and nested headings could reactivate archived owners.
+
+**Rule.** Parse package-manager invocation semantics before resolving scripts, accept tool identity
+only from a trusted executable form, bind scanner targets to the assessed checkout, and preserve
+heading depth while excluding inactive ownership sections.
+
 ## 2026-07-18 — Executed commands still need their assessed input
 
 **Context.** Automated review found that a CI command could run before checkout, with provider

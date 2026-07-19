@@ -9,7 +9,7 @@ extensions:
         commands:
           - executables: [gitleaks]
             argument_groups: [[detect]]
-            prohibited_arguments: [--exit-code]
+            prohibited_arguments: [--exit-code, --source]
         actions: [gitleaks/gitleaks-action]
       - id: trufflehog
         requires_final_exit_status: true
@@ -18,17 +18,23 @@ extensions:
             argument_groups:
               - [git, filesystem]
               - [--fail]
-              - [
-                  '.',
-                  ./,
-                  'file://.',
-                  'file://./',
-                  '$GITHUB_WORKSPACE',
-                  '${GITHUB_WORKSPACE}',
-                  '$CI_PROJECT_DIR',
-                  '${CI_PROJECT_DIR}',
-                  '$(Build.SourcesDirectory)',
-                ]
+            required_argument_prefixes:
+              - [git, '.']
+              - [git, ./]
+              - [git, 'file://.']
+              - [git, 'file://./']
+              - [git, '$GITHUB_WORKSPACE']
+              - [git, '${GITHUB_WORKSPACE}']
+              - [git, '$CI_PROJECT_DIR']
+              - [git, '${CI_PROJECT_DIR}']
+              - [git, '$(Build.SourcesDirectory)']
+              - [filesystem, '.']
+              - [filesystem, ./]
+              - [filesystem, '$GITHUB_WORKSPACE']
+              - [filesystem, '${GITHUB_WORKSPACE}']
+              - [filesystem, '$CI_PROJECT_DIR']
+              - [filesystem, '${CI_PROJECT_DIR}']
+              - [filesystem, '$(Build.SourcesDirectory)']
             prohibited_arguments: [--fail=false]
             prohibited_argument_sequences: [[--fail, 'false']]
       - id: git-secrets

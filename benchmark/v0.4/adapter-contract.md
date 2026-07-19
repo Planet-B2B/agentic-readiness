@@ -13,7 +13,9 @@ an attestation path, or execute code.
 
 Portable v0.4 collectors may use semantic `content_groups`, structural `ownership_map`, and
 command-bearing `ci_command` evidence. Adapters may add harness paths to those collectors plus
-provider discovery rules and recognized command definitions to `ci_command`. A command class uses
+provider discovery rules and recognized command definitions to `ci_command`. Ownership evidence
+uses structural mappings outside former, inactive, past, or retired sections; descendant headings
+remain inactive until a same-or-higher-level section resumes current ownership. A command class uses
 full owner/repository action identities, explicit executable signatures with independently required
 argument groups and prohibited non-blocking modes, or semantically specific standalone executables.
 Executables and arguments from different signatures never combine. GitHub action invocations also
@@ -35,7 +37,9 @@ step result. Agent-guidance integrity requires a recognized validation command b
 source file with adapter-declared executable patterns that bind guidance inspection to a blocking
 failure path; comments, inert string literals, and non-empty no-op scripts are insufficient.
 Scanner modes that require a source target must bind that target to the assessed checkout rather
-than an arbitrary path. Verification requires both a test command class
+than an arbitrary path; explicit source overrides fail closed unless the adapter can prove that
+binding. Repository-relative executables do not inherit a trusted tool identity from their basename.
+Verification requires both a test command class
 and a static-analysis command class, aggregated across fail-fast multiline steps and auto-loaded CI
 entry points. Adapters may declare tool-specific listing/discovery arguments that cannot establish
 execution. Scanner tools may require the final effective command to carry the step exit status
@@ -44,7 +48,9 @@ surfaces that are not recognized may use eligible source-backed agent evidence i
 inference. Package-manager task invocations are resolved through the tracked root `package.json` and
 must bind to a recognized executable command even through supported wrappers and global options;
 context-changing package/workspace flags fail closed unless their selected manifest is resolved,
-while recognized nested package-exec targets are evaluated at their executable position. Source
+while recognized nested package-exec targets are evaluated at their executable position. Package
+manager built-ins are not treated as same-named scripts: npm resolves arbitrary task names only
+through explicit `run` or `run-script`, while its documented lifecycle aliases remain eligible. Source
 validation excludes language comments before checking bounded structural groups, and referenced
 repository validation scripts must exist as non-empty assessed files. A plausible task name,
 missing path, collection-only test mode, or

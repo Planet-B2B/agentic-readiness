@@ -277,16 +277,34 @@ describe('v0.4 evidence calibration', () => {
         'The required reviewer provides human approval and maintainers retain merge authority.\n',
       'MAINTAINERS.md': '# Former maintainers\n\n- @old-team\n',
     });
+    const nestedFormerOnly = await gitFixture({
+      'CONTRIBUTING.md':
+        'The required reviewer provides human approval and maintainers retain merge authority.\n',
+      'docs/governance/ownership.md': [
+        '# Ownership archive',
+        '## Former maintainers',
+        '### Platform',
+        '| Component | Owner |',
+        '| --- | --- |',
+        '| packages/platform/** | @old-team |',
+      ].join('\n'),
+    });
     try {
       const { benchmark, controls } = await loadBenchmark(v04Root);
       const mappedReport = await assess(mapped, benchmark, controls, 'pr-creation');
       const formerReport = await assess(formerOnly, benchmark, controls, 'pr-creation');
+      const nestedFormerReport = await assess(nestedFormerOnly, benchmark, controls, 'pr-creation');
       expect(controlStatus(mappedReport, 'ADRB-GOV-002')?.status).toBe('met');
       expect(controlStatus(formerReport, 'ADRB-GOV-002')?.status).toBe('not_met');
       expect(controlStatus(formerReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe('not_met');
+      expect(controlStatus(nestedFormerReport, 'ADRB-GOV-002')?.status).toBe('not_met');
+      expect(controlStatus(nestedFormerReport, 'ADRB-GOV-002')?.evidence[0]?.status).toBe(
+        'not_met',
+      );
     } finally {
       await rm(mapped, { recursive: true, force: true });
       await rm(formerOnly, { recursive: true, force: true });
+      await rm(nestedFormerOnly, { recursive: true, force: true });
     }
   });
 
@@ -891,6 +909,32 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not treat npm built-ins or arbitrary subcommands as implicit package scripts', async () => {
+    const repository = await gitFixture({
+      'package.json': JSON.stringify({ scripts: { ci: 'vitest run', lint: 'eslint .' } }),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm ci',
+        '      - run: npm lint',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.evidence[0]?.summary).toContain(
+        'aggregate command-class match 0/2',
+      );
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('does not bypass package-task binding through supported command wrappers', async () => {
     const repository = await gitFixture({
       '.github/workflows/verify.yml': [
@@ -1122,6 +1166,36 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('rejects repository-owned executables that impersonate recognized tools by basename', async () => {
+    const repository = await gitFixture({
+      'scripts/gitleaks': '#!/bin/sh\necho no-op\n',
+      'tools/pytest': '#!/bin/sh\necho no-op\n',
+      'tools/mypy': '#!/bin/sh\necho no-op\n',
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: ./scripts/gitleaks detect',
+        '      - run: ./tools/pytest',
+        '      - run: ./tools/mypy .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-SEC-003')?.status).toBe('unknown');
+      expect(controlStatus(report, 'ADRB-TST-003')?.status).toBe('not_met');
+      expect(controlStatus(report, 'ADRB-TST-003')?.evidence[0]?.summary).toContain(
+        'aggregate command-class match 0/2',
+      );
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('ignores nested and unreferenced CI fragments', async () => {
     const repository = await gitFixture({
       '.github/workflows/fixtures/fake.yml': [
@@ -1198,6 +1272,7 @@ describe('v0.4 evidence calibration', () => {
         '  bypasses:',
         '    runs-on: ubuntu-latest',
         '    steps:',
+        '      - uses: actions/checkout@v4',
         '      - run: false && gitleaks detect',
         '      - run: gitleaks detect || true',
         "      - run: sh -c 'echo gitleaks'",
@@ -1213,6 +1288,8 @@ describe('v0.4 evidence calibration', () => {
         '      - run: gitleaks detect --exit-code="0"',
         '      - run: gitleaks detect --exit-code=1',
         '      - run: gitleaks detect --exit-code=$CODE',
+        '      - run: gitleaks detect --source /tmp/empty',
+        '      - run: gitleaks detect --source=/tmp/empty',
         '      - run: gitleaks protect',
         '      - run: trufflehog git',
         '      - run: trufflehog git --fail=false',

@@ -88,7 +88,8 @@ describe('benchmark catalog', () => {
             source_content_groups: [],
             source_pattern_groups: [],
             source_max_span_lines: 120,
-            prohibited_arguments: ['--exit-code'],
+            required_argument_prefixes: [],
+            prohibited_arguments: ['--exit-code', '--source'],
             prohibited_argument_sequences: [],
           },
         ],
@@ -139,6 +140,7 @@ describe('benchmark catalog', () => {
       source_content_groups: [],
       source_pattern_groups: [],
       source_max_span_lines: 120,
+      required_argument_prefixes: [],
       prohibited_arguments: [],
       prohibited_argument_sequences: [],
     });
@@ -148,6 +150,7 @@ describe('benchmark catalog', () => {
       source_content_groups: [],
       source_pattern_groups: [],
       source_max_span_lines: 120,
+      required_argument_prefixes: [],
       prohibited_arguments: [],
       prohibited_argument_sequences: [],
     });

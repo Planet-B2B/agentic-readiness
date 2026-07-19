@@ -91,6 +91,14 @@ const packageContextOptions = new Set([
   '-c',
   '-w',
 ]);
+const npmImplicitScripts = new Map([
+  ['restart', 'restart'],
+  ['start', 'start'],
+  ['stop', 'stop'],
+  ['t', 'test'],
+  ['test', 'test'],
+  ['tst', 'test'],
+]);
 
 async function matches(context: RepositoryContext, patterns: string[]): Promise<string[]> {
   const found = await fg(patterns, {
@@ -203,27 +211,34 @@ function ownershipEntries(path: string, text: string): number {
   }
 
   if (['owners', 'owners.md', 'maintainers', 'maintainers.md'].includes(name)) {
-    return conventionalOwnershipEntries(lines);
+    return conventionalOwnershipEntries(activeOwnershipLines(lines));
   }
 
-  const contentLines = lines.filter((line) => !line.startsWith('#'));
+  const contentLines = activeOwnershipLines(lines);
   return markdownOwnershipRows(contentLines) + explicitOwnershipMappings(contentLines);
 }
 
 function conventionalOwnershipEntries(lines: string[]): number {
-  const activeLines: string[] = [];
-  let inactiveSection = false;
-  let listEntries = 0;
+  const listEntries = lines.filter(isConventionalOwnerListEntry).length;
+  return listEntries + markdownOwnershipRows(lines) + explicitOwnershipMappings(lines);
+}
+
+function activeOwnershipLines(lines: string[]): string[] {
+  const active: string[] = [];
+  let inactiveHeadingLevel: number | null = null;
   for (const line of lines) {
-    if (line.startsWith('#')) {
-      inactiveSection = /\b(?:former|inactive|past|retired)\b/i.test(line);
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1]?.length ?? 0;
+      if (inactiveHeadingLevel !== null && level > inactiveHeadingLevel) continue;
+      inactiveHeadingLevel = /\b(?:former|inactive|past|retired)\b/i.test(heading[2] ?? '')
+        ? level
+        : null;
       continue;
     }
-    if (inactiveSection) continue;
-    activeLines.push(line);
-    if (isConventionalOwnerListEntry(line)) listEntries += 1;
+    if (inactiveHeadingLevel === null) active.push(line);
   }
-  return listEntries + markdownOwnershipRows(activeLines) + explicitOwnershipMappings(activeLines);
+  return active;
 }
 
 function markdownOwnershipRows(lines: string[]): number {
@@ -1144,10 +1159,14 @@ function commandMatchesTool(
   ];
   return tokens.some(
     (token, executableIndex) =>
-      recognizedExecutables.some(
-        (executable) => executableIdentity(token) === executable.toLowerCase(),
-      ) && executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts),
+      recognizedExecutables.some((executable) => executableTokenMatches(token, executable)) &&
+      executablePositionMatchesTool(tokens, executableIndex, tool, bindings, visitedScripts),
   );
+}
+
+function executableTokenMatches(token: string, executable: string): boolean {
+  if (/[\\/]/.test(token) || token.startsWith('.')) return false;
+  return executableIdentity(token) === executable.toLowerCase();
 }
 
 function executablePositionMatchesTool(
@@ -1196,7 +1215,8 @@ function packageScriptMatchesTool(
   if (!['bun', 'npm', 'pnpm', 'yarn'].includes(manager)) return null;
   if (tokens.slice(1).some(isPackageContextOption)) return false;
   const invocation = packageScriptInvocation(tokens);
-  if (!invocation || (invocation.manager === 'bun' && invocation.task === 'test')) return null;
+  if (!invocation) return manager === 'npm' && !isPackageExecutionWrapper(tokens) ? false : null;
+  if (invocation.manager === 'bun' && invocation.task === 'test') return null;
   if (visitedScripts.has(invocation.task) || visitedScripts.size >= 4) return false;
   const script = bindings.packageScripts.get(invocation.task);
   if (!script) return false;
@@ -1206,6 +1226,12 @@ function packageScriptMatchesTool(
     bindings,
     new Set(visitedScripts).add(invocation.task),
   );
+}
+
+function isPackageExecutionWrapper(tokens: string[]): boolean {
+  const arguments_ = tokens.slice(1);
+  const index = skipPackageOptions(arguments_, 0);
+  return ['dlx', 'exec', 'x'].includes(arguments_[index]?.toLowerCase() ?? '');
 }
 
 function isPackageContextOption(value: string): boolean {
@@ -1231,6 +1257,17 @@ function commandSignatureMatches(
   bindings: RepositoryCommandBindings,
 ): boolean {
   if (hasProhibitedArguments(signature, arguments_)) return false;
+  if (
+    signature.required_argument_prefixes.length > 0 &&
+    !signature.required_argument_prefixes.some((prefix) =>
+      startsWithArgumentSequence(
+        arguments_,
+        prefix.map((argument) => argument.toLowerCase()),
+      ),
+    )
+  ) {
+    return false;
+  }
   const argumentsMatch = signature.argument_groups.every((group) =>
     group.some((argument) => commandArgumentMatches(argument, arguments_, bindings)),
   );
@@ -1512,6 +1549,10 @@ function containsArgumentSequence(arguments_: string[], sequence: string[]): boo
   );
 }
 
+function startsWithArgumentSequence(arguments_: string[], sequence: string[]): boolean {
+  return sequence.every((argument, index) => arguments_[index] === argument);
+}
+
 function normalizeCommandArgument(value: string): string {
   let normalized = value.toLowerCase();
   const enclosingQuote = normalized[0];
@@ -1532,7 +1573,12 @@ function packageScriptInvocation(tokens: string[]): { manager: string; task: str
   let index = skipPackageOptions(arguments_, 0);
   const subcommand = arguments_[index]?.toLowerCase() ?? '';
   if (['dlx', 'exec', 'x'].includes(subcommand)) return null;
-  if (subcommand === 'run') index = skipPackageOptions(arguments_, index + 1);
+  if (['run', 'run-script'].includes(subcommand)) {
+    index = skipPackageOptions(arguments_, index + 1);
+  } else if (manager === 'npm') {
+    const implicitTask = npmImplicitScripts.get(subcommand);
+    return implicitTask ? { manager, task: implicitTask } : null;
+  }
   const task = arguments_[index]?.toLowerCase();
   return task ? { manager, task } : null;
 }
