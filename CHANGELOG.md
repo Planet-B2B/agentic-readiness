@@ -35,7 +35,8 @@
   on active claims.
 - Report required-check progress, stable blocker labels, actual mixed-evidence scope, and unresolved
   alternative controls separately from control-level confidence; attribute mixed-alternative
-  results to the source that supplies the decisive status.
+  results to the source that supplies the decisive status, and bind partial semantic summaries to
+  the selected reference.
 - Keep repository reads canonical, bounded, generated-output-safe, and linear for long source lines;
   constrain agent-document links to the checkout and align the published evidence schemas with
   runtime validation.

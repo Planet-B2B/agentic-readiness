@@ -745,10 +745,9 @@ async function evaluateContentGroups(
   const partialReferences =
     qualifying.length > 0
       ? qualifying.map(({ path }) => path)
-      : matchesByFile
-          .filter(({ matchedGroups }) => matchedGroups.length === strongest.matchedGroups.length)
-          .filter(({ matchedGroups }) => matchedGroups.length > 0)
-          .map(({ path }) => path);
+      : strongest.path && strongest.matchedGroups.length > 0
+        ? [strongest.path]
+        : [];
   return result(
     check.type,
     check.scope,

@@ -124,6 +124,24 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('keeps a partial semantic summary bound to its selected strongest reference', async () => {
+    const repository = await gitFixture({
+      'AGENTS.md': 'Edit only allowed paths.\n',
+      '.ai/AGENTS.md': 'Respect the token budget.\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const evidence = controlStatus(report, 'ADRB-RES-002')?.evidence[0];
+      expect(evidence?.references).toHaveLength(1);
+      const selectedGroup =
+        evidence?.references[0] === 'AGENTS.md' ? 'mutation-scope' : 'resource-bounds';
+      expect(evidence?.summary).toContain(`matched: ${selectedGroup}`);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('accepts complete containment guidance without requiring v0.3 idioms', async () => {
     const repository = await gitFixture({
       'AGENTS.md': [

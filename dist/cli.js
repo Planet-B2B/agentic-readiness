@@ -1535,7 +1535,7 @@ async function evaluateContentGroups(context, check) {
   const matched = new Set(strongest.matchedGroups);
   const missing = check.groups.map(({ id }) => id).filter((id) => !matched.has(id));
   const proximitySummary = check.max_span_lines ? ` within ${check.max_span_lines}-line window(s)` : "";
-  const partialReferences = qualifying.length > 0 ? qualifying.map(({ path }) => path) : matchesByFile.filter(({ matchedGroups }) => matchedGroups.length === strongest.matchedGroups.length).filter(({ matchedGroups }) => matchedGroups.length > 0).map(({ path }) => path);
+  const partialReferences = qualifying.length > 0 ? qualifying.map(({ path }) => path) : strongest.path && strongest.matchedGroups.length > 0 ? [strongest.path] : [];
   return result(
     check.type,
     check.scope,

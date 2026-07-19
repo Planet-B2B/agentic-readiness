@@ -3,6 +3,14 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Evidence summaries cite only the artifacts they describe
+
+**Context.** Exact-head review found that tied partial semantic matches could cite several files
+while the matched/missing group summary described only the first selected file.
+
+**Rule.** Derive evidence references and their summary from the same selected candidate; do not
+associate one artifact's semantic result with tied but different artifacts.
+
 ## 2026-07-19 — Aggregation preserves execution partitions and decisive provenance
 
 **Context.** Exact-head review found that commands guarded to mutually exclusive GitHub events could
