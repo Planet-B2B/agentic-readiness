@@ -3,6 +3,16 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Passing evidence must be executable, current, accountable, and non-overlapping
+
+**Context.** Final release review found that dry-run install/test commands could satisfy execution
+controls, generated attestation placeholders and future review dates could become active passes, and
+“retry budget” could satisfy both retry and resource-bound components.
+
+**Rule.** Reject tool-specific non-execution modes, require active supplemental claims to replace
+placeholders with current accountable evidence, and keep independently required semantic groups
+lexically distinct.
+
 ## 2026-07-19 — Supplemental evidence and inherited CI behavior must bind to their target
 
 **Context.** Release review found that a human-attestation file could be reused across repositories,

@@ -112,7 +112,8 @@ and rejects unknown file or claim fields. An optional remote `.git` suffix does 
 identity. Human attestations are repository-bound and expiring but not
 commit-bound: they establish accountable platform, organization, or outcome facts whose review
 period may span repository commits. `agentic-scorecard init` derives the target; a file for another
-repository fails closed.
+repository fails closed. A non-`unknown` attestation with a generated `TODO` owner or evidence value
+fails closed, as does any attestation whose review date is later than the assessment time.
 
 Controls require every evidence check by default. A v0.4 control may explicitly declare
 `evidence_mode: any` only when the checks are alternative ways to establish the same outcome. A

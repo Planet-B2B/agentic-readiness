@@ -243,6 +243,26 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('does not double-count a retry budget as a resource bound', async () => {
+    const repository = await gitFixture({
+      'AGENTS.md': [
+        'Edit only allowed paths and use a retry budget.',
+        'If work leaves scope, stop and ask the coordinator.',
+        'The rollback owner is responsible for recovery.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const resilience = controlStatus(report, 'ADRB-RES-002');
+      expect(resilience?.status).toBe('not_met');
+      expect(resilience?.evidence[0]?.summary).toContain('semantic coverage 5/6');
+      expect(resilience?.evidence[0]?.summary).toContain('missing: resource-bounds');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('distinguishes partial evidence checks from control confidence', async () => {
     const repository = await gitFixture({
       'CONTRIBUTING.md': [
@@ -1747,6 +1767,33 @@ describe('v0.4 evidence calibration', () => {
     }
   });
 
+  it('rejects dry-run installs and non-executing test modes', async () => {
+    const repository = await gitFixture({
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm ci --dry-run',
+        '      - run: cargo test --no-run',
+        '      - run: gradle test --dry-run',
+        '      - run: mypy .',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      expect(controlStatus(report, 'ADRB-ENV-003')?.status).toBe('not_met');
+      const testing = controlStatus(report, 'ADRB-TST-003');
+      expect(testing?.status).toBe('not_met');
+      expect(testing?.evidence[0]?.summary).toContain('aggregate command-class match 1/2');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('accepts pytest local-variable display as an executing test run', async () => {
     const repository = await gitFixture({
       '.github/workflows/verify.yml': [
@@ -2849,6 +2896,47 @@ describe('v0.4 evidence calibration', () => {
           },
         }),
       ).rejects.toThrow('does not match https://example.invalid/acme/repository');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects active v0.4 attestations with placeholders or future review dates', async () => {
+    const repository = await gitFixture({ 'README.md': '# Fixture\n' });
+    const attestation = (overrides: Partial<AttestationFile['attestations'][string]> = {}) => ({
+      benchmark_version: '0.4.0',
+      target: { repository: 'https://example.invalid/acme/repository.git' },
+      attestations: {
+        'ADRB-SEC-003': {
+          status: 'met' as const,
+          evidence: 'https://example.invalid/evidence',
+          owner: 'Security owner',
+          reviewed_at: '2026-07-19',
+          expires_at: '2026-10-19',
+          ...overrides,
+        },
+      },
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      await expect(
+        assess(repository, benchmark, controls, 'pr-creation', {
+          attestations: attestation({ owner: 'TODO' }),
+          now: new Date('2026-07-19T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('unresolved TODO attestation evidence');
+      await expect(
+        assess(repository, benchmark, controls, 'pr-creation', {
+          attestations: attestation({ reviewed_at: '2026-07-20' }),
+          now: new Date('2026-07-19T12:00:00.000Z'),
+        }),
+      ).rejects.toThrow('future review date');
+      await expect(
+        assess(repository, benchmark, controls, 'pr-creation', {
+          attestations: attestation({ status: 'unknown', owner: 'TODO', evidence: 'TODO' }),
+          now: new Date('2026-07-19T12:00:00.000Z'),
+        }),
+      ).resolves.toBeDefined();
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

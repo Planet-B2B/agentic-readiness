@@ -86,7 +86,22 @@ controls:
                 do not continue outside the allowed paths,
               ]
           - id: resource-bounds
-            terms: [budget, token limit, time limit, tool call limit, wall clock limit]
+            terms:
+              [
+                resource budget,
+                token budget,
+                time budget,
+                cost budget,
+                tool call budget,
+                tool-call budget,
+                token limit,
+                time limit,
+                cost limit,
+                tool call limit,
+                tool-call limit,
+                wall clock limit,
+                wall-clock limit,
+              ]
           - id: retry-bounds
             terms: [retry limit, retry budget, max retries, bounded retries, maximum attempts]
           - id: stop-trigger

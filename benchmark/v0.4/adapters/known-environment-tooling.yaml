@@ -5,6 +5,7 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: locked-install
+        prohibited_arguments: [--dry-run]
         commands:
           - executables: [npm]
             argument_groups: [[ci]]

@@ -3168,7 +3168,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
   const modernEvidence = usesModernEvidence(benchmark.version);
   const schemaVersion = reportSchemaVersion(benchmark.version);
   const context = await createRepositoryContext(repo, scope, options.excludedPaths);
-  validateAttestations(benchmark, catalog, context, options.attestations ?? null);
+  validateAttestations(benchmark, catalog, context, options.attestations ?? null, now);
   await validateAgentEvidence(benchmark, catalog, context, options.agentEvidence ?? null, now);
   const controls = await Promise.all(
     catalog.map(
@@ -3269,7 +3269,7 @@ async function assess(repo, benchmark, catalog, profileId, options = {}) {
     ]
   };
 }
-function validateAttestations(benchmark, catalog, context, attestations) {
+function validateAttestations(benchmark, catalog, context, attestations, now) {
   if (!attestations || benchmark.version !== "0.4.0") return;
   if (attestations.benchmark_version !== benchmark.version) {
     throw new Error(
@@ -3288,12 +3288,18 @@ function validateAttestations(benchmark, catalog, context, attestations) {
     );
   }
   const controlIds = new Set(catalog.map(({ id }) => id));
-  for (const controlId of Object.keys(attestations.attestations)) {
+  for (const [controlId, attestation] of Object.entries(attestations.attestations)) {
     if (!/^ADRB-[A-Z]{3}-\d{3}$/.test(controlId)) {
       throw new Error(`Attestation uses malformed control ID ${controlId}`);
     }
     if (!controlIds.has(controlId)) {
       throw new Error(`Attestation references unknown control ${controlId}`);
+    }
+    if (/* @__PURE__ */ new Date(`${attestation.reviewed_at}T00:00:00.000Z`) > now) {
+      throw new Error(`${controlId} has a future review date`);
+    }
+    if (attestation.status !== "unknown" && [attestation.owner, attestation.evidence].some((value) => /^\s*TODO(?:\b|:)/i.test(value))) {
+      throw new Error(`${controlId} contains unresolved TODO attestation evidence`);
     }
   }
 }

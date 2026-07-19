@@ -5,7 +5,8 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: tests
-        prohibited_arguments: [--fixtures, --fixtures-per-test, --markers, --list-sessions]
+        prohibited_arguments:
+          [--dry-run, --fixtures, --fixtures-per-test, --list-sessions, --markers, --no-run]
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
             argument_groups:
@@ -35,7 +36,8 @@ extensions:
     evidence_index: 0
     ci_tools:
       - id: tests
-        prohibited_arguments: [--fixtures, --fixtures-per-test, --markers, --list-sessions]
+        prohibited_arguments:
+          [--dry-run, --fixtures, --fixtures-per-test, --list-sessions, --markers, --no-run]
         commands:
           - executables: [npm, pnpm, yarn, bun, turbo, nx]
             argument_groups:
