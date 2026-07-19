@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Structured evidence requires wholly valid assignments and real bounds
+
+**Context.** Automated review found that ownership prose with one embedded contact could imitate a
+CODEOWNERS assignment, while explicitly unlimited budgets or unbounded retries could imitate
+containment limits.
+
+**Rule.** Validate every field in a structured ownership assignment, and treat explicit absence of
+an upper bound as negative evidence in either direction around a resource or retry term.
+
 ## 2026-07-18 — Semantic negation and structural reachability are outcome-aware
 
 **Context.** Automated review found that an explicit “do not continue outside allowed paths” rule

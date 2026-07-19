@@ -157,6 +157,37 @@ describe('v0.4 evidence calibration', () => {
 
   it.each([
     {
+      name: 'an unlimited resource budget',
+      bounds: 'The token budget is unlimited and the maximum attempts is three.',
+      missing: 'resource-bounds',
+    },
+    {
+      name: 'an unbounded retry limit',
+      bounds: 'The token budget is 1000 and the retry limit is unbounded.',
+      missing: 'retry-bounds',
+    },
+  ])('rejects $name as containment evidence', async ({ bounds, missing }) => {
+    const repository = await gitFixture({
+      'AGENTS.md': [
+        'Edit only allowed paths.',
+        bounds,
+        'If work leaves scope, stop and ask the coordinator.',
+        'The rollback owner is responsible for recovery.',
+      ].join('\n'),
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const resilience = controlStatus(report, 'ADRB-RES-002');
+      expect(resilience?.status).toBe('not_met');
+      expect(resilience?.evidence[0]?.summary).toContain(`missing: ${missing}`);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
       name: 'a resource budget without retry bounds',
       bounds: 'Respect the token budget.',
       missing: 'retry-bounds',
@@ -294,6 +325,24 @@ describe('v0.4 evidence calibration', () => {
 
       expect(governance?.status).toBe('met');
       expect(governance?.evidence[0]?.references).toContain('OWNERS.md');
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects CODEOWNERS prose with a contact embedded among non-owner fields', async () => {
+    const repository = await gitFixture({
+      'CONTRIBUTING.md':
+        'The required reviewer provides human approval and maintainers retain merge authority.\n',
+      CODEOWNERS: '* contact @platform-team for review\n',
+    });
+    try {
+      const { benchmark, controls } = await loadBenchmark(v04Root);
+      const report = await assess(repository, benchmark, controls, 'pr-creation');
+      const governance = controlStatus(report, 'ADRB-GOV-002');
+
+      expect(governance?.status).toBe('not_met');
+      expect(governance?.evidence.map(({ status }) => status)).toEqual(['not_met', 'met']);
     } finally {
       await rm(repository, { recursive: true, force: true });
     }

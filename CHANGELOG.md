@@ -92,6 +92,8 @@
   node shapes.
 - Recognize compound out-of-bounds stop language as both mutation scope and stop evidence, and
   evaluate validator patterns only across top-level and transitively reachable function bodies.
+- Require every CODEOWNERS owner field to be a valid contact and reject explicitly unlimited
+  resource budgets or unbounded retries as containment evidence.
 - Permit target-bound platform evidence for host-native secret scanning while keeping it distinct
   from untrusted-input safeguards.
 - Preserve immutable v0.1–v0.3 catalogs and migrate the CLI, schemas, templates, and prompts to ADRB

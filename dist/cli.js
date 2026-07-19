@@ -1137,7 +1137,7 @@ function ownershipEntries(path, text) {
   if (name === "codeowners") {
     return lines.filter((line) => !line.startsWith("#")).filter((line) => {
       const fields = line.split(/\s+/);
-      return fields.length >= 2 && fields.slice(1).some(isOwnerContact);
+      return fields.length >= 2 && fields.slice(1).every((field) => isOwnerHandle(field) || isExactEmailContact(field));
     }).length;
   }
   if (["owners", "owners.md", "maintainers", "maintainers.md"].includes(name)) {
@@ -1312,16 +1312,6 @@ function hasNegativeOwnerAssignment(value) {
   const inactiveRole = /\b(?:former|inactive|retired|unassigned|vacant|deprecated)\b/i.test(value);
   const absentRole = /\b(?:no|without)\s+(?:designated\s+)?(?:owner|maintainer|reviewer|team)s?\b/i.test(value);
   return inactiveRole || absentRole;
-}
-function isOwnerContact(value) {
-  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || hasEmailContact(value);
-}
-function hasEmailContact(value) {
-  return value.split(/\s+/).some((token) => {
-    const at = token.indexOf("@");
-    const dot = token.indexOf(".", at + 2);
-    return at > 0 && dot > at + 1 && dot < token.length - 1;
-  });
 }
 function isPlaceholderOwner(value) {
   const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -2584,11 +2574,18 @@ function containsPositiveTerm(text, term) {
     const termStart = match.index + (match[1]?.length ?? 0);
     const prefix = containingClausePrefix(text, termStart);
     const suffix = containingClauseSuffix(text, termStart + (match[2]?.length ?? 0));
-    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix) && !hasNonHumanAuthorityPrefix(prefix, term)) {
+    if (!hasNegativePrefix(prefix) && !hasNegativeSuffix(suffix) && !hasExplicitlyUnboundedQualifier(prefix, suffix) && !hasNonHumanAuthorityPrefix(prefix, term)) {
       return true;
     }
   }
   return false;
+}
+function hasExplicitlyUnboundedQualifier(prefix, suffix) {
+  const precedingQualifier = /\b(?:unbounded|unlimited)(?:\s+[a-z0-9_-]+){0,2}\s*$/i.test(prefix);
+  const followingQualifier = /^\s*(?:(?:is|are|remains?|stays?|=|:)\s*)?(?:explicitly\s+)?(?:unbounded|unlimited)\b/i.test(
+    suffix
+  );
+  return precedingQualifier || followingQualifier;
 }
 function hasNonHumanAuthorityPrefix(prefix, term) {
   if (!/\b(?:maintainers?|owners?|reviewers?)\b/i.test(term)) return false;

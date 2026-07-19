@@ -255,7 +255,10 @@ function ownershipEntries(path: string, text: string): number {
       .filter((line) => !line.startsWith('#'))
       .filter((line) => {
         const fields = line.split(/\s+/);
-        return fields.length >= 2 && fields.slice(1).some(isOwnerContact);
+        return (
+          fields.length >= 2 &&
+          fields.slice(1).every((field) => isOwnerHandle(field) || isExactEmailContact(field))
+        );
       }).length;
   }
 
@@ -500,18 +503,6 @@ function hasNegativeOwnerAssignment(value: string): boolean {
   const absentRole =
     /\b(?:no|without)\s+(?:designated\s+)?(?:owner|maintainer|reviewer|team)s?\b/i.test(value);
   return inactiveRole || absentRole;
-}
-
-function isOwnerContact(value: string): boolean {
-  return /(^|\s)@[a-z0-9][a-z0-9_/-]*/i.test(value) || hasEmailContact(value);
-}
-
-function hasEmailContact(value: string): boolean {
-  return value.split(/\s+/).some((token) => {
-    const at = token.indexOf('@');
-    const dot = token.indexOf('.', at + 2);
-    return at > 0 && dot > at + 1 && dot < token.length - 1;
-  });
 }
 
 function isPlaceholderOwner(value: string): boolean {
@@ -2248,12 +2239,22 @@ function containsPositiveTerm(text: string, term: string): boolean {
     if (
       !hasNegativePrefix(prefix) &&
       !hasNegativeSuffix(suffix) &&
+      !hasExplicitlyUnboundedQualifier(prefix, suffix) &&
       !hasNonHumanAuthorityPrefix(prefix, term)
     ) {
       return true;
     }
   }
   return false;
+}
+
+function hasExplicitlyUnboundedQualifier(prefix: string, suffix: string): boolean {
+  const precedingQualifier = /\b(?:unbounded|unlimited)(?:\s+[a-z0-9_-]+){0,2}\s*$/i.test(prefix);
+  const followingQualifier =
+    /^\s*(?:(?:is|are|remains?|stays?|=|:)\s*)?(?:explicitly\s+)?(?:unbounded|unlimited)\b/i.test(
+      suffix,
+    );
+  return precedingQualifier || followingQualifier;
 }
 
 function hasNonHumanAuthorityPrefix(prefix: string, term: string): boolean {
