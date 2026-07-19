@@ -3,6 +3,15 @@
 Append new entries newest-first after a scoring correction, false positive, missed risk, or pilot
 feedback. Each entry contains a context and a rule.
 
+## 2026-07-19 — Reachability includes every supported function form
+
+**Context.** Automated review found that uncalled expression-bodied JavaScript arrow functions were
+left in the top-level validator projection even though uncalled block-bodied functions were
+excluded.
+
+**Rule.** Classify every supported declaration form before computing executable source, including
+single-expression arrows, so inert helper bodies cannot contribute enforcement signatures.
+
 ## 2026-07-19 — Structured evidence requires wholly valid assignments and real bounds
 
 **Context.** Automated review found that ownership prose with one embedded contact could imitate a

@@ -2211,10 +2211,9 @@ function braceDelimitedFunctionBlocks(lines, javascript) {
   return blocks.filter(({ name }) => name.length > 0);
 }
 function sourceFunctionName(line, javascript) {
-  if (!line.includes("{")) return null;
-  if (!javascript) return shellFunctionName(line);
+  if (!javascript) return line.includes("{") ? shellFunctionName(line) : null;
   const declaration = /\bfunction\s+([a-z_$][a-z0-9_$]*)\s*\(/i.exec(line);
-  if (declaration) return declaration[1] ?? null;
+  if (declaration && line.includes("{")) return declaration[1] ?? null;
   const assignment = /\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=/i.exec(line);
   if (!assignment) return null;
   const remainder = line.slice(assignment.index + assignment[0].length);

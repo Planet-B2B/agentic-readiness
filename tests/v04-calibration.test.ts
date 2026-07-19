@@ -1186,6 +1186,24 @@ describe('v0.4 evidence calibration', () => {
         '      - run: npm run agent-doc-check',
       ].join('\n'),
     });
+    const uncalledExpressionArrows = await gitFixture({
+      'package.json': JSON.stringify({
+        scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
+      }),
+      'scripts/check-agent-docs.js': [
+        "const inspectGuidance = () => readFileSync('AGENTS.md', 'utf8');",
+        'const failGuidance = () => process.exit(1);',
+      ].join('\n'),
+      '.github/workflows/verify.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  verify:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: npm run agent-doc-check',
+      ].join('\n'),
+    });
     const called = await gitFixture({
       'package.json': JSON.stringify({
         scripts: { 'agent-doc-check': 'node scripts/check-agent-docs.js' },
@@ -1257,6 +1275,12 @@ describe('v0.4 evidence calibration', () => {
         controls,
         'pr-creation',
       );
+      const uncalledExpressionReport = await assess(
+        uncalledExpressionArrows,
+        benchmark,
+        controls,
+        'pr-creation',
+      );
       const calledReport = await assess(called, benchmark, controls, 'pr-creation');
       const transitivelyCalledReport = await assess(
         transitivelyCalled,
@@ -1276,6 +1300,7 @@ describe('v0.4 evidence calibration', () => {
       expect(controlStatus(nestedUncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(nestedDeclarationReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(splitUncalledReport, 'ADRB-CTX-003')?.status).toBe('not_met');
+      expect(controlStatus(uncalledExpressionReport, 'ADRB-CTX-003')?.status).toBe('not_met');
       expect(controlStatus(calledReport, 'ADRB-CTX-003')?.status).toBe('met');
       expect(controlStatus(transitivelyCalledReport, 'ADRB-CTX-003')?.status).toBe('met');
     } finally {
@@ -1288,6 +1313,7 @@ describe('v0.4 evidence calibration', () => {
       await rm(nestedUncalled, { recursive: true, force: true });
       await rm(nestedDeclarationOnly, { recursive: true, force: true });
       await rm(splitAcrossUncalledFunctions, { recursive: true, force: true });
+      await rm(uncalledExpressionArrows, { recursive: true, force: true });
       await rm(called, { recursive: true, force: true });
       await rm(transitivelyCalled, { recursive: true, force: true });
     }
